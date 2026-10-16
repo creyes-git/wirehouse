@@ -48,6 +48,7 @@ def cmd_scan(project: Path, out_dir: Path) -> dict:
 
 
 def cmd_render(project: Path, out_dir: Path, open_it: bool) -> Path:
+    from wirehouse import guide
     from wirehouse.enrich import load_enrichment, merge
     from wirehouse.render.html import write_html
 
@@ -57,6 +58,7 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool) -> Path:
     data = json.loads(raw.read_text(encoding="utf-8"))
     enrichment = load_enrichment(out_dir)
     data = merge(data, enrichment)
+    data = guide.apply(data, enrichment)
     stale = sum(1 for n in data["nodes"] if n.get("stale"))
     (out_dir / MAP_NAME).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
     html_path = write_html(data, out_dir / HTML_NAME)
@@ -70,6 +72,11 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool) -> Path:
         _log("  no enrichment.json yet: descriptions are rule-based")
     for w in data.get("warnings", []):
         _log(f"  warning: {w}")
+    tours, quests = data.get("tours", []), data.get("quests", [])
+    made = " (made by Wirehouse; add your own in enrichment.json)" if tours and all(t.get("auto") for t in tours) else ""
+    _log(f"  {len(tours)} tours, {len(quests)} quests{made}")
+    for d in data.get("diagnostics", []):
+        _log(f"  {d['severity']} [{d['code']}] {d['subject']}: {d['message']} -> {d['fix']}")
     _log(f"  wrote {html_path} ({size:.1f} MB)")
     if open_it:
         webbrowser.open(html_path.as_uri())

@@ -348,3 +348,44 @@ def test_repo_info_pins_commit_without_leaking_remote(tmp_path):
     assert repo["pushed"] is False
     assert "ghp_SECRET123" not in json.dumps(data)
     assert "ghp_SECRET123" not in render_html(data)
+
+
+def test_tours_and_quests_are_checked(repo, archmap):
+    from wirehouse import guide
+
+    data = json.loads(json.dumps(archmap))
+    enrichment = {
+        "tours": [{"id": "pay", "title": "How an order gets paid", "stops": [
+            {"node": "unit:js:web", "text": "The storefront takes the order.", "evidence": [{"file": "web/app/api/orders/route.ts", "line": 2}]},
+            {"node": "file:web/lib/payments.ts", "text": f"Built with {SECRET}.", "evidence": [{"file": "web/lib/payments.ts", "line": 99}]},
+            {"node": "res:nope", "text": "Ghost."},
+            {"node": "res:stripe", "text": "Takes the money.", "evidence": [{"file": "../outside.txt", "line": 1}, {"file": "docker-compose.yml", "line": 3}]},
+        ]}, {"title": "Broken", "route": ["actor:users", "res:missing"]}],
+        "quests": [{"question": "Where is Stripe set up?", "answer": "file:web/lib/payments.ts"}, {"question": "Bad", "answer": ["res:ghost"]}],
+    }
+    data = guide.apply(merge(data, enrichment), enrichment)
+    codes = {(d["code"], d["subject"]) for d in data["diagnostics"]}
+    assert ("evidence/line-out-of-range", "tours[pay].stops[1]") in codes
+    assert ("tour/unknown-node", "tours[pay].stops[2]") in codes
+    assert ("evidence/file-not-found", "tours[pay].stops[3]") in codes
+    assert ("guide/secret-like-text", "tours[pay].stops[1]") in codes
+    assert ("tour/unknown-node", "tours[broken]") in codes
+    assert ("quest/invalid", "quests[bad]") in codes
+    [tour] = data["tours"]
+    assert [s["node"] for s in tour["stops"]] == ["unit:js:web", "file:web/lib/payments.ts", "res:stripe"]
+    assert tour["stops"][2]["evidence"] == [{"file": "docker-compose.yml", "line": 3}]   # non-source files are checked on disk
+    assert [q["answer"] for q in data["quests"]] == [["file:web/lib/payments.ts"]]
+    assert SECRET not in json.dumps(data) and SECRET not in render_html(data)
+
+
+def test_wirehouse_makes_tours_and_quests_when_none_are_written(archmap):
+    from wirehouse import guide
+
+    data = guide.apply(json.loads(json.dumps(archmap)), {})
+    tours = {t["id"]: t for t in data["tours"]}
+    assert tours["main-floor"]["stops"][0]["node"] == "actor:users"          # entrance first
+    assert tours["request"]["route"] == ["actor:users", "res:postgres"]
+    quests = {q["id"]: q for q in data["quests"]}
+    assert quests["find-endpoint"]["answer"] == ["file:api/routers/orders.py"]
+    assert set(quests["find-data"]["answer"]) == {"res:postgres", "res:redis"}
+    assert all(t["auto"] for t in data["tours"]) and data["diagnostics"] == []

@@ -26,9 +26,12 @@
     <button id="view3d" class="on" type="button">Walk</button>
     <button id="view2d" type="button">Floor plan</button>
   </div>
+  <button id="clipBtn" class="ghost" type="button" aria-controls="clip" aria-expanded="false" title="Tours and quests (C)">Clipboard</button>
   <button id="theme" class="ghost" type="button" title="Switch lighting (T)">Day shift</button>
   <button id="helpBtn" class="ghost round" type="button" title="Controls (H)" aria-label="Controls">?</button>
 </header>
+
+<aside id="clip" hidden aria-label="Clipboard: tours and quests"></aside>
 
 <aside id="panel" hidden aria-label="Inventory tag">
   <button id="panelClose" class="ghost round close" type="button" aria-label="Close">×</button>
@@ -61,9 +64,15 @@
       <dt><kbd>/</kbd></dt><dd>Find anything and walk straight to it</dd>
       <dt><kbd>P</kbd></dt><dd>Switch between walking and the floor plan</dd>
       <dt><kbd>T</kbd></dt><dd>Switch between night and day shift</dd>
+      <dt><kbd>R</kbd></dt><dd>Route from the inspected block: pick an end and walk it</dd>
+      <dt><kbd>C</kbd></dt><dd>Clipboard: guided tours and quests</dd>
+      <dt><kbd>Space</kbd> <kbd>,</kbd> <kbd>.</kbd></dt><dd>During a tour or route: play or pause, back, next</dd>
       <dt><kbd>Esc</kbd></dt><dd>Back out one step (stop, close, clear)</dd>
     </dl>
-    <button id="welcomeGo" class="primary" type="button">Start walking</button>
+    <div class="welcome-acts">
+      <button id="welcomeGo" class="primary" type="button">Start walking</button>
+      <button id="welcomeTour" class="ghost" type="button" hidden>Take the tour</button>
+    </div>
   </div>
 </div>
 

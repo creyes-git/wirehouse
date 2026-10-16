@@ -1533,11 +1533,11 @@
     return `<span class="links">${w ? `<a href="${esc(w.href)}" target="_blank" rel="noopener" title="${esc(w.title)}"${w.warn ? ' class="warn"' : ''}>${esc(REPO.host_name)}${w.warn ? ' *' : ''}</a>` : ''}` +
       `<a href="${esc(vscodeLink(file, line))}" title="Open in VS Code (only on the computer that ran the scan)">VS Code</a></span>`;
   }
-  function toast(msg) {
+  function toast(msg, ms) {
     const t = $('#toast');
     t.textContent = msg; t.hidden = false;
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => { t.hidden = true; }, 1400);
+    toast._t = setTimeout(() => { t.hidden = true; }, ms || 1400);
   }
   function copy(text) {
     const done = () => toast('Copied ' + text);
@@ -2000,13 +2000,13 @@
   };
 
   // the player walks the worker from stop to stop (routes here, tours later)
-  function startJourney(i, playing) {
+  function startJourney(i, playing, extra) {
     if (!trace || trace.mode !== 'route' || !trace.path) return;
     const a = N.get(trace.a), b = N.get(trace.b);
-    startPlayer({
+    startPlayer(Object.assign({
       kind: 'route', title: `${a.name} to ${b.name}`, used: trace.used, playing,
       stops: trace.stops.map((st, k) => ({ id: st.id, room: st.room, html: routeStopHtml(st, k) })),
-    }, i);
+    }, extra || {}), i);
   }
   function routeStopHtml(st, k) {
     const n = N.get(st.id);
@@ -2115,7 +2115,7 @@
   onEscape(50, () => !!trace, () => clearTrace());
 
   HASH_PARTS.push(() => {
-    if (pick) return null;
+    if (pick || (player && player.tourId)) return null;   // tours write their own part
     if (trace && trace.mode === 'route') return 'route=' + encId(trace.a) + '~' + encId(trace.b) + (player && player.kind === 'route' ? '&stop=' + (player.i + 1) : '');
     if (trace) return 'trace=' + trace.mode + '~' + encId(trace.id);
     return null;
@@ -2127,6 +2127,137 @@
     } else if (h.trace && h.trace.length === 2 && N.has(h.trace[1])) startTrace(h.trace[0], h.trace[1]);
     else if (trace || pick || (player && player.kind === 'route')) clearTrace();
   });
+
+  // ── clipboard: tours and quests ──────────────────────────────────────────
+  // Tours walk the worker through the system stop by stop; quests send the reader
+  // looking for something and tick off when they inspect the answer. Progress
+  // (quests found, tours walked, blocks inspected) lives in this browser only.
+  const TOURS = D.tours || [];
+  const QUESTS = D.quests || [];
+  const progKey = 'progress:' + D.project.name;
+  const PROG = { found: [], walked: [], seen: [] };
+  try { Object.assign(PROG, JSON.parse(store.get(progKey, '{}'))); } catch (e) { /* start fresh */ }
+  const saveProg = () => store.set(progKey, JSON.stringify(PROG));
+  const clip = $('#clip'), clipBtn = $('#clipBtn');
+  const hintsShown = new Set();
+  let openQuest = null;
+
+  function clipCount() {
+    const found = QUESTS.filter((q) => PROG.found.includes(q.id)).length;
+    clipBtn.innerHTML = `Clipboard${QUESTS.length ? ` <span class="count">${found}/${QUESTS.length}</span>` : ''}`;
+  }
+  function evRows(evs) {
+    return (evs || []).length ? `<ul class="rows">${evs.map((ev) => `<li><span class="main">${esc(ev.file + (ev.line ? ':' + ev.line : ''))}</span>${srcLinks(ev.file, ev.line)}</li>`).join('')}</ul>` : '';
+  }
+  function drawClip() {
+    clipCount();
+    if (clip.hidden) return;
+    const tops = kidsOf(ROOT);
+    const seenTops = tops.filter((id) => PROG.seen.includes(id));
+    const unseen = tops.filter((id) => !PROG.seen.includes(id));
+    const foundN = QUESTS.filter((q) => PROG.found.includes(q.id)).length;
+    let h = `<div class="clip-head"><h2>Clipboard</h2><button class="ghost round close" data-c="close" aria-label="Close clipboard">×</button></div>
+      <p class="note">Tours walk you through the system. Quests send you looking for something. Progress stays in this browser.</p>`;
+    if (TOURS.length) {
+      h += `<section class="sec"><h3>Tours</h3><ul class="rows">${TOURS.map((t) => `<li><span class="main"><b>${esc(t.title)}</b>${PROG.walked.includes(t.id) ? ' <span class="chip">walked</span>' : ''}
+        <span class="sub">${t.route ? 'A route, walked hop by hop' : plural(t.stops.length, 'stop')}${t.intro ? ` · ${esc(t.intro)}` : ''}</span></span>
+        <button class="go small-btn" data-tour="${esc(t.id)}">Start</button></li>`).join('')}</ul></section>`;
+    }
+    if (QUESTS.length) {
+      h += `<section class="sec"><h3>Quests <span class="note">${foundN} of ${QUESTS.length} found</span></h3><ul class="quests">${QUESTS.map((q) => {
+        const found = PROG.found.includes(q.id), open = openQuest === q.id;
+        let body = '';
+        if (open && found) {
+          body = `<div class="q-body">${q.explain ? `<p>${esc(q.explain)}</p>` : ''}${evRows(q.evidence)}
+            <button class="link" data-goto="${esc(q.answer[0])}">Take me there</button></div>`;
+        } else if (open) {
+          body = `<div class="q-body">${hintsShown.has(q.id) ? `<p class="hint">${esc(q.hint || 'Try the search, or trace from a block you know.')}</p>` : `<button class="link" data-hint="${esc(q.id)}">Show a hint</button>`}
+            <p class="note">Inspect the answer (click it) to tick this off.</p></div>`;
+        }
+        return `<li class="${found ? 'found' : ''}"><button class="q" data-q="${esc(q.id)}" aria-expanded="${open}"><span class="box" aria-hidden="true">${found ? '✓' : ''}</span>
+          <span>${esc(q.question)}</span><span class="sr">${found ? ' (found)' : ' (not found yet)'}</span></button>${body}</li>`;
+      }).join('')}</ul></section>`;
+    }
+    h += `<section class="sec"><h3>Inspected</h3><p class="note">You have looked at ${seenTops.length} of ${plural(tops.length, 'block')} on the main floor.</p>
+      ${unseen.length ? `<div class="chips">${unseen.slice(0, 16).map((id) => `<button class="chip-btn" data-goto="${esc(id)}"><i style="background:${css(kindHex(N.get(id).kind))}"></i>${esc(shortName(N.get(id).name, 22))}</button>`).join('')}</div>` : '<p>Every block inspected. Nice inventory.</p>'}
+      </section><div class="sec"><button class="link" data-c="reset">Start over (clear progress)</button></div>`;
+    clip.innerHTML = h;
+    clip.querySelectorAll('[data-tour]').forEach((b) => b.addEventListener('click', () => startTour(b.dataset.tour, 0, true)));
+    clip.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => {
+      openQuest = openQuest === b.dataset.q ? null : b.dataset.q;
+      drawClip();
+      const again = clip.querySelector(`[data-q="${CSS.escape(b.dataset.q)}"]`);
+      if (again) again.focus();
+    }));
+    clip.querySelectorAll('[data-hint]').forEach((b) => b.addEventListener('click', () => { hintsShown.add(b.dataset.hint); drawClip(); }));
+    clip.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => focusNode(b.dataset.goto)));
+    clip.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.c === 'close') toggleClip(false);
+      if (b.dataset.c === 'reset') { PROG.found = []; PROG.walked = []; PROG.seen = []; hintsShown.clear(); saveProg(); drawClip(); }
+    }));
+  }
+  function toggleClip(on) {
+    clip.hidden = on == null ? !clip.hidden : !on;
+    clipBtn.setAttribute('aria-expanded', String(!clip.hidden));
+    drawClip();
+    if (!clip.hidden) { const f = clip.querySelector('button[data-tour], button[data-q]'); if (f) f.focus(); }
+  }
+  clipBtn.addEventListener('click', () => toggleClip());
+
+  function tourStopHtml(t, s, k) {
+    return (k === 0 && t.intro ? `<p class="bar-note">${esc(t.intro)}</p>` : '') + (s.text ? `<p>${esc(s.text)}</p>` : '') + evRows(s.evidence);
+  }
+  function startTour(id, i, playing) {
+    const t = TOURS.find((x) => x.id === id);
+    if (!t) return;
+    toggleClip(false);
+    if (t.route) {
+      startRoute(t.route[0], t.route[1]);
+      if (!trace || !trace.path) { toast('This tour has no recorded path to walk with the current pipe filter', 3000); return; }
+      startJourney(i || 0, playing, { title: t.title, tourId: t.id });
+      return;
+    }
+    clearTrace();
+    startPlayer({
+      kind: 'tour', tourId: t.id, title: t.title, playing,
+      stops: t.stops.map((s, k) => ({ id: s.node, title: s.title || N.get(s.node).name, text: s.text, html: tourStopHtml(t, s, k) })),
+    }, i || 0);
+  }
+  STOP_HOOKS.push((st, i) => {
+    if (player && player.tourId && i === player.stops.length - 1 && !PROG.walked.includes(player.tourId)) {
+      PROG.walked.push(player.tourId);
+      saveProg();
+      clipCount();
+    }
+  });
+  SELECT_HOOKS.push((id) => {
+    const top = topOf(id);
+    let changed = false;
+    if (top && !PROG.seen.includes(top)) { PROG.seen.push(top); changed = true; }
+    const ch = chain(id);
+    QUESTS.forEach((q) => {
+      if (PROG.found.includes(q.id) || !q.answer.some((a) => ch.includes(a))) return;
+      PROG.found.push(q.id);
+      changed = true;
+      openQuest = q.id;
+      toast(`Quest done: ${q.question}`, 3200);
+    });
+    if (changed) { saveProg(); drawClip(); }
+  });
+
+  KEYS.c = () => toggleClip();
+  onEscape(25, () => !clip.hidden, () => { toggleClip(false); clipBtn.focus(); });
+  HASH_PARTS.push(() => (player && player.tourId ? 'tour=' + encId(player.tourId) + '&stop=' + (player.i + 1) : null));
+  HASH_APPLY.push((h) => {
+    if (h.tour && TOURS.some((t) => t.id === h.tour)) startTour(h.tour, Math.max(0, (+h.stop || 1) - 1), false);
+    else if (player && player.tourId) stopPlayer();
+  });
+  if (TOURS.length) {
+    $('#welcomeTour').hidden = false;
+    $('#welcomeTour').textContent = `Take the tour: ${TOURS[0].title}`;
+    $('#welcomeTour').addEventListener('click', () => { closeWelcome(); startTour(TOURS[0].id, 0, true); });
+  }
+  clipCount();
 
   // ── breadcrumbs ──────────────────────────────────────────────────────────
   function drawCrumbs() {
@@ -2539,7 +2670,8 @@
   // A small hook for automated checks (also handy in the devtools console).
   window.__wirehouse = {
     goRoom, focusNode, select, selectLink, setPlan, setTheme, exitRoom, enterBlock, travelTo,
-    startTrace, startPick, startRoute, startJourney, clearTrace, goStop, setPlaying,
+    startTrace, startPick, startRoute, startJourney, clearTrace, goStop, setPlaying, startTour, toggleClip,
+    progress: () => JSON.parse(JSON.stringify(PROG)),
     trace: () => trace && (trace.mode === 'route'
       ? { mode: 'route', loose: trace.loose, stops: trace.stops.map((s) => s.id), path: trace.path && trace.path.map((p) => p.id) }
       : { mode: trace.mode, id: trace.id, marks: MARK.hop && Object.fromEntries(MARK.hop) }),

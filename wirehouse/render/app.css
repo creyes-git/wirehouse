@@ -300,6 +300,36 @@ button.primary {
 #plan .badge text { pointer-events: none; }
 #panel:not([hidden]) ~ #bar { right: 404px; }
 
+/* ── clipboard: tours and quests ───────────────────────── */
+#clip {
+  position: fixed; top: 72px; left: 12px; z-index: 9;
+  width: min(360px, calc(100vw - 24px)); max-height: calc(100vh - 290px); overflow: auto;
+  padding: 0 0 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--shadow); backdrop-filter: blur(10px);
+}
+.clip-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 0 22px; }
+.clip-head h2 { margin: 0; font: 700 26px/1 var(--sign); }
+#clip > .note { margin: 6px 22px 0; color: var(--muted); font-size: 13px; }
+#clip .rows li { align-items: center; }
+#clip .chips { margin-top: 6px; }
+.small-btn { border: 0; border-radius: var(--r-sm); padding: 4px 12px; cursor: pointer; font: 600 14px/1.2 var(--sign); background: var(--accent); color: var(--accent-ink); flex: none; }
+.quests { list-style: none; margin: 0; padding: 0; }
+.quests li { border-bottom: 1px solid var(--line); padding: 4px 0; }
+.quests .q { display: flex; gap: 10px; align-items: flex-start; width: 100%; border: 0; background: none; padding: 4px 0; cursor: pointer; text-align: left; font-size: 14px; }
+.quests .box {
+  flex: none; width: 18px; height: 18px; margin-top: 1px; border: 2px solid var(--muted); border-radius: 4px;
+  display: grid; place-items: center; font: 700 13px/1 var(--body);
+}
+.quests .found .box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.quests .found .q > span:nth-child(2) { color: var(--muted); }
+.q-body { padding: 2px 0 8px 28px; font-size: 14px; }
+.q-body p { margin: 0 0 6px; }
+.q-body .hint { color: var(--ink); font-style: italic; }
+button.link { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink); font-weight: 600; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+#clipBtn .count { font: 600 12px/1 var(--body); padding: 2px 6px; margin-left: 4px; border-radius: 999px; background: var(--raise); color: var(--muted); }
+.welcome-acts { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.welcome-acts .ghost { padding: 9px 14px; }
+
 /* ── welcome ───────────────────────────────────────────── */
 #welcome { position: fixed; inset: 0; display: grid; place-items: center; z-index: 40; background: rgba(0, 0, 0, 0.35); padding: 16px; }
 #welcome .card {
@@ -335,6 +365,7 @@ button.primary {
   #crumbs { order: 5; flex-basis: 100%; }
   .search { flex: 1 1 140px; }
   #theme { display: none; }
+  #clip { top: auto; bottom: 12px; max-height: 60vh; }
   #panel { top: auto; height: 55vh; }
   #bar, #panel:not([hidden]) ~ #bar { left: 12px; right: 12px; bottom: 12px; }
   #minimap { width: 150px; height: 110px; }

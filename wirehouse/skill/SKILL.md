@@ -73,6 +73,18 @@ How to do it well:
   ("web / app (20), ..."). Give each group to a subagent that returns its JSON fragment, write
   the top-level blocks and links yourself, then merge the fragments into one file.
 
+Then write the guided layer, in the same file:
+- **tours** (2 to 4): each one tells a story a new teammate needs, in the order things really happen
+  ("How an order gets paid", "What happens at sign-in", "How a nightly job runs"). 3 to 8 stops, each
+  `{"node", "text", "evidence"}`, where the text is 1 to 3 plain sentences about what the reader is looking at.
+  When the story is simply "from A to B", use `{"id", "title", "route": [from_id, to_id]}` and Wirehouse walks
+  the recorded path itself.
+- **quests** (3 to 6): questions worth being able to answer about this codebase ("Where are passwords checked?",
+  "Which job sends the invoice email?"). `answer` lists every node id that counts, `hint` points the way without
+  giving it away, `explain` says what they found and why it matters.
+- Every stop and quest cites `evidence` (file path from the project root plus line) that you opened and read.
+  Never cite from memory.
+
 Validate the JSON before moving on:
 
 ```bash
@@ -86,8 +98,11 @@ wirehouse render "<path>"
 ```
 
 Add `--open` if the user wants it opened in their browser. Render prints how many
-descriptions, connection notes, additions and removals it applied, and warns about any
-`add_edges` that point at unknown ids; fix those and render again.
+descriptions, connection notes, additions and removals it applied, how many tours and quests
+there are, and one line per problem: `error [code] subject: message -> fix` (for example
+`error [evidence/line-out-of-range] tours[checkout].stops[2]: ...`). Invalid parts are left out
+of the page, never guessed. Fix exactly the entry named in each line, then render again. Two
+rounds are enough; if something still fails, say so in your report rather than looping.
 
 ### 5. Report
 
@@ -96,8 +111,9 @@ Tell the user, briefly:
 - what is on the main floor: the main blocks and the most important connections
 - anything notable you found while describing (missing auth, a service talking straight
   to another service's database, an unused dependency)
+- the tours and quests you wrote, in one line each
 - the controls in one line: WASD to walk, click to inspect, E to walk into a block, Q to step
-  out, / to search, Tab for the floor plan, T to switch day and night shift
+  out, / to search, P for the floor plan, R to trace a route, C for the clipboard of tours and quests
 
 Suggest adding `wirehouse-out/` to `.gitignore` if it is not already there, but do not edit
 the file without asking.
