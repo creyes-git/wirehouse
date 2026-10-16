@@ -20,7 +20,9 @@
     get(k, d) { try { const v = localStorage.getItem('wirehouse:' + k); return v == null ? d : v; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem('wirehouse:' + k, v); } catch (e) { /* storage blocked: fine */ } },
   };
-  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const motionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+  let reduceMotion = !!(motionQuery && motionQuery.matches);
+  if (motionQuery && motionQuery.addEventListener) motionQuery.addEventListener('change', (e) => { reduceMotion = e.matches; });
 
   // ── model ────────────────────────────────────────────────────────────────
   const N = new Map();
@@ -97,7 +99,7 @@
   };
   const EDGE_LABEL = {
     imports: 'imports code', calls: 'calls', data: 'reads and writes', auth: 'signs in with',
-    publishes: 'sends messages', depends_on: 'starts after', provisions: 'provisions', uses: 'uses',
+    publishes: 'sends messages', depends_on: 'starts after', provisions: 'provisions', uses: 'uses', references: 'references',
   };
   const LANG = { typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', csharp: 'C#', sql: 'SQL', prisma: 'Prisma' };
 
@@ -116,7 +118,8 @@
         external: 0x818cf8, ai: 0xe879f9, infra: 0x9fb39a, ci: 0x9fb39a, observability: 0x9fb39a,
         module: 0x8fa8d8, file: 0xa9b8d6, table: 0xfcd34d, resource: 0x9fb39a,
       },
-      edge: { imports: 0x7d8aa6, calls: 0x39c0f5, data: 0xfbbf24, auth: 0xf472b6, publishes: 0xf87171, depends_on: 0x56637d, provisions: 0x9fb39a, uses: 0xa78bfa },
+      edge: { imports: 0x7d8aa6, calls: 0x39c0f5, data: 0xfbbf24, auth: 0xf472b6, publishes: 0xf87171, depends_on: 0x56637d, provisions: 0x9fb39a, uses: 0xa78bfa, references: 0xd6b98c },
+      trace: { down: 0x34d399, up: 0xc4b5fd, route: 0xffb23f },
     },
     day: {
       name: 'Day shift', bg: 0xdfe2e4, fogNear: 80, fogFar: 260,
@@ -131,7 +134,8 @@
         external: 0x4f5bd5, ai: 0xa63db8, infra: 0x5f7a5a, ci: 0x5f7a5a, observability: 0x5f7a5a,
         module: 0xb98a55, file: 0xd9c9a8, table: 0xe0b44a, resource: 0x7f9a7a,
       },
-      edge: { imports: 0x7c8594, calls: 0x2f80c0, data: 0xd08f12, auth: 0xc2417f, publishes: 0xc2453c, depends_on: 0x9aa2ad, provisions: 0x5f7a5a, uses: 0x6d5bd0 },
+      edge: { imports: 0x7c8594, calls: 0x2f80c0, data: 0xd08f12, auth: 0xc2417f, publishes: 0xc2453c, depends_on: 0x9aa2ad, provisions: 0x5f7a5a, uses: 0x6d5bd0, references: 0x8a6a3f },
+      trace: { down: 0x13865c, up: 0x6d4fd6, route: 0xd9822b },
     },
   };
   let themeId = store.get('theme', window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'day' : 'night');
@@ -984,10 +988,12 @@
     buildParticles();
     if (T.shadows) renderer && (renderer.shadowMap.enabled = true);
     else renderer && (renderer.shadowMap.enabled = false);
+    BUILD_HOOKS.forEach((f) => f());
     applyFocus();
     drawCrumbs();
     if (planOn) drawPlan();
   }
+  const BUILD_HOOKS = [];   // later sections: () => void after a room is built
 
   // ── focus and highlight ──────────────────────────────────────────────────
   function focusNodeId() {
@@ -1024,12 +1030,16 @@
     const selLink = selected && selected.type === 'link' ? selected.info : null;
     // Busy rooms start quieter; selecting something brings its pipes forward.
     const base = (T.glow ? 0.55 : 0.72) * clamp(40 / Math.max(LINKS.length, 1), 0.35, 1);
+    const lit = litLinks();   // a trace, route or tour step lights its own pipes
     LINKS.forEach((L) => {
       let on = true, strong = false;
       if (selLink) { on = L.info === selLink; strong = on; }
       else if (visible) { on = L.info.a === f || L.info.b === f; strong = on; }
-      L.active = on;
-      L.focus = strong;
+      else if (lit) { on = lit(L.info); strong = on; }
+      const shown = shownKinds(L.info.kinds);
+      L.tube.visible = shown;
+      L.active = on && shown;
+      L.focus = strong && shown;
       L.mat.opacity = strong ? 0.98 : on ? base : 0.06;
     });
     setBox('sel', selected && selected.type !== 'link' ? selected.id : null, T.glow ? 0xffb23f : 0x1f6fd1);
@@ -1111,27 +1121,56 @@
     }
   }
 
-  function typing(e) { const t = e.target; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'); }
+  function typing(e) { const t = e.target; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable); }
+  // Focus on a button, link or focusable plan block: Space, Enter, arrows and Backspace
+  // keep their normal meaning there instead of driving the worker.
+  function onControl(e) {
+    const t = e.target;
+    return !!(t && t !== canvas && t.closest && t.closest('button, a, select, [role="button"], [role="option"], [tabindex]'));
+  }
+
+  // Escape peels back one layer at a time, most recent kind of thing first.
+  const ESC = [];
+  function onEscape(prio, active, close) { ESC.push({ prio, active, close }); ESC.sort((a, b) => a.prio - b.prio); }
+  function escapeOnce() {
+    for (const L of ESC) if (L.active()) { L.close(); return true; }
+    return false;
+  }
+  onEscape(10, () => !$('#welcome').hidden, () => closeWelcome());
+  onEscape(80, () => !!W8.path, () => { W8.path = null; arrival = null; });
+  onEscape(90, () => !panel.hidden, () => closePanel());
+
   window.addEventListener('keydown', (e) => {
-    if (typing(e)) return;
-    if (!$('#welcome').hidden) { if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') { e.preventDefault(); closeWelcome(); } return; }
     const k = e.key.toLowerCase();
+    const findKey = k === 'k' && (e.ctrlKey || e.metaKey);
+    if (typing(e) || e.altKey || ((e.ctrlKey || e.metaKey) && !findKey)) return;
+    if (!$('#welcome').hidden) {
+      if (k === 'escape' || (k === 'enter' && !onControl(e))) { e.preventDefault(); closeWelcome(); }
+      else if (k === 'tab') { e.preventDefault(); $('#welcomeGo').focus(); }   // keep focus inside the card
+      return;
+    }
+    if (k === 'escape') { if (escapeOnce()) e.preventDefault(); return; }
+    const ctl = onControl(e);
+    if (ctl && [' ', 'enter', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'backspace', 'home', 'end'].includes(k)) return;
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) {
       if (planOn) return;
       keys.add(k);
       if (k.startsWith('arrow')) e.preventDefault();
       return;
     }
-    if (k === ' ') { e.preventDefault(); if (W8.pos.y <= 0.001) W8.vy = 6.5; return; }
-    if (k === '/' || (k === 'k' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); $('#search').focus(); $('#search').select(); return; }
-    if (k === 'tab') { e.preventDefault(); setPlan(!planOn); return; }
-    if (k === 'e' || (k === 'enter' && e.target === canvas)) { interact(); return; }
-    if (k === 'q' || (k === 'backspace' && !e.target.closest('button'))) { e.preventDefault(); exitRoom(); return; }
+    if (k === ' ') { e.preventDefault(); if (keySpace()) return; if (W8.pos.y <= 0.001) W8.vy = 6.5; return; }
+    if (k === '/' || findKey) { e.preventDefault(); $('#search').focus(); $('#search').select(); return; }
+    if (k === 'p') { setPlan(!planOn); return; }
+    if (k === 'e' || k === 'enter') { interact(); return; }
+    if (k === 'q' || k === 'backspace') { e.preventDefault(); exitRoom(); return; }
     if (k === 't') { setTheme(themeId === 'night' ? 'day' : 'night'); return; }
     if (k === 'h' || k === '?') { openWelcome(); return; }
     if (k === 'f' && selected && selected.type !== 'link') { travelTo(selected.id); return; }
-    if (k === 'escape') { if (W8.path) W8.path = null; else closePanel(); }
+    if (KEYS[k]) { e.preventDefault(); KEYS[k](); }
   });
+  // Single-letter shortcuts added by later sections (trace, tours, export).
+  const KEYS = {};
+  let keySpace = () => false;
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
 
@@ -1332,9 +1371,10 @@
     cam.target.set(W8.pos.x, 1.55, W8.pos.z);
     if (worker) worker.root.rotation.y = W8.yaw;
   }
+  let pendingRoom = null;   // a room change asked for during the fade runs right after it
   function goRoom(R, opts) {
     opts = opts || {};
-    if (transitioning) return;
+    if (transitioning) { pendingRoom = [R, opts]; return; }
     const doIt = () => {
       hovered = null;
       if (selected && selected.type === 'link') { selected = null; closePanel(true); }
@@ -1343,13 +1383,20 @@
       planView = null;
       if (planOn) drawPlan();
       if (opts.then) opts.then();
+      syncHash();
     };
     if (!opts.instant && !reduceMotion && !planOn) {
       transitioning = true;
       $('#fade').classList.add('on');
-      setTimeout(() => { doIt(); $('#fade').classList.remove('on'); setTimeout(() => { transitioning = false; }, 250); }, 260);
+      setTimeout(() => {
+        doIt();
+        $('#fade').classList.remove('on');
+        setTimeout(() => {
+          transitioning = false;
+          if (pendingRoom) { const [r, o] = pendingRoom; pendingRoom = null; goRoom(r, o); }
+        }, 250);
+      }, 260);
     } else doIt();
-    setHash(R);
   }
   function enterBlock(id) { if (enterable(id)) goRoom(id); }
   function exitRoom() { if (room && room.R) goRoom(parentOf(room.R), { from: room.R }); }
@@ -1366,8 +1413,56 @@
     if (room && room.R === R) go();
     else goRoom(R, { then: go });
   }
-  function setHash(R) {
-    try { history.replaceState(null, '', R ? '#room=' + encodeURIComponent(R) : location.pathname + location.search); } catch (e) { /* file:// may refuse */ }
+  // ── links into a view (URL hash) ─────────────────────────────────────────
+  // #room=<id>&focus=<id>&reach=up|down&route=<from>~<to>&tour=<id>&stop=<n>&plan=1
+  const encId = (id) => encodeURIComponent(id).replace(/~/g, '%7E');
+  const HASH_PARTS = [];   // later sections add () => 'key=value' | null
+  const HASH_APPLY = [];   // later sections add (state) => void, run once the room is ready
+  let hashFrozen = false;
+  function syncHash() {
+    if (hashFrozen) return;
+    const p = [];
+    if (room && room.R) p.push('room=' + encId(room.R));
+    if (selected && selected.type !== 'link') p.push('focus=' + encId(selected.id));
+    HASH_PARTS.forEach((f) => { const s = f(); if (s) p.push(s); });
+    if (planOn) p.push('plan=1');
+    try { history.replaceState(null, '', p.length ? '#' + p.join('&') : location.pathname + location.search); } catch (e) { /* file:// may refuse */ }
+  }
+  function parseHash(h) {
+    const out = {};
+    const dec = (v) => { try { return decodeURIComponent(v); } catch (e) { return ''; } };
+    String(h || '').replace(/^#/, '').split('&').forEach((kv) => {
+      const i = kv.indexOf('=');
+      if (i > 0) out[kv.slice(0, i)] = kv.slice(i + 1); else if (kv) out[kv] = '1';
+    });
+    for (const k of Object.keys(out)) out[k] = k === 'route' ? out[k].split('~').map(dec) : dec(out[k]);
+    return out;
+  }
+  function applyHash(h) {
+    const focus = h.focus && N.has(h.focus) ? h.focus : null;
+    const R = h.room && N.has(h.room) && enterable(h.room) ? h.room : focus ? parentOf(focus) : ROOT;
+    hashFrozen = true;
+    if ((h.plan === '1') !== planOn) setPlan(h.plan === '1');
+    goRoom(R, {
+      instant: true,
+      then: () => {
+        if (focus) {
+          const port = room.ports.find((p) => p.rep === focus);
+          select(focus, port && !itemsById.has(focus) ? { port } : {});
+        } else if (selected) closePanel();
+        HASH_APPLY.forEach((f) => f(h));
+        hashFrozen = false;
+        syncHash();
+      },
+    });
+  }
+  window.addEventListener('hashchange', () => applyHash(parseHash(location.hash)));
+  function copyLink() {
+    syncHash();
+    const url = location.href;
+    const done = () => toast('Link copied: it opens this exact view');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(done, () => toast(url));
+    else toast(url);
   }
 
   function nearest() {
@@ -1403,13 +1498,38 @@
   const panel = $('#panel'), body = $('#panelBody');
   function closePanel(silent) {
     panel.hidden = true;
-    if (!silent) { selected = null; applyFocus(); }
+    if (!silent) { selected = null; applyFocus(); syncHash(); }
   }
   $('#panelClose').addEventListener('click', () => closePanel());
 
+  // Source links: the code host at the scanned commit (works for anyone the file is
+  // shared with) and VS Code (works only on the machine that ran the scan).
+  const REPO = D.repo || null;
+  const DIRTY = new Set((REPO && REPO.dirty) || []);
   function vscodeLink(file, line) {
     const root = String(D.project.root || '').replace(/\\/g, '/');
     return 'vscode://file/' + encodeURI(root + '/' + file) + (line ? ':' + line : '');
+  }
+  function webLink(file, line) {
+    if (!REPO || !REPO.web || !file) return null;
+    const p = ((REPO.prefix ? REPO.prefix + '/' : '') + file).split('/').map(encodeURIComponent).join('/');
+    const r = REPO.revision, base = REPO.web;
+    const href = {
+      github: `${base}/blob/${r}/${p}${line ? '#L' + line : ''}`,
+      gitlab: `${base}/-/blob/${r}/${p}${line ? '#L' + line : ''}`,
+      bitbucket: `${base}/src/${r}/${p}${line ? '#lines-' + line : ''}`,
+      azure: `${base}?path=/${p}&version=GC${r}${line ? `&line=${line}&lineEnd=${line + 1}&lineStartColumn=1&lineEndColumn=1&lineStyle=plain&_a=contents` : ''}`,
+    }[REPO.provider];
+    if (!href) return null;
+    let title = `View on ${REPO.host_name} at commit ${REPO.short}`, warn = false;
+    if (DIRTY.has(file)) { title = `This file has local changes that are not in commit ${REPO.short}, so ${REPO.host_name} shows the older version`; warn = true; }
+    else if (REPO.pushed === false) { title = `Commit ${REPO.short} is not on ${REPO.host_name} yet, so this link may not open until it is pushed`; warn = true; }
+    return { href, title, warn };
+  }
+  function srcLinks(file, line) {
+    const w = webLink(file, line);
+    return `<span class="links">${w ? `<a href="${esc(w.href)}" target="_blank" rel="noopener" title="${esc(w.title)}"${w.warn ? ' class="warn"' : ''}>${esc(REPO.host_name)}${w.warn ? ' *' : ''}</a>` : ''}` +
+      `<a href="${esc(vscodeLink(file, line))}" title="Open in VS Code (only on the computer that ran the scan)">VS Code</a></span>`;
   }
   function toast(msg) {
     const t = $('#toast');
@@ -1457,7 +1577,7 @@
 
   function locRow(l) {
     const where = l.file + (l.line ? ':' + l.line : '');
-    return `<li><span class="main"><button class="link" data-copy="${esc(where)}" title="Copy path">${esc(where)}</button>${l.label ? `<span class="sub">${esc(l.label)}</span>` : ''}</span><a href="${esc(vscodeLink(l.file, l.line))}" title="Open in VS Code">Open</a></li>`;
+    return `<li><span class="main"><button class="link" data-copy="${esc(where)}" title="Copy path">${esc(where)}</button>${l.label ? `<span class="sub">${esc(l.label)}</span>` : ''}</span>${srcLinks(l.file, l.line)}</li>`;
   }
   function listWithMore(rows, show, id) {
     if (rows.length <= show) return rows.join('');
@@ -1487,6 +1607,7 @@
     if (inRoom && !planOn) acts.push('<button data-act="walk">Walk to it</button>');
     else if (!inRoom && !isOutside) acts.push('<button data-act="goto">Take me there</button>');
     if (n.path && n.path !== '.') acts.push('<button data-act="copy">Copy path</button>');
+    acts.push('<button data-act="link" title="Copy a link that opens the map on this">Copy link</button>');
     const st = n.stats || {};
     const kindTxt = n.kind === 'module' ? `Folder with ${st.files || 0} files` :
       n.kind === 'file' ? `File, ${n.lines || 0} lines` : (KIND_LABEL[n.kind] || n.kind);
@@ -1507,7 +1628,7 @@
     files.forEach((f) => (f.endpoints || []).forEach((ep) => eps.push(ep)));
     if (eps.length) {
       eps.sort((a, b) => (a.method === 'PAGE') - (b.method === 'PAGE') || a.path.localeCompare(b.path));
-      const rows = eps.map((ep) => `<li><span class="method">${esc(ep.method)}</span><span class="main"><button class="link" data-copy="${esc(ep.file + ':' + ep.line)}" title="${esc(ep.file + ':' + ep.line)}">${esc(ep.path)}</button></span><a href="${esc(vscodeLink(ep.file, ep.line))}">Open</a></li>`);
+      const rows = eps.map((ep) => `<li><span class="method">${esc(ep.method)}</span><span class="main"><button class="link" data-copy="${esc(ep.file + ':' + ep.line)}" title="${esc(ep.file + ':' + ep.line)}">${esc(ep.path)}</button></span>${srcLinks(ep.file, ep.line)}</li>`);
       const api = eps.filter((e) => e.method !== 'PAGE').length;
       h += `<section class="sec"><h3>Endpoints and pages</h3><p class="note">${api} API endpoints, ${eps.length - api} pages</p><ul class="rows">${listWithMore(rows, 10, 'ep')}</ul>${moreBtn(rows.length, 10, 'ep')}</section>`;
     }
@@ -1539,7 +1660,11 @@
     body.scrollTop = 0;
     panel.hidden = false;
     bindPanel(n, opts);
+    $('#announce').textContent = `${n.name}, ${kindTxt}${isOutside ? ', outside this room' : ''}`;
+    SELECT_HOOKS.forEach((f) => f(id));
+    syncHash();
   }
+  const SELECT_HOOKS = [];   // later sections: (id) => void after a node is inspected
 
   function selectLink(info) {
     selected = { type: 'link', info };
@@ -1558,7 +1683,7 @@
     const rows = info.edges.map((e) => {
       const ev = (e.evidence || [])[0];
       const s = N.get(e.source), t = N.get(e.target);
-      return `<li><span class="swatch" style="background:${css(edgeHex(e.kind))}"></span><span class="main">${esc(s.path || s.name)} <span class="sub">${esc(EDGE_LABEL[e.kind] || e.kind)} ${esc(t.path || t.name)}${e.confidence === 'INFERRED' ? ' (inferred)' : ''}</span></span>${ev ? `<a href="${esc(vscodeLink(ev.file, ev.line))}" title="${esc(ev.file + ':' + (ev.line || ''))}">Open</a>` : ''}</li>`;
+      return `<li><span class="swatch" style="background:${css(edgeHex(e.kind))}"></span><span class="main">${esc(s.path || s.name)} <span class="sub">${esc(EDGE_LABEL[e.kind] || e.kind)} ${esc(t.path || t.name)}${e.confidence === 'INFERRED' ? ' (inferred)' : ''}${ev ? `<span class="where">${esc(ev.file + (ev.line ? ':' + ev.line : ''))}</span>` : ''}</span></span>${ev ? srcLinks(ev.file, ev.line) : ''}</li>`;
     });
     h += `<section class="sec"><h3>Evidence</h3><ul class="rows">${listWithMore(rows, 12, 'ev')}</ul>${moreBtn(rows.length, 12, 'ev')}</section>`;
     body.innerHTML = h;
@@ -1567,6 +1692,7 @@
     bindPanel(null, {});
   }
 
+  const PANEL_ACTS = {};   // later sections: data-act name -> (node) => void
   function bindPanel(n) {
     body.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', () => copy(b.dataset.copy)));
     body.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => focusNode(b.dataset.goto)));
@@ -1581,6 +1707,8 @@
       if (a === 'walk') travelTo(n.id);
       if (a === 'goto') focusNode(n.id);
       if (a === 'copy') copy(n.path);
+      if (a === 'link') copyLink();
+      if (PANEL_ACTS[a]) PANEL_ACTS[a](n);
     }));
   }
 
@@ -1716,11 +1844,47 @@
     travelToPoint((e.clientX - r.left - mmT.ox) / mmT.s, (e.clientY - r.top - mmT.oz) / mmT.s);
   });
 
-  function drawKey() {
-    $('#key').innerHTML = Object.keys(EDGE_LABEL).map((k) => `<i style="background:${css(edgeHex(k))}"></i><span>${esc(EDGE_LABEL[k][0].toUpperCase() + EDGE_LABEL[k].slice(1))}</span>`).join('');
+  // The pipe key doubles as a filter: switch a kind of connection off to hide its
+  // pipes (and leave it out of traces). A pipe carrying several kinds stays while
+  // any of them is on.
+  const HIDE = new Set();
+  const shownKinds = (kinds) => { for (const k of kinds) if (!HIDE.has(k)) return true; return false; };
+  function keyCounts() {
+    const c = {};
+    const add = (kinds) => kinds.forEach((k) => { c[k] = (c[k] || 0) + 1; });
+    if (room) {
+      (room.links || []).forEach((L) => add(L.kinds));
+      room.ports.forEach((p) => p.inners.forEach((info) => add(info.kinds)));
+    }
+    return c;
   }
-  drawKey();
-  $('#keyBtn').addEventListener('click', () => { const k = $('#key'); k.hidden = !k.hidden; $('#keyBtn').textContent = k.hidden ? 'Pipe colors' : 'Hide pipe colors'; });
+  function drawKey() {
+    const c = keyCounts();
+    const kinds = Object.keys(EDGE_LABEL).filter((k) => c[k] || HIDE.has(k));
+    $('#key').innerHTML = (kinds.length ? kinds.map((k) => `<button type="button" data-k="${k}" aria-pressed="${!HIDE.has(k)}" title="${HIDE.has(k) ? 'Show' : 'Hide'} pipes that ${esc(EDGE_LABEL[k])}">` +
+      `<i style="background:${css(edgeHex(k))}"></i><span>${esc(EDGE_LABEL[k][0].toUpperCase() + EDGE_LABEL[k].slice(1))}</span><b>${c[k] || 0}</b></button>`).join('')
+      : '<p class="note">No pipes in this room.</p>') +
+      (HIDE.size ? '<button type="button" class="all" data-k="*">Show every kind</button>' : '');
+    $('#key').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      const k = b.dataset.k;
+      if (k === '*') HIDE.clear(); else if (HIDE.has(k)) HIDE.delete(k); else HIDE.add(k);
+      drawKey();
+      applyFocus();
+      FILTER_HOOKS.forEach((f) => f());
+      const again = $(`#key button[data-k="${k}"]`);
+      if (again) again.focus();
+    }));
+    $('#keyBtn').textContent = ($('#key').hidden ? 'Pipe key' : 'Hide pipe key') + (HIDE.size ? ` (${HIDE.size} off)` : '');
+    $('#keyBtn').setAttribute('aria-expanded', String(!$('#key').hidden));
+  }
+  const FILTER_HOOKS = [];   // later sections: () => void when the filter changes
+  BUILD_HOOKS.push(drawKey);
+  $('#keyBtn').addEventListener('click', () => { const k = $('#key'); k.hidden = !k.hidden; drawKey(); });
+
+  // What a trace, route or tour has lit up in the current room (set by the trace section).
+  const MARK = { lit: null, ids: null };
+  function litLinks() { return MARK.lit; }
+  function markedIds() { return MARK.ids; }
 
   // ── 2D floor plan ────────────────────────────────────────────────────────
   const plan = $('#plan');
@@ -1778,14 +1942,14 @@
       const col = css(kindHex(n.kind));
       const slot = it.shape === 'slot';
       const fs = slot ? 0.36 : clamp(it.w / 4.2, 1.0, 1.7);
-      P.push(`<g class="blk" data-id="${esc(n.id)}"><rect x="${q.x - q.w / 2}" y="${q.z - q.d / 2}" width="${q.w}" height="${q.d}" rx="${slot ? 0.08 : 0.35}" fill="${col}" fill-opacity="${slot ? 0.8 : 0.28}" stroke="${col}" stroke-width="${slot ? 0.05 : 0.18}"/>` +
+      P.push(`<g class="blk" data-id="${esc(n.id)}" tabindex="0" role="button" aria-label="${esc(n.name + ', ' + (KIND_LABEL[n.kind] || n.kind) + (enterable(n.id) ? ', can be walked into' : ''))}"><rect x="${q.x - q.w / 2}" y="${q.z - q.d / 2}" width="${q.w}" height="${q.d}" rx="${slot ? 0.08 : 0.35}" fill="${col}" fill-opacity="${slot ? 0.8 : 0.28}" stroke="${col}" stroke-width="${slot ? 0.05 : 0.18}"/>` +
         (it.shape === 'silo' ? `<circle cx="${q.x}" cy="${q.z}" r="${q.w / 2 - 0.4}" fill="none" stroke="${col}" stroke-width="0.12"/>` : '') +
         `<text x="${q.x}" y="${slot ? q.z + 0.12 : q.z + 0.25}" font-size="${fs}" text-anchor="middle" font-weight="600">${esc(shortName(n.name, slot ? 14 : 24))}</text>` +
         (!slot ? `<text x="${q.x}" y="${q.z + 0.25 + fs * 1.05}" font-size="${fs * 0.62}" text-anchor="middle" opacity="0.7">${esc(n.kind === 'module' ? (n.stats ? n.stats.files : 0) + ' files' : (KIND_LABEL[n.kind] || n.kind))}</text>` : '') + `</g>`);
     });
     room.ports.forEach((p) => {
       const n = N.get(p.rep), col = css(kindHex(n.kind));
-      P.push(`<g class="blk" data-id="${esc(n.id)}" data-port="1"><rect x="${p.x - 2}" y="${p.z - 0.7}" width="4" height="1.4" rx="0.25" fill="${css(T.bg)}" stroke="${col}" stroke-width="0.18"/><text x="${p.x}" y="${p.z + 0.25}" font-size="0.7" text-anchor="middle">${esc(shortName(n.name, 16))}</text></g>`);
+      P.push(`<g class="blk" data-id="${esc(n.id)}" data-port="1" tabindex="0" role="button" aria-label="${esc(n.name + ', outside this room')}"><rect x="${p.x - 2}" y="${p.z - 0.7}" width="4" height="1.4" rx="0.25" fill="${css(T.bg)}" stroke="${col}" stroke-width="0.18"/><text x="${p.x}" y="${p.z + 0.25}" font-size="0.7" text-anchor="middle">${esc(shortName(n.name, 16))}</text></g>`);
     });
     P.push(`<g id="planMe"><circle r="0.6" fill="#ff7a1a" stroke="#fff" stroke-width="0.15"/></g>`);
     plan.innerHTML = `<g id="vp">${P.join('')}</g>`;
@@ -1794,6 +1958,15 @@
     plan.querySelectorAll('.blk').forEach((g) => {
       g.addEventListener('click', (e) => { e.stopPropagation(); if (plan._dragged) return; select(g.dataset.id, g.dataset.port ? { port: room.ports.find((p) => p.rep === g.dataset.id) } : {}); });
       g.addEventListener('dblclick', (e) => { e.stopPropagation(); if (g.dataset.port) focusNode(g.dataset.id); else if (enterable(g.dataset.id)) goRoom(g.dataset.id); });
+      g.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        const id = g.dataset.id, again = selected && selected.id === id;
+        if (again && g.dataset.port) focusNode(id);
+        else if (again && enterable(id)) goRoom(id, { then: () => { const f = plan.querySelector('.blk'); if (f) f.focus(); } });
+        else select(id, g.dataset.port ? { port: room.ports.find((p) => p.rep === id) } : {});
+      });
       g.addEventListener('mouseenter', () => { hovered = { type: 'node', id: g.dataset.id }; planFocus(); });
       g.addEventListener('mouseleave', () => { hovered = null; planFocus(); });
     });
@@ -1808,13 +1981,17 @@
     const sl = selected && selected.type === 'link' ? selected.info : null;
     const links = plan._links || [];
     const related = new Set();
+    const lit = !f && !sl ? litLinks() : null;
+    const marked = !f && !sl ? markedIds() : null;
     plan.querySelectorAll('.lnk').forEach((p) => {
       const L = links[+p.dataset.l];
-      const on = sl ? (L.a === sl.a && L.b === sl.b) : !f || L.a === f || L.b === f;
+      const on = sl ? (L.a === sl.a && L.b === sl.b) : f ? L.a === f || L.b === f : lit ? lit(L) : true;
       p.classList.toggle('dim', !on);
+      p.classList.toggle('off', !shownKinds(L.kinds));
       if (on && (f || sl)) { related.add(L.a); related.add(L.b); }
     });
-    plan.querySelectorAll('.blk').forEach((g) => g.classList.toggle('dim', !!(f || sl) && !related.has(g.dataset.id) && g.dataset.id !== f));
+    plan.querySelectorAll('.blk').forEach((g) => g.classList.toggle('dim',
+      marked ? !marked.has(g.dataset.id) : !!(f || sl) && !related.has(g.dataset.id) && g.dataset.id !== f));
   }
   function setPlan(on) {
     planOn = on;
@@ -1828,6 +2005,7 @@
     keys.clear();
     if (on) { planView = null; drawPlan(); }
     else if (canvas) canvas.focus({ preventScroll: true });
+    syncHash();
   }
   $('#view3d').addEventListener('click', () => setPlan(false));
   $('#view2d').addEventListener('click', () => setPlan(true));
@@ -1919,7 +2097,7 @@
     updateCamera(dt);
     updateShell();
     if (!reduceMotion) ANIM.forEach((f) => f(time));
-    updateParticles(reduceMotion ? time * 0.35 : time);
+    updateParticles(reduceMotion ? 0 : time);
     updateHover();
     if (frameNo % 4 === 0) {
       const cp = camera.position;
@@ -1975,9 +2153,7 @@
     resize();
     buildWorker();
     const startHash = location.hash;
-    const m = /room=([^&]+)/.exec(startHash);
-    const want = m ? decodeURIComponent(m[1]) : ROOT;
-    goRoom(N.has(want) && enterable(want) ? want : ROOT, { instant: true });
+    applyHash(parseHash(startHash));
     const tops = kidsOf(ROOT).length, links = roomLinks(ROOT).inner.length;
     $('#welcomeTitle').textContent = `${D.project.name} warehouse`;
     $('#welcomeLead').textContent = `${tops} blocks stand on the main floor with ${links} pipes between them. Each block is part of the system, and each pipe is a connection found in the code. Blocks with a glowing door can be walked into.`;

@@ -30,20 +30,21 @@
   <button id="helpBtn" class="ghost round" type="button" title="Controls (H)" aria-label="Controls">?</button>
 </header>
 
-<aside id="panel" hidden aria-live="polite">
+<aside id="panel" hidden aria-label="Inventory tag">
   <button id="panelClose" class="ghost round close" type="button" aria-label="Close">×</button>
   <div id="panelBody"></div>
 </aside>
 
 <div id="minimapWrap">
   <canvas id="minimap" width="220" height="160" aria-label="Minimap, click to walk there"></canvas>
-  <button id="keyBtn" class="ghost small" type="button">Pipe colors</button>
-  <div id="key" hidden></div>
+  <button id="keyBtn" class="ghost small" type="button" aria-controls="key" aria-expanded="false">Pipe key</button>
+  <div id="key" hidden role="group" aria-label="Pipe kinds: switch one off to hide it"></div>
 </div>
 
 <div id="prompt" hidden></div>
 <div id="tooltip" hidden></div>
 <div id="toast" hidden></div>
+<div id="announce" class="sr" aria-live="polite"></div>
 <div id="fade"></div>
 
 <div id="welcome" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
@@ -51,13 +52,15 @@
     <h1 id="welcomeTitle"></h1>
     <p id="welcomeLead"></p>
     <dl class="controls">
-      <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Walk (hold <kbd>Shift</kbd> to run)</dd>
+      <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Walk (<kbd>Shift</kbd> to run, <kbd>Space</kbd> to jump)</dd>
       <dt>Drag</dt><dd>Look around, scroll to zoom</dd>
-      <dt>Click</dt><dd>Inspect a block, rack or pipe</dd>
+      <dt>Click</dt><dd>Inspect a block, rack or pipe. Click it again to walk there</dd>
       <dt><kbd>E</kbd></dt><dd>Walk into the block in front of you</dd>
       <dt><kbd>Q</kbd></dt><dd>Step back out to the room above</dd>
       <dt><kbd>/</kbd></dt><dd>Find anything and walk straight to it</dd>
-      <dt><kbd>Tab</kbd></dt><dd>Switch between walking and the floor plan</dd>
+      <dt><kbd>P</kbd></dt><dd>Switch between walking and the floor plan</dd>
+      <dt><kbd>T</kbd></dt><dd>Switch between night and day shift</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Back out one step (stop, close, clear)</dd>
     </dl>
     <button id="welcomeGo" class="primary" type="button">Start walking</button>
   </div>

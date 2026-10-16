@@ -18,6 +18,7 @@ from wirehouse.detectors.code import NOISE_HOSTS, FileFacts, analyze
 from wirehouse.detectors.infra import Infra, detect_infra
 from wirehouse.detectors.units import Unit, detect_units
 from wirehouse.model import EDGE_KINDS, LAYERS, SCHEMA_VERSION, edge, loc, node
+from wirehouse.repo import repo_info
 from wirehouse.scan import ScanResult, SourceFile, lang_family, scan
 from wirehouse.signatures import (
     BY_ID, Signature, match_cs_namespace, match_host, match_image, match_npm, match_nuget, match_py_import,
@@ -138,6 +139,9 @@ class Builder:
                 n["compose"] = [compose_service]
             self.add_node(n)
         return nid
+
+    def _has_res(self, sig: Signature) -> bool:
+        return any(nid == f"res:{sig.id}" or nid.startswith(f"res:{sig.id}:") for nid in self.nodes)
 
     def res_for(self, sig: Signature) -> str:
         """The node an import/dependency of `sig` should point at (a single instance if there is exactly one)."""
@@ -532,12 +536,15 @@ class Builder:
                 sigs = [s for s in match_host(host) if s.role == "block"]
                 ctx = " ".join(lines[max(0, line - 2): line])
                 if sigs:
-                    t = self.res_for(sigs[0])
-                    self.note_via(t, f"URL host `{host}`")
                     # Only count it as a call when the code around it looks like a request,
-                    # not when it is an href or a link in a comment.
+                    # not when it is an href, a link in a comment or a URL in a data file.
+                    # A bare mention never puts a block on the floor by itself.
                     if CALLISH.search(ctx) and not re.search(r"href|<a |@see|//\s*https?:", ctx):
+                        t = self.res_for(sigs[0])
+                        self.note_via(t, f"URL host `{host}`")
                         self.add_edge(src, t, self._edge_kind_for(t), evidence=[loc(rel, line, host)], description=f"URL {host} in request code")
+                    elif self._has_res(sigs[0]):
+                        self.note_via(self.res_for(sigs[0]), f"URL host `{host}`")
                     continue
                 if host in LOCAL_HOSTS or any(host == h or host.endswith("." + h) for h in NOISE_HOSTS) or re.match(r"^\d+\.\d+", host):
                     continue
@@ -860,6 +867,7 @@ class Builder:
                 "stacks": stacks,
                 "files": len(self.scan.sources),
             },
+            "repo": repo_info(self.scan.root),
             "layers": LAYERS,
             "edge_kinds": EDGE_KINDS,
             "nodes": nodes,

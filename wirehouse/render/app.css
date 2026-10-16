@@ -202,6 +202,10 @@ button.primary {
 }
 .rows button.link:hover { text-decoration-color: currentColor; }
 .rows a { color: var(--muted); font-size: 13px; }
+.rows .links { display: flex; gap: 10px; flex: none; }
+.rows .links a.warn { color: var(--ink); text-decoration-color: var(--accent); }
+.rows .where { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: none; transform: translateY(1px); }
 .method { font: 700 12px/1.6 var(--sign); padding: 0 5px; border-radius: 3px; background: var(--raise); flex: none; min-width: 44px; text-align: center; }
 .more { margin-top: 6px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0; text-decoration: underline; }
@@ -212,10 +216,21 @@ button.primary {
 #keyBtn { background: var(--surface); }
 #key {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
-  padding: 10px 12px; font-size: 13px; display: grid; grid-template-columns: 22px 1fr; gap: 5px 8px; align-items: center;
+  padding: 6px; font-size: 13px; display: grid; gap: 2px; min-width: 210px;
   box-shadow: var(--shadow);
 }
+#key button {
+  display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center;
+  border: 0; background: none; padding: 4px 6px; border-radius: var(--r-sm); cursor: pointer; text-align: left;
+}
+#key button:hover { background: var(--raise); }
+#key button[aria-pressed="false"] { color: var(--muted); }
+#key button[aria-pressed="false"] span { text-decoration: line-through; }
+#key button[aria-pressed="false"] i { opacity: 0.25; }
+#key button.all { display: block; color: var(--muted); text-decoration: underline; }
 #key i { display: block; height: 4px; border-radius: 2px; }
+#key b { font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+#key .note { margin: 4px 6px; color: var(--muted); }
 
 #prompt {
   position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
@@ -268,6 +283,9 @@ button.primary {
 #plan .blk rect, #plan .blk circle { transition: opacity 0.15s; }
 #plan .dim { opacity: 0.18; }
 #plan .lnk { fill: none; stroke-linecap: round; }
+#plan .lnk.off { display: none; }
+#plan .blk { outline: none; }
+#plan .blk:focus-visible rect { stroke: var(--focus); stroke-width: 0.35; }
 
 @media (max-width: 720px) {
   #topbar { flex-wrap: wrap; }

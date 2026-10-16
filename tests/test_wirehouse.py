@@ -292,3 +292,59 @@ def test_dotnet_and_terraform(tmp_path):
     assert {n["subkind"] for n in tf} == {"database", "service"}
     assert ("infra:terraform", "res:sqlserver", "provisions") in links
     assert "NotThis1!" not in json.dumps(data)
+
+
+def test_url_mentions_do_not_create_blocks(tmp_path):
+    # A provider URL in data (a catalog, a README-ish constant) is not a call: no block on the floor.
+    files = {
+        "app/package.json": json.dumps({"name": "app", "dependencies": {"express": "4.0.0"}}),
+        "app/catalog.js": 'export const BRANDS = [{ id: "openrouter", site: "https://openrouter.ai" }];\n',
+        "app/server.js": 'const r = await fetch("https://api.github.com/repos/x/y");\n',
+    }
+    for rel, body in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+    nodes, links = _index(build_archmap(tmp_path, log=lambda *_: None))
+    assert "res:openrouter" not in nodes
+    assert ("unit:js:app", "res:github", "calls") in links
+
+
+def test_remote_parsing_strips_credentials():
+    from wirehouse.repo import parse_remote
+
+    gh = parse_remote("https://bot:ghp_SECRET123@github.com/acme/shop.git")
+    assert gh == {"provider": "github", "web": "https://github.com/acme/shop"}
+    assert parse_remote("git@github.com:acme/shop.git") == gh
+    assert parse_remote("ssh://git@gitlab.example.com:2222/team/sub/shop.git") == {"provider": "gitlab", "web": "https://gitlab.example.com/team/sub/shop"}
+    assert parse_remote("git@bitbucket.org:acme/shop.git")["provider"] == "bitbucket"
+    assert parse_remote("https://acme@dev.azure.com/acme/Shop/_git/shop-api") == {"provider": "azure", "web": "https://dev.azure.com/acme/Shop/_git/shop-api"}
+    assert parse_remote("git@ssh.dev.azure.com:v3/acme/Shop/shop-api") == {"provider": "azure", "web": "https://dev.azure.com/acme/Shop/_git/shop-api"}
+    assert parse_remote("git@github-work:acme/shop.git") is None        # ssh config alias: unknown host
+    assert parse_remote("https://git.internal.example/acme/shop") is None
+    assert parse_remote("") is None
+
+
+def test_repo_info_pins_commit_without_leaking_remote(tmp_path):
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        pytest.skip("git not installed")
+    (tmp_path / "svc").mkdir()
+    (tmp_path / "svc" / "main.py").write_text("print('hi')\n", encoding="utf-8")
+    (tmp_path / "svc" / "requirements.txt").write_text("fastapi\n", encoding="utf-8")
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)  # noqa: E731
+    run("init", "-q")
+    run("-c", "user.name=t", "-c", "user.email=t@example.com", "add", "-A")
+    run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init")
+    run("remote", "add", "origin", "https://bot:ghp_SECRET123@github.com/acme/shop.git")
+    (tmp_path / "svc" / "main.py").write_text("print('changed')\n", encoding="utf-8")
+    data = build_archmap(tmp_path / "svc", log=lambda *_: None)
+    repo = data["repo"]
+    assert repo["provider"] == "github" and repo["web"] == "https://github.com/acme/shop"
+    assert len(repo["revision"]) == 40 and repo["prefix"] == "svc"
+    assert repo["dirty"] == ["main.py"]
+    assert repo["pushed"] is False
+    assert "ghp_SECRET123" not in json.dumps(data)
+    assert "ghp_SECRET123" not in render_html(data)
