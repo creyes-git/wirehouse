@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wirehouse"
+version = "0.1.0"
+description = "Walk through your project's architecture as a 3D warehouse: services, APIs, databases, auth and the pipes between them, in one offline HTML file."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["pyyaml>=6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+wirehouse = "wirehouse.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wirehouse*"]
+
+[tool.setuptools.package-data]
+wirehouse = ["skill/SKILL.md", "render/*.html", "render/*.css", "render/*.js", "render/vendor/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

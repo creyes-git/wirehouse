@@ -1,0 +1,1988 @@
+/* Wirehouse viewer.
+ * Data: window.WIREHOUSE (archmap.json). Rendering: Three.js r149 (global THREE).
+ *
+ * The map is a tree of rooms. The main floor shows top-level blocks; walking
+ * into a block opens a room with its children. Edges are stored at file
+ * level and rolled up to whatever is visible: pipes between blocks in the
+ * room, and wall ports for connections that leave the room.
+ */
+(function () {
+  'use strict';
+
+  const D = window.WIREHOUSE;
+  const ROOT = '';
+
+  // ── small utilities ──────────────────────────────────────────────────────
+  const $ = (s) => document.querySelector(s);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('wirehouse:' + k); return v == null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('wirehouse:' + k, v); } catch (e) { /* storage blocked: fine */ } },
+  };
+  const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── model ────────────────────────────────────────────────────────────────
+  const N = new Map();
+  D.nodes.forEach((n) => N.set(n.id, n));
+  const KIDS = new Map();
+  D.nodes.forEach((n) => {
+    const p = n.parent || ROOT;
+    if (!KIDS.has(p)) KIDS.set(p, []);
+    KIDS.get(p).push(n.id);
+  });
+  const kidsOf = (id) => KIDS.get(id || ROOT) || [];
+  const enterable = (id) => kidsOf(id).length > 0;
+  const parentOf = (id) => (N.get(id) && N.get(id).parent) || ROOT;
+  function chain(id) { // leaf -> top
+    const out = [];
+    let c = id;
+    while (c) { out.push(c); c = N.get(c) ? N.get(c).parent : null; }
+    return out;
+  }
+  const EDGES = D.edges
+    .filter((e) => N.has(e.source) && N.has(e.target))
+    .map((e, i) => Object.assign({ i, sc: chain(e.source), tc: chain(e.target) }, e));
+
+  function childOf(ch, R) {
+    for (const x of ch) if (parentOf(x) === R) return x;
+    return null;
+  }
+  function outsideRep(ch, rset) {
+    for (let k = ch.length - 1; k >= 0; k--) if (!rset.has(ch[k])) return ch[k];
+    return null;
+  }
+
+  /** Roll every edge up to the children of room R. */
+  function roomLinks(R) {
+    const inner = new Map();
+    const ports = new Map();
+    const rset = new Set(R ? chain(R) : []);
+    const add = (map, key, base, e) => {
+      let L = map.get(key);
+      if (!L) { L = Object.assign({ kinds: new Set(), count: 0, edges: [] }, base); map.set(key, L); }
+      L.kinds.add(e.kind);
+      L.count += e.count || 1;
+      if (L.edges.length < 300) L.edges.push(e);
+      return L;
+    };
+    for (const e of EDGES) {
+      const a = childOf(e.sc, R);
+      const b = childOf(e.tc, R);
+      if (a && b) {
+        if (a !== b) add(inner, a + '>' + b, { a, b }, e);
+      } else if (R && (a || b || e.sc.includes(R) || e.tc.includes(R))) {
+        const insideIsSource = !!a || e.sc.includes(R);
+        const outer = insideIsSource ? e.tc : e.sc;
+        if (outer.includes(R)) continue; // both ends live inside this room
+        const rep = outsideRep(outer, rset);
+        if (!rep) continue;
+        const dir = insideIsSource ? 'out' : 'in';
+        const P = add(ports, rep + '|' + dir, { rep, dir, inners: new Map() }, e);
+        const innerId = insideIsSource ? a : b;
+        if (innerId) add(P.inners, innerId, { id: innerId }, e);
+      }
+    }
+    return { inner: [...inner.values()], ports: [...ports.values()] };
+  }
+
+  // ── vocabulary ───────────────────────────────────────────────────────────
+  const KIND_LABEL = {
+    user: 'People and clients', frontend: 'Web frontend', mobile: 'Mobile app', desktop: 'Desktop app',
+    gateway: 'Gateway', auth: 'Authentication', service: 'Backend service', worker: 'Worker or job',
+    function: 'Serverless function', library: 'Shared library', database: 'Database', cache: 'Cache',
+    queue: 'Queue', storage: 'File storage', search: 'Search index', external: 'Third-party API',
+    ai: 'AI provider', infra: 'Infrastructure', ci: 'CI/CD', observability: 'Observability', tests: 'Tests',
+    module: 'Folder', file: 'File', table: 'Table', resource: 'Infrastructure item',
+  };
+  const EDGE_LABEL = {
+    imports: 'imports code', calls: 'calls', data: 'reads and writes', auth: 'signs in with',
+    publishes: 'sends messages', depends_on: 'starts after', provisions: 'provisions', uses: 'uses',
+  };
+  const LANG = { typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', csharp: 'C#', sql: 'SQL', prisma: 'Prisma' };
+
+  // ── themes ───────────────────────────────────────────────────────────────
+  const THEMES = {
+    night: {
+      name: 'Night shift', bg: 0x070b16, fogNear: 45, fogFar: 190,
+      floor: 0x0a1020, floorAlt: 0x0d1529, paint: 0x2a4170, wall: 0x0c1426, wallLine: 0x2b4a80, beam: 0x16213b,
+      hemi: [0x5f7ab8, 0x05070d, 0.85], key: [0xffc888, 0.45], glow: true, shadows: false,
+      label: { bg: 'rgba(7,11,22,0.86)', ink: '#eef2f8', sub: '#93a0b8', edge: 'rgba(150,170,210,0.35)' },
+      paintText: 'rgba(110,140,200,0.16)', particle: 1.0,
+      kind: {
+        user: 0xd7dde8, frontend: 0x39c0f5, mobile: 0x39c0f5, desktop: 0x39c0f5, gateway: 0xa78bfa, auth: 0xf472b6,
+        service: 0x2dd4bf, worker: 0x4ade80, function: 0xa3e635, library: 0x94a3b8, tests: 0x7c8aa5,
+        database: 0xfbbf24, cache: 0xfb923c, queue: 0xf87171, storage: 0xe0a96d, search: 0xfacc15,
+        external: 0x818cf8, ai: 0xe879f9, infra: 0x9fb39a, ci: 0x9fb39a, observability: 0x9fb39a,
+        module: 0x8fa8d8, file: 0xa9b8d6, table: 0xfcd34d, resource: 0x9fb39a,
+      },
+      edge: { imports: 0x7d8aa6, calls: 0x39c0f5, data: 0xfbbf24, auth: 0xf472b6, publishes: 0xf87171, depends_on: 0x56637d, provisions: 0x9fb39a, uses: 0xa78bfa },
+    },
+    day: {
+      name: 'Day shift', bg: 0xdfe2e4, fogNear: 80, fogFar: 260,
+      floor: 0xa9a59c, floorAlt: 0xa19d94, paint: 0xe8b81e, wall: 0xc9ccce, wallLine: 0x6f7984, beam: 0x6d7780,
+      hemi: [0xf4f6f8, 0x6f6a60, 0.62], key: [0xfff6e8, 0.62], glow: false, shadows: true,
+      label: { bg: 'rgba(250,249,245,0.95)', ink: '#1b2330', sub: '#5a6474', edge: 'rgba(27,35,48,0.25)' },
+      paintText: 'rgba(60,64,72,0.10)', particle: 0.8,
+      kind: {
+        user: 0x5b6474, frontend: 0x2f80c0, mobile: 0x2f80c0, desktop: 0x2f80c0, gateway: 0x6d5bd0, auth: 0xc2417f,
+        service: 0x1f8c80, worker: 0x3c8d4e, function: 0x6f9a1f, library: 0x6b7686, tests: 0x7a8494,
+        database: 0xd08f12, cache: 0xd06a1f, queue: 0xc2453c, storage: 0xa77446, search: 0xb89410,
+        external: 0x4f5bd5, ai: 0xa63db8, infra: 0x5f7a5a, ci: 0x5f7a5a, observability: 0x5f7a5a,
+        module: 0xb98a55, file: 0xd9c9a8, table: 0xe0b44a, resource: 0x7f9a7a,
+      },
+      edge: { imports: 0x7c8594, calls: 0x2f80c0, data: 0xd08f12, auth: 0xc2417f, publishes: 0xc2453c, depends_on: 0x9aa2ad, provisions: 0x5f7a5a, uses: 0x6d5bd0 },
+    },
+  };
+  let themeId = store.get('theme', window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'day' : 'night');
+  if (!THEMES[themeId]) themeId = 'night';
+  let T = THEMES[themeId];
+  const kindHex = (k) => T.kind[k] != null ? T.kind[k] : T.kind.library;
+  const edgeHex = (k) => T.edge[k] != null ? T.edge[k] : T.edge.uses;
+  const css = (hex) => '#' + hex.toString(16).padStart(6, '0');
+
+  // ── layout ───────────────────────────────────────────────────────────────
+  const UNIT_KINDS = new Set(['service', 'worker', 'function', 'library', 'tests']);
+  const SHAPE = {
+    user: 'people', frontend: 'kiosk', mobile: 'kiosk', desktop: 'kiosk', gateway: 'arch', auth: 'gate',
+    service: 'container', worker: 'machine', function: 'container', library: 'stack', tests: 'container',
+    database: 'silo', search: 'silo', cache: 'pucks', queue: 'conveyor', storage: 'pallet',
+    external: 'dock', ai: 'dock', infra: 'cabinet', ci: 'cabinet', observability: 'cabinet',
+    module: 'crate', file: 'slot', table: 'slot', resource: 'slot',
+  };
+
+  function blockSize(n) {
+    const files = (n.stats && n.stats.files) || 0;
+    const shape = SHAPE[n.kind] || 'container';
+    if (shape === 'crate') {
+      const s = clamp(2.6 + Math.sqrt(files) * 0.3, 2.6, 5.6);
+      return { w: s, d: s, h: s * 0.78 };
+    }
+    if (shape === 'container' || shape === 'machine' || shape === 'stack') {
+      const s = clamp(4.2 + Math.sqrt(files) * 0.34, 4.6, 10);
+      return { w: s * 1.3, d: s * 0.72, h: 3.4 };
+    }
+    if (shape === 'kiosk') {
+      const s = clamp(4.2 + Math.sqrt(files) * 0.3, 4.6, 9);
+      return { w: s, d: s * 0.55, h: 4.4 };
+    }
+    if (shape === 'silo') {
+      const t = (n.stats && n.stats.children) || 0;
+      const s = clamp(3.8 + Math.sqrt(t) * 0.45, 3.8, 6.4);
+      return { w: s, d: s, h: 5.6 };
+    }
+    return {
+      pucks: { w: 3.6, d: 3.6, h: 2.6 }, conveyor: { w: 6.4, d: 2.4, h: 1.7 }, pallet: { w: 3.8, d: 3.8, h: 2.9 },
+      dock: { w: 5.4, d: 2.9, h: 2.9 }, arch: { w: 5.2, d: 1.8, h: 4.4 }, gate: { w: 5.2, d: 1.8, h: 4.4 },
+      cabinet: { w: enterable(n.id) ? 3.4 : 2.6, d: 1.8, h: 4.2 }, people: { w: 3.4, d: 2.6, h: 1.9 },
+    }[shape] || { w: 4, d: 3, h: 3 };
+  }
+
+  const ZONES = [
+    { id: 'clients', name: 'Clients', hint: 'Who starts a request' },
+    { id: 'edge', name: 'Gateway and auth', hint: 'How requests get in and who is allowed' },
+    { id: 'services', name: 'Services', hint: 'Your running code' },
+    { id: 'data', name: 'Data', hint: 'Where things are stored' },
+    { id: 'external', name: 'Loading dock', hint: 'Third-party providers' },
+  ];
+  const KIND_ORDER = ['user', 'frontend', 'mobile', 'desktop', 'gateway', 'auth', 'service', 'function', 'worker', 'library', 'tests',
+    'database', 'search', 'cache', 'queue', 'storage', 'ai', 'external', 'infra', 'ci', 'observability'];
+
+  function layoutRoot() {
+    const tops = kidsOf(ROOT).map((id) => N.get(id));
+    const byZone = {};
+    const ops = [];
+    for (const n of tops) {
+      const z = n.layer === 'ops' ? 'ops' : (ZONES.some((Z) => Z.id === n.layer) ? n.layer : 'services');
+      if (z === 'ops') ops.push(n); else (byZone[z] = byZone[z] || []).push(n);
+    }
+    const sortFn = (a, b) => (KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind)) || a.name.localeCompare(b.name);
+    const GAP = 4.5;
+    const rows = [];
+    for (const Z of ZONES) {
+      const list = (byZone[Z.id] || []).sort(sortFn);
+      if (!list.length && Z.id !== 'edge' && Z.id !== 'clients') continue;
+      const sizes = list.map(blockSize);
+      const width = sizes.reduce((s, b) => s + b.w, 0) + GAP * Math.max(0, list.length - 1);
+      const depth = Math.max(5, ...sizes.map((b) => b.d)) + 9;
+      rows.push({ Z, list, sizes, width, depth });
+    }
+    ops.sort(sortFn);
+    const opsSizes = ops.map(blockSize);
+    const opsW = ops.length ? Math.max(...opsSizes.map((s) => s.w)) + 7 : 0;
+    const mainW = Math.max(40, ...rows.map((r) => r.width + 14));
+    const W = mainW + opsW;
+    const ENTRY = 9;
+    const rowsDepth = rows.reduce((s, r) => s + r.depth, 0);
+    const opsDepth = opsSizes.reduce((s, b) => s + b.d + 4, 0) + 6;
+    const Dp = Math.max(rowsDepth + ENTRY + 4, opsDepth + ENTRY, 40);
+    const items = [];
+    const zones = [];
+    const x0 = -W / 2 + opsW;
+    const cx = x0 + mainW / 2;
+    let z = Dp / 2 - ENTRY;
+    for (const r of rows) {
+      const zc = z - r.depth / 2;
+      zones.push({ id: r.Z.id, name: r.Z.name, hint: r.Z.hint, x0, x1: W / 2, z0: z - r.depth, z1: z, empty: !r.list.length });
+      let x = cx - r.width / 2;
+      r.list.forEach((n, i) => {
+        const s = r.sizes[i];
+        items.push({ id: n.id, x: x + s.w / 2, z: zc, w: s.w, d: s.d, h: s.h, shape: SHAPE[n.kind] || 'container' });
+        x += s.w + GAP;
+      });
+      z -= r.depth;
+    }
+    if (ops.length) {
+      zones.push({ id: 'ops', name: 'Ops', hint: 'Build, deploy and watch', x0: -W / 2, x1: x0, z0: -Dp / 2, z1: Dp / 2 - ENTRY, empty: false, side: true });
+      let oz = Dp / 2 - ENTRY - 4;
+      ops.forEach((n, i) => {
+        const s = opsSizes[i];
+        items.push({ id: n.id, x: -W / 2 + opsW / 2, z: oz - s.d / 2, w: s.w, d: s.d, h: s.h, shape: SHAPE[n.kind] || 'cabinet' });
+        oz -= s.d + 4;
+      });
+    }
+    return { R: ROOT, W, D: Dp, items, zones, racks: [], ports: [], wallH: 11 };
+  }
+
+  const SLOT_W = 1.45, SLOT_COLS = 4, SLOT_LEVELS = 3, PER_RACK = SLOT_COLS * SLOT_LEVELS;
+
+  function layoutRoom(R) {
+    const kids = kidsOf(R).map((id) => N.get(id));
+    const crates = kids.filter((n) => enterable(n.id) || !['file', 'table', 'resource'].includes(n.kind)).sort((a, b) => a.name.localeCompare(b.name));
+    const leaves = kids.filter((n) => !crates.includes(n)).sort((a, b) => (a.test ? 1 : 0) - (b.test ? 1 : 0) || a.name.localeCompare(b.name));
+    const items = [];
+    const racks = [];
+    const sizes = crates.map(blockSize);
+    const cell = crates.length ? Math.max(...sizes.map((s) => Math.max(s.w, s.d))) + 3.6 : 0;
+    const cols = crates.length ? Math.max(1, Math.min(8, Math.ceil(Math.sqrt(crates.length * 1.8)))) : 0;
+    const crateRows = cols ? Math.ceil(crates.length / cols) : 0;
+    const nRacks = Math.ceil(leaves.length / PER_RACK);
+    const rackW = SLOT_COLS * SLOT_W + 0.5;
+    const rackCols = nRacks ? Math.max(1, Math.min(6, Math.ceil(Math.sqrt(nRacks * 2.2)))) : 0;
+    const rackRows = rackCols ? Math.ceil(nRacks / rackCols) : 0;
+    const RX = rackW + 2.6, RZ = 5.2;
+    const W = Math.max(28, cols * cell + 10, rackCols * RX + 10);
+    const ENTRY = 9;
+    const Dp = Math.max(24, ENTRY + crateRows * cell + (rackRows ? rackRows * RZ + 4 : 0) + 7);
+    let z = Dp / 2 - ENTRY;
+    crates.forEach((n, i) => {
+      const r = Math.floor(i / cols), c = i % cols;
+      const inRow = Math.min(cols, crates.length - r * cols);
+      const s = sizes[i];
+      items.push({ id: n.id, x: (c - (inRow - 1) / 2) * cell, z: z - r * cell - cell / 2, w: s.w, d: s.d, h: s.h, shape: SHAPE[n.kind] || 'crate' });
+    });
+    z -= crateRows * cell + (crateRows ? 2 : 0);
+    for (let k = 0; k < nRacks; k++) {
+      const r = Math.floor(k / rackCols), c = k % rackCols;
+      const inRow = Math.min(rackCols, nRacks - r * rackCols);
+      racks.push({ x: (c - (inRow - 1) / 2) * RX, z: z - r * RZ - RZ / 2, w: rackW, d: 1.5, h: SLOT_LEVELS * 1.2 + 0.4 });
+    }
+    leaves.forEach((n, i) => {
+      const rk = racks[Math.floor(i / PER_RACK)];
+      const j = i % PER_RACK;
+      const level = Math.floor(j / SLOT_COLS), col = j % SLOT_COLS;
+      items.push({ id: n.id, x: rk.x - rackW / 2 + 0.25 + SLOT_W * (col + 0.5), z: rk.z, y: 0.32 + level * 1.2, w: SLOT_W - 0.25, d: 1.1, h: 0.82, shape: 'slot', rack: rk });
+    });
+    return { R, W, D: Dp, items, zones: [], racks, ports: [], wallH: 8 };
+  }
+
+  function placePorts(L, ports) {
+    // Spread ports along the back wall, then down both side walls.
+    const out = [];
+    const backN = Math.min(ports.length, Math.max(1, Math.floor((L.W - 6) / 4.5)));
+    const sideN = ports.length - backN;
+    ports.forEach((p, i) => {
+      let x, z, ry;
+      if (i < backN) {
+        x = -L.W / 2 + 3 + (L.W - 6) * ((i + 0.5) / backN); z = -L.D / 2 + 0.25; ry = 0;
+      } else {
+        const k = i - backN, side = k % 2 ? 1 : -1, idx = Math.floor(k / 2), per = Math.ceil(sideN / 2);
+        x = side * (L.W / 2 - 0.25); z = -L.D / 2 + 4 + (L.D - 14) * ((idx + 0.5) / per); ry = -side * Math.PI / 2;
+      }
+      out.push(Object.assign({ x, z, y: 4.2, ry }, p));
+    });
+    return out;
+  }
+
+  // ── renderer / scene ─────────────────────────────────────────────────────
+  const stage = $('#stage');
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+  } catch (e) {
+    stage.innerHTML = '<p style="padding:90px 24px;max-width:60ch">This browser could not start WebGL, so the 3D warehouse cannot be shown. The floor plan still works: press Tab or choose Floor plan.</p>';
+  }
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 700);
+  const world = new THREE.Group();
+  scene.add(world);
+  if (renderer) {
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    stage.appendChild(renderer.domElement);
+    renderer.domElement.tabIndex = 0;
+  }
+
+  // material + geometry caches (cleared on theme change / room rebuild)
+  let MATS = new Map();
+  let GEOS = [];
+  function mat(hex, o) {
+    o = o || {};
+    const key = hex + '|' + JSON.stringify(o);
+    if (MATS.has(key)) return MATS.get(key);
+    let m;
+    if (o.basic) {
+      m = new THREE.MeshBasicMaterial({ color: hex, transparent: !!o.opacity, opacity: o.opacity == null ? 1 : o.opacity, side: o.double ? THREE.DoubleSide : THREE.FrontSide, depthWrite: o.opacity == null });
+    } else if (T.glow) {
+      const c = new THREE.Color(hex);
+      m = new THREE.MeshStandardMaterial({
+        color: c.clone().multiplyScalar(o.bright ? 0.55 : 0.22), emissive: c, emissiveIntensity: o.emissive != null ? o.emissive : 0.12,
+        roughness: 0.55, metalness: 0.25, transparent: !!o.opacity, opacity: o.opacity == null ? 1 : o.opacity,
+        side: o.double ? THREE.DoubleSide : THREE.FrontSide,
+      });
+    } else {
+      m = new THREE.MeshStandardMaterial({
+        color: hex, roughness: o.rough != null ? o.rough : 0.72, metalness: o.metal != null ? o.metal : 0.08,
+        emissive: o.emissive ? hex : 0x000000, emissiveIntensity: o.emissive || 0,
+        transparent: !!o.opacity, opacity: o.opacity == null ? 1 : o.opacity, side: o.double ? THREE.DoubleSide : THREE.FrontSide,
+      });
+    }
+    MATS.set(key, m);
+    return m;
+  }
+  function geo(g) { GEOS.push(g); return g; }
+  const lineMats = new Map();
+  function lineMat(hex, opacity) {
+    const key = hex + '|' + opacity;
+    if (!lineMats.has(key)) lineMats.set(key, new THREE.LineBasicMaterial({ color: hex, transparent: opacity < 1, opacity }));
+    return lineMats.get(key);
+  }
+
+  function mesh(g, m, x, y, z, parent) {
+    const me = new THREE.Mesh(geo(g), m);
+    me.position.set(x || 0, y || 0, z || 0);
+    if (T.shadows) { me.castShadow = true; me.receiveShadow = true; }
+    if (parent) parent.add(me);
+    return me;
+  }
+  function box(w, h, d, hex, x, y, z, parent, o) {
+    const m = mesh(new THREE.BoxGeometry(w, h, d), mat(hex, o), x, y + h / 2, z, parent);
+    if (T.glow && !(o && o.noEdges)) {
+      const edges = new THREE.LineSegments(geo(new THREE.EdgesGeometry(m.geometry)), lineMat(hex, o && o.edgeOpacity != null ? o.edgeOpacity : 0.9));
+      m.add(edges);
+    }
+    return m;
+  }
+
+  // text → canvas textures
+  const TEX = new Map();
+  let fontReady = false;
+  function textCanvas(lines, o) {
+    o = o || {};
+    const big = o.big || 46;
+    const pad = o.pad == null ? 16 : o.pad;
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    const fonts = lines.map((l, i) => `${i === 0 ? (o.weight || 600) : 500} ${i === 0 ? big : Math.round(big * 0.62)}px ${i === 0 ? '"Barlow Condensed"' : '"Barlow"'}, "Arial Narrow", sans-serif`);
+    let w = 0;
+    lines.forEach((l, i) => { ctx.font = fonts[i]; w = Math.max(w, ctx.measureText(l).width); });
+    const lh = lines.map((l, i) => (i === 0 ? big * 1.12 : big * 0.8));
+    c.width = Math.ceil(Math.min(w, 1400) + pad * 2);
+    c.height = Math.ceil(lh.reduce((a, b) => a + b, 0) + pad * 1.4);
+    if (o.bg !== false) {
+      ctx.fillStyle = o.bg || T.label.bg;
+      const r = 10;
+      ctx.beginPath();
+      ctx.moveTo(r, 0); ctx.arcTo(c.width, 0, c.width, c.height, r); ctx.arcTo(c.width, c.height, 0, c.height, r);
+      ctx.arcTo(0, c.height, 0, 0, r); ctx.arcTo(0, 0, c.width, 0, r); ctx.closePath(); ctx.fill();
+      if (o.stripe) { ctx.fillStyle = o.stripe; ctx.fillRect(0, 0, 7, c.height); }
+      ctx.strokeStyle = T.label.edge; ctx.lineWidth = 2; ctx.stroke();
+    }
+    let y = pad * 0.7;
+    lines.forEach((l, i) => {
+      ctx.font = fonts[i];
+      ctx.fillStyle = i === 0 ? (o.ink || T.label.ink) : (o.sub || T.label.sub);
+      ctx.textBaseline = 'top';
+      ctx.textAlign = o.align === 'left' ? 'left' : 'center';
+      const tx = o.align === 'left' ? pad + (o.stripe ? 6 : 0) : c.width / 2;
+      ctx.fillText(l, tx, y + (i === 0 ? big * 0.06 : 0));
+      y += lh[i];
+    });
+    return c;
+  }
+  function textTexture(lines, o) {
+    const key = JSON.stringify([lines, o, themeId]);
+    if (TEX.has(key)) return TEX.get(key);
+    const c = textCanvas(lines, o);
+    const t = new THREE.CanvasTexture(c);
+    t.encoding = THREE.sRGBEncoding;
+    t.anisotropy = 4;
+    t.userData = { aspect: c.width / c.height };
+    TEX.set(key, t);
+    return t;
+  }
+  function label(lines, height, o) {
+    const t = textTexture(lines, o);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false }));
+    sp.scale.set(height * t.userData.aspect, height, 1);
+    sp.center.set(0.5, 0);
+    sp.renderOrder = 5;
+    return sp;
+  }
+  function decal(lines, width, o) {
+    const t = textTexture(lines, o);
+    const h = width / t.userData.aspect;
+    const m = new THREE.Mesh(geo(new THREE.PlaneGeometry(width, h)), new THREE.MeshBasicMaterial({ map: t, transparent: true, depthWrite: false }));
+    return m;
+  }
+  function shortName(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+  // ── blocks ───────────────────────────────────────────────────────────────
+  const ANIM = [];   // per-frame animations for the current room
+  let PICK = [];     // meshes that can be clicked
+  let SPRITES = [];  // labels that fade with distance
+
+  function tagPick(obj, info) { obj.traverse((o) => { if (o.isMesh) { o.userData.pick = info; PICK.push(o); } }); }
+
+  function makeBlock(it) {
+    const n = N.get(it.id);
+    const g = new THREE.Group();
+    g.position.set(it.x, 0, it.z);
+    const col = kindHex(n.kind);
+    const { w, d, h } = it;
+    const S = it.shape;
+    if (S === 'container' || S === 'dock' || S === 'machine' || S === 'stack') {
+      if (S === 'stack') {
+        const bw = w / 2 - 0.15, bd = d / 2 - 0.1;
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz], i) => box(bw, h * (i % 2 ? 0.45 : 0.5), bd, col, sx * (bw / 2 + 0.07), 0, sz * (bd / 2 + 0.05), g));
+        box(bw, h * 0.42, bd, col, -bw / 2, h * 0.5, -bd / 2, g);
+      } else {
+        box(w, h, d, col, 0, 0, 0, g, { bright: S === 'dock' });
+        const ribs = Math.max(4, Math.floor(w / 0.9));
+        for (let i = 1; i < ribs; i++) {
+          const rx = -w / 2 + (w * i) / ribs;
+          box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, d / 2 + 0.03, g, { noEdges: true, emissive: 0.25, bright: true });
+          box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, -d / 2 - 0.03, g, { noEdges: true, emissive: 0.25, bright: true });
+        }
+        box(0.06, h * 0.9, d * 0.46, 0x1a1f28, w / 2 + 0.03, h * 0.05, -d * 0.24, g, { noEdges: true });
+        box(0.06, h * 0.9, d * 0.46, 0x1a1f28, w / 2 + 0.03, h * 0.05, d * 0.24, g, { noEdges: true });
+        const sign = decal([shortName(n.name, 22)], Math.min(w * 0.7, 6), { bg: false, ink: T.glow ? css(col) : '#ffffff', weight: 700, big: 64 });
+        sign.position.set(0, h * 0.55, d / 2 + 0.07);
+        g.add(sign);
+        if (S === 'machine') {
+          const gear = new THREE.Group();
+          mesh(new THREE.TorusGeometry(0.75, 0.22, 8, 18), mat(col, { bright: true, emissive: 0.4 }), 0, 0, 0, gear);
+          for (let k = 0; k < 8; k++) {
+            const tooth = mesh(new THREE.BoxGeometry(0.28, 0.42, 0.3), mat(col, { bright: true, emissive: 0.4 }), Math.cos(k * Math.PI / 4) * 1.0, Math.sin(k * Math.PI / 4) * 1.0, 0, gear);
+            tooth.rotation.z = k * Math.PI / 4;
+          }
+          gear.position.set(w * 0.25, h + 1.1, 0);
+          g.add(gear);
+          ANIM.push((t) => { gear.rotation.z = t * 0.9; });
+        }
+        if (n.kind === 'ai') {
+          const orb = mesh(new THREE.IcosahedronGeometry(0.7, 0), mat(col, { bright: true, emissive: 0.9 }), 0, h + 1.3, 0, g);
+          ANIM.push((t) => { orb.rotation.y = t * 0.8; orb.position.y = h + 1.3 + Math.sin(t * 2) * 0.15; });
+        }
+      }
+    } else if (S === 'kiosk') {
+      box(w, h * 0.22, d, col, 0, 0, 0, g);
+      box(w * 0.08, h * 0.35, 0.3, 0x2a2f3a, 0, h * 0.22, 0, g, { noEdges: true });
+      const scr = box(w * 0.96, h * 0.52, 0.28, col, 0, h * 0.46, 0, g);
+      const face = decal([shortName(n.name, 20), (n.tech || [])[0] || KIND_LABEL[n.kind]], w * 0.58, {
+        bg: T.glow ? 'rgba(10,30,50,0.9)' : 'rgba(240,248,255,0.95)', ink: T.glow ? '#bfefff' : '#1b2330', big: 60,
+      });
+      face.position.set(0, h * 0.72, 0.16);
+      g.add(face);
+      scr.material = mat(col, { bright: true });
+    } else if (S === 'silo') {
+      const r = Math.min(w, d) / 2 * 0.92;
+      mesh(new THREE.CylinderGeometry(r, r, h * 0.82, 28), mat(col), 0, h * 0.41, 0, g);
+      mesh(new THREE.SphereGeometry(r, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), mat(col), 0, h * 0.82, 0, g);
+      for (let k = 1; k <= 3; k++) {
+        const ring = mesh(new THREE.TorusGeometry(r + 0.04, 0.07, 6, 36), mat(col, { bright: true, emissive: 0.5 }), 0, (h * 0.82 * k) / 4, 0, g);
+        ring.rotation.x = Math.PI / 2;
+      }
+      const sign = decal([shortName(n.name, 20)], Math.min(r * 1.7, 4.6), { bg: T.glow ? 'rgba(7,11,22,0.75)' : 'rgba(255,255,255,0.9)', big: 58 });
+      sign.position.set(0, h * 0.5, r + 0.06);
+      g.add(sign);
+    } else if (S === 'pucks') {
+      for (let k = 0; k < 3; k++) mesh(new THREE.CylinderGeometry(w / 2 - k * 0.15, w / 2 - k * 0.15, 0.7, 24), mat(col, { bright: k % 2 === 1 }), 0, 0.4 + k * 0.85, 0, g);
+    } else if (S === 'conveyor') {
+      box(w, 0.25, d, 0x3a3f48, 0, 0.9, 0, g, { noEdges: true });
+      box(w, 0.9, 0.12, col, 0, 0, d / 2 - 0.06, g);
+      box(w, 0.9, 0.12, col, 0, 0, -d / 2 + 0.06, g);
+      const parcels = [];
+      for (let k = 0; k < 4; k++) parcels.push(box(0.8, 0.6, 0.9, col, 0, 1.15, 0, g, { bright: true }));
+      ANIM.push((t) => parcels.forEach((p, k) => { p.position.x = ((t * 0.8 + k / 4) % 1) * w - w / 2; }));
+    } else if (S === 'pallet') {
+      box(w, 0.3, d, 0x8a6a45, 0, 0, 0, g, { noEdges: true });
+      const pts = [[-0.9, -0.9, 1.4], [0.8, -0.8, 1.1], [-0.8, 0.9, 1.2], [0.9, 0.9, 1.6], [0, 0, 1.0]];
+      pts.forEach(([px, pz, s], i) => box(s, s * 0.8, s, col, px * (w / 4), 0.3 + (i === 4 ? 1.3 : 0), pz * (d / 4), g, { bright: i % 2 === 0 }));
+    } else if (S === 'arch' || S === 'gate') {
+      box(0.6, h, d, col, -w / 2 + 0.3, 0, 0, g);
+      box(0.6, h, d, col, w / 2 - 0.3, 0, 0, g);
+      box(w, 0.6, d, col, 0, h - 0.6, 0, g, { bright: true });
+      const bar = box(w - 1.4, 0.14, 0.14, 0xf2c230, 0, 1.1, 0, g, { emissive: 0.4 });
+      if (S === 'gate') {
+        const lock = new THREE.Group();
+        mesh(new THREE.BoxGeometry(1.0, 0.85, 0.4), mat(col, { bright: true, emissive: 0.45 }), 0, 0, 0, lock);
+        mesh(new THREE.TorusGeometry(0.33, 0.09, 8, 16, Math.PI), mat(col, { bright: true, emissive: 0.45 }), 0, 0.42, 0, lock);
+        lock.position.set(0, h + 0.7, 0);
+        g.add(lock);
+        ANIM.push((t) => { lock.rotation.y = Math.sin(t * 1.2) * 0.5; });
+      }
+      ANIM.push((t) => { bar.rotation.z = Math.max(0, Math.sin(t * 0.6)) * 0.9; });
+    } else if (S === 'cabinet') {
+      box(w, h, d, col, 0, 0, 0, g);
+      const leds = [];
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++) {
+        const led = mesh(new THREE.BoxGeometry(0.16, 0.08, 0.04), mat((r + c) % 3 ? 0x4ade80 : 0xfbbf24, { basic: true }), -w / 4 + c * (w / 4), h * 0.2 + r * (h * 0.11), d / 2 + 0.03, g);
+        leds.push(led);
+      }
+      ANIM.push((t) => leds.forEach((l, i) => { l.visible = Math.sin(t * 3 + i * 1.7) > -0.6; }));
+      const sign = decal([shortName(n.name, 16)], w * 0.86, { bg: false, ink: T.glow ? css(col) : '#ffffff', big: 60 });
+      sign.position.set(0, h * 0.9, d / 2 + 0.05);
+      g.add(sign);
+    } else if (S === 'people') {
+      box(w, 0.2, d, col, 0, 0, 0, g, { noEdges: true });
+      [[-0.9, 0.2, 1], [0.15, -0.35, 1.1], [1.0, 0.35, 0.95]].forEach(([px, pz, s]) => {
+        mesh(new THREE.CapsuleGeometry(0.28 * s, 0.7 * s, 4, 10), mat(col, { bright: true }), px, 0.2 + 0.63 * s, pz, g);
+        mesh(new THREE.SphereGeometry(0.24 * s, 14, 10), mat(col, { bright: true }), px, 0.2 + 1.38 * s, pz, g);
+      });
+    } else if (S === 'crate') {
+      const wood = T.glow ? col : 0xb98a55;
+      box(w, h, d, wood, 0, 0, 0, g);
+      if (!T.glow) {
+        for (let k = 1; k < 4; k++) box(w + 0.04, 0.06, d + 0.04, 0x8f6a3f, 0, (h * k) / 4, 0, g, { noEdges: true });
+        box(0.12, h, 0.12, 0x8f6a3f, -w / 2, 0, d / 2, g, { noEdges: true });
+        box(0.12, h, 0.12, 0x8f6a3f, w / 2, 0, d / 2, g, { noEdges: true });
+      }
+      const st = decal([shortName(n.name, 18)], w * 0.84, { bg: false, ink: T.glow ? '#cfe0ff' : '#2b2117', weight: 700, big: 70 });
+      st.position.set(0, h * 0.55, d / 2 + 0.03);
+      g.add(st);
+    } else {
+      box(w, h, d, col, 0, 0, 0, g);
+    }
+    if (enterable(n.id) && S !== 'slot') {
+      const door = box(Math.min(1.6, w * 0.4), Math.min(2.3, h * 0.75), 0.06, T.glow ? 0xffb23f : 0xf2c230, 0, 0, d / 2 + 0.06, g, { basic: true, opacity: 0.85, noEdges: true });
+      ANIM.push((t) => { door.material.opacity = 0.55 + Math.sin(t * 2.4) * 0.25; });
+    }
+    tagPick(g, { type: 'node', id: n.id });
+    world.add(g);
+    // floating label
+    const sub = n.kind === 'module' ? `${(n.stats && n.stats.files) || 0} files` : (KIND_LABEL[n.kind] || n.kind);
+    const lb = label([shortName(n.name, 28), sub], S === 'crate' ? 0.95 : 1.25, { stripe: css(col), align: 'left' });
+    lb.position.set(it.x, h + (S === 'machine' || n.kind === 'ai' || S === 'gate' ? 2.3 : 0.6), it.z);
+    world.add(lb);
+    SPRITES.push({ sp: lb, far: 70 });
+    return g;
+  }
+
+  function makeRack(rk) {
+    const g = new THREE.Group();
+    g.position.set(rk.x, 0, rk.z);
+    const steel = T.glow ? 0x3b5b94 : 0x2f6db5;
+    const beam = T.glow ? 0xffb23f : 0xf28c28;
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => box(0.1, rk.h, 0.1, steel, sx * (rk.w / 2), 0, sz * (rk.d / 2), g, { noEdges: true, emissive: 0.4 }));
+    for (let l = 0; l < SLOT_LEVELS; l++) {
+      box(rk.w, 0.07, rk.d, T.glow ? 0x121b30 : 0x9aa1a8, 0, 0.25 + l * 1.2, 0, g, { noEdges: true });
+      box(rk.w, 0.1, 0.08, beam, 0, 0.25 + l * 1.2, rk.d / 2, g, { noEdges: true, emissive: 0.4 });
+    }
+    world.add(g);
+  }
+
+  function makeSlot(it) {
+    const n = N.get(it.id);
+    const g = new THREE.Group();
+    g.position.set(it.x, it.y, it.z);
+    let col = kindHex(n.kind);
+    if (n.kind === 'file' && n.test) col = T.kind.tests;
+    if (n.kind === 'file' && !T.glow) col = n.test ? 0xbfc4ca : 0xc9a46e;
+    if (n.kind === 'table' && n.subkind === 'view') col = T.glow ? 0xfde68a : 0xe9cf86;
+    if (n.kind === 'resource') col = kindHex(n.subkind && T.kind[n.subkind] != null ? n.subkind : 'resource');
+    const h = n.kind === 'file' ? clamp(0.35 + Math.log2((n.lines || 10) + 1) * 0.06, 0.4, 0.9) : 0.75;
+    box(it.w, h, it.d, col, 0, 0, 0, g, { edgeOpacity: 0.7 });
+    if (n.endpoints && n.endpoints.length) box(it.w * 0.9, 0.08, 0.04, T.glow ? 0x39c0f5 : 0x2f80c0, 0, h * 0.7, it.d / 2 + 0.03, g, { basic: true, noEdges: true });
+    tagPick(g, { type: 'node', id: n.id });
+    world.add(g);
+    const lb = label([shortName(n.name, 26)], 0.34, { big: 40, pad: 10 });
+    lb.position.set(it.x, it.y + h + 0.05, it.z + 0.45);
+    world.add(lb);
+    SPRITES.push({ sp: lb, far: 13 });
+    it.h = h;
+  }
+
+  // ── room shell: floor, walls, zones, signage, lights ────────────────────
+  const SHELL = { walls: [], ceiling: [] };
+  function updateShell() {
+    const c = camera.position;
+    SHELL.walls.forEach((w) => {
+      const inside = (c.x - w.px) * w.nx + (c.z - w.pz) * w.nz > 0.3;
+      w.objs.forEach((o) => { o.visible = inside; });
+    });
+    const below = c.y < room.wallH - 0.6;
+    SHELL.ceiling.forEach((o) => { o.visible = below; });
+  }
+  function makeShell(L) {
+    const { W, D: Dp } = L;
+    const H = L.wallH;
+    scene.background = new THREE.Color(T.bg);
+    scene.fog = new THREE.Fog(T.bg, T.fogNear + Math.max(W, Dp) * 0.3, T.fogFar + Math.max(W, Dp));
+    // floor
+    const floor = mesh(new THREE.PlaneGeometry(W, Dp), mat(T.floor, { rough: 0.95 }), 0, 0, 0, world);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    floor.userData.floor = true;
+    // the yard outside, so stepping the camera out never shows a void
+    const yard = mesh(new THREE.PlaneGeometry(W + 260, Dp + 260), mat(T.glow ? 0x05080f : 0x8c887f, { rough: 1 }), 0, -0.03, 0, world);
+    yard.rotation.x = -Math.PI / 2;
+    yard.castShadow = false;
+    if (T.glow) {
+      const grid = new THREE.GridHelper(Math.max(W, Dp), Math.round(Math.max(W, Dp) / 3), 0x14203d, 0x0e1730);
+      grid.position.y = 0.01;
+      grid.scale.set(W / Math.max(W, Dp), 1, Dp / Math.max(W, Dp));
+      world.add(grid);
+    }
+    // zones
+    L.zones.forEach((Z, i) => {
+      const zw = Z.x1 - Z.x0, zd = Z.z1 - Z.z0;
+      const pl = mesh(new THREE.PlaneGeometry(zw - 1, zd - 1), mat(i % 2 ? T.floorAlt : T.floor, { rough: 0.95 }), (Z.x0 + Z.x1) / 2, 0.005, (Z.z0 + Z.z1) / 2, world);
+      pl.rotation.x = -Math.PI / 2;
+      pl.receiveShadow = true;
+      // painted boundary lines
+      const lineCol = T.paint;
+      [[zw - 1, 0.18, (Z.x0 + Z.x1) / 2, Z.z1 - 0.5], [zw - 1, 0.18, (Z.x0 + Z.x1) / 2, Z.z0 + 0.5]].forEach(([lw, lt, lx, lz]) => {
+        const s = mesh(new THREE.PlaneGeometry(lw, lt), mat(lineCol, { basic: true }), lx, 0.02, lz, world);
+        s.rotation.x = -Math.PI / 2;
+      });
+      // floor lettering
+      const txt = Z.empty ? (Z.id === 'edge' ? 'No gateway or auth found' : 'Nothing here yet') : Z.name;
+      const floorText = decal([txt], Math.min(zw * 0.45, Z.side ? zw * 0.8 : 22), { bg: false, ink: T.paintText, weight: 700, big: 90 });
+      floorText.rotation.x = -Math.PI / 2;
+      if (Z.side) { floorText.rotation.z = Math.PI / 2; floorText.position.set((Z.x0 + Z.x1) / 2, 0.03, Z.z1 - 8); }
+      else floorText.position.set(Z.x0 + Math.min(zw * 0.45, 22) / 2 + 2, 0.03, Z.z1 - 2.2);
+      world.add(floorText);
+      // hanging sign
+      if (!Z.side) {
+        const sign = decal([Z.name, Z.empty && Z.id === 'edge' ? 'Requests reach the services directly' : Z.hint], 8, {
+          bg: T.glow ? 'rgba(10,16,32,0.92)' : 'rgba(255,255,255,0.96)', stripe: T.glow ? '#ffb23f' : '#f2c230', align: 'left', big: 64,
+        });
+        sign.position.set(Z.x1 - 7, H - 2.2, (Z.z0 + Z.z1) / 2);
+        world.add(sign);
+        [-3, 3].forEach((dx) => box(0.03, 2.2 - (sign.geometry.parameters.height / 2), 0.03, T.beam, Z.x1 - 7 + dx, H - 2.2 + sign.geometry.parameters.height / 2, (Z.z0 + Z.z1) / 2, world, { noEdges: true }));
+      }
+    });
+    // walls (front wall has a doorway)
+    const wallM = mat(T.wall, { rough: 0.9, opacity: T.glow ? 0.92 : null });
+    const t = 0.4, gap = 4.4;
+    const walls = [
+      [W, H, t, 0, -Dp / 2], [t, H, Dp, -W / 2, 0], [t, H, Dp, W / 2, 0],
+      [(W - gap) / 2, H, t, -(W + gap) / 4, Dp / 2], [(W - gap) / 2, H, t, (W + gap) / 4, Dp / 2],
+    ];
+    // Each wall remembers which side is "inside" so the camera can see through
+    // the walls it is standing behind.
+    SHELL.walls = [
+      { nx: 0, nz: 1, px: 0, pz: -Dp / 2, objs: [] }, { nx: 1, nz: 0, px: -W / 2, pz: 0, objs: [] },
+      { nx: -1, nz: 0, px: W / 2, pz: 0, objs: [] }, { nx: 0, nz: -1, px: 0, pz: Dp / 2, objs: [] },
+    ];
+    walls.forEach(([ww, wh, wd, wx, wz], i) => {
+      const side = SHELL.walls[Math.min(i, 3)];
+      const m = mesh(new THREE.BoxGeometry(ww, wh, wd), wallM, wx, wh / 2, wz, world);
+      m.castShadow = false;
+      side.objs.push(m);
+      const trim = T.glow
+        ? mesh(new THREE.BoxGeometry(ww, 0.08, wd + 0.02), mat(T.wallLine, { basic: true }), wx, wh, wz, world)
+        : mesh(new THREE.BoxGeometry(ww + 0.02, 0.5, wd + 0.02), mat(0x3a3f47), wx, 0.25, wz, world);
+      trim.castShadow = false;
+      side.objs.push(trim);
+    });
+    const lintel = box(gap + 0.6, 0.5, t + 0.1, T.glow ? 0xffb23f : 0xf2c230, 0, 3.6, Dp / 2, world, { emissive: 0.5 });
+    lintel.castShadow = false;
+    SHELL.walls[3].objs.push(lintel);
+    // door sign
+    const parentName = L.R ? (parentOf(L.R) ? N.get(parentOf(L.R)).name : 'the main floor') : null;
+    const dsign = decal([L.R ? `Exit to ${parentName}` : `${D.project.name}`, L.R ? 'Walk through or press Q' : 'Wirehouse'], 6, {
+      bg: T.glow ? 'rgba(10,16,32,0.95)' : 'rgba(255,255,255,0.97)', stripe: T.glow ? '#ffb23f' : '#f2c230', align: 'left', big: 60,
+    });
+    dsign.position.set(0, 5.2, Dp / 2 - 0.25);
+    dsign.rotation.y = Math.PI;
+    world.add(dsign);
+    SHELL.walls[3].objs.push(dsign);
+    SHELL.ceiling = [];
+    // ceiling beams
+    for (let z = -Dp / 2 + 4; z < Dp / 2; z += 9) {
+      const b = box(W, 0.45, 0.35, T.beam, 0, H - 0.2, z, world, { noEdges: true });
+      b.castShadow = false;
+      SHELL.ceiling.push(b);
+      if (!T.glow) {
+        for (let x = -W / 2 + 8; x < W / 2 - 4; x += 14) {
+          const lamp = mesh(new THREE.CylinderGeometry(0.7, 0.9, 0.25, 16), mat(0xfff8e6, { basic: true }), x, H - 0.75, z, world);
+          lamp.castShadow = false;
+          SHELL.ceiling.push(lamp);
+        }
+      } else {
+        const strip = mesh(new THREE.BoxGeometry(W * 0.9, 0.05, 0.12), mat(0xffc888, { basic: true }), 0, H - 0.45, z, world);
+        strip.castShadow = false;
+        SHELL.ceiling.push(strip);
+      }
+    }
+    // lights
+    const hemi = new THREE.HemisphereLight(T.hemi[0], T.hemi[1], T.hemi[2]);
+    world.add(hemi);
+    const key = new THREE.DirectionalLight(T.key[0], T.key[1]);
+    key.position.set(W * 0.25, 40, Dp * 0.35);
+    if (T.shadows) {
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      const s = Math.max(W, Dp) * 0.6;
+      Object.assign(key.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 140 });
+      key.shadow.bias = -0.0005;
+    }
+    world.add(key);
+    world.add(key.target);
+  }
+
+  // ── pipes and particles ──────────────────────────────────────────────────
+  let LINKS = [];
+  let particles = null;
+  const PART = [];
+  const tmpM = new THREE.Matrix4();
+  const tmpV = new THREE.Vector3();
+  const tmpQ = new THREE.Quaternion();
+  const tmpS = new THREE.Vector3();
+
+  function anchorOf(it) {
+    if (!it) return null;
+    if (it.shape === 'slot') return new THREE.Vector3(it.x, it.y + it.h + 0.05, it.z);
+    return new THREE.Vector3(it.x, it.h * (it.shape === 'silo' ? 0.95 : 0.85), it.z);
+  }
+
+  function pipeCurve(A, B, lift) {
+    const dist = A.distanceTo(B);
+    const top = Math.max(A.y, B.y) + 2.2 + Math.min(dist * 0.14, 7) + (lift || 0);
+    return new THREE.CubicBezierCurve3(A, new THREE.Vector3(A.x, top, A.z), new THREE.Vector3(B.x, top, B.z), B);
+  }
+
+  function linkKind(kinds) {
+    const order = ['auth', 'data', 'publishes', 'calls', 'provisions', 'uses', 'imports', 'depends_on'];
+    for (const k of order) if (kinds.has(k)) return k;
+    return [...kinds][0] || 'uses';
+  }
+
+  function makePipe(L, A, B, info, lift) {
+    const curve = pipeCurve(A, B, lift);
+    const k = linkKind(info.kinds);
+    const radius = clamp(0.05 + Math.log2(info.count + 1) * 0.025, 0.05, 0.2) * (k === 'imports' ? 0.75 : 1);
+    const m = new THREE.MeshBasicMaterial({ color: edgeHex(k), transparent: true, opacity: 0.6, depthWrite: false });
+    const tube = new THREE.Mesh(geo(new THREE.TubeGeometry(curve, 40, radius, 6, false)), m);
+    tube.renderOrder = 2;
+    tube.userData.pick = Object.assign({ type: 'link' }, info);
+    PICK.push(tube);
+    world.add(tube);
+    const samples = curve.getSpacedPoints(64);
+    const link = { tube, mat: m, kind: k, samples, len: curve.getLength(), info, active: true };
+    LINKS.push(link);
+    const nParticles = clamp(Math.round(1 + Math.log2(info.count + 1) * 1.2), 1, 6);
+    for (let p = 0; p < nParticles; p++) PART.push({ link, t0: p / nParticles, speed: k === 'imports' ? 2.2 : 4.5 });
+    return link;
+  }
+
+  function buildParticles() {
+    if (!PART.length) return;
+    const g = geo(new THREE.SphereGeometry(0.11, 8, 6));
+    const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 * T.particle, depthWrite: false });
+    particles = new THREE.InstancedMesh(g, m, PART.length);
+    particles.frustumCulled = false;
+    particles.renderOrder = 3;
+    const c = new THREE.Color();
+    PART.forEach((p, i) => {
+      c.setHex(edgeHex(p.link.kind));
+      if (T.glow) c.lerp(new THREE.Color(0xffffff), 0.35);
+      particles.setColorAt(i, c);
+    });
+    world.add(particles);
+  }
+
+  function updateParticles(time) {
+    if (!particles) return;
+    PART.forEach((p, i) => {
+      const L = p.link;
+      if (!L.active) {
+        tmpS.set(0, 0, 0);
+      } else {
+        const f = (((p.t0 + (time * p.speed) / Math.max(L.len, 1)) % 1) + 1) % 1;
+        const x = f * 64, k = Math.floor(x), r = x - k;
+        const a = L.samples[k], b = L.samples[Math.min(k + 1, 64)];
+        tmpV.set(a.x + (b.x - a.x) * r, a.y + (b.y - a.y) * r, a.z + (b.z - a.z) * r);
+        const s = L.focus ? 1.5 : 1;
+        tmpS.set(s, s, s);
+      }
+      tmpM.compose(tmpV, tmpQ, tmpS);
+      particles.setMatrixAt(i, tmpM);
+    });
+    particles.instanceMatrix.needsUpdate = true;
+  }
+
+  function makePortMesh(p) {
+    const rep = N.get(p.rep);
+    const g = new THREE.Group();
+    g.position.set(p.x, p.y, p.z);
+    g.rotation.y = p.ry;
+    const col = kindHex(rep.kind);
+    box(2.6, 1.7, 0.25, T.glow ? 0x121b30 : 0x4a525d, 0, -0.85, 0, g, { noEdges: true });
+    box(2.6, 0.14, 0.3, col, 0, 0.78, 0, g, { emissive: 0.6, noEdges: true });
+    const plate = decal([shortName(rep.name, 18), p.dir === 'out' ? 'Goes out to' : 'Comes in from'], 2.4, {
+      bg: T.glow ? 'rgba(8,12,24,0.95)' : 'rgba(255,255,255,0.96)', stripe: css(col), align: 'left', big: 56,
+    });
+    plate.position.set(0, -0.15, 0.14);
+    g.add(plate);
+    const hatch = mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 18), mat(col, { bright: true, emissive: 0.5 }), 0, -1.1, 0.2, g);
+    hatch.rotation.x = Math.PI / 2;
+    tagPick(g, { type: 'port', id: p.rep, port: p });
+    world.add(g);
+    // pipe anchor = hatch centre in world space
+    const v = new THREE.Vector3(0, -1.1, 0.35);
+    g.updateMatrixWorld();
+    return g.localToWorld(v);
+  }
+
+  // ── avatar: worker in a hard hat ─────────────────────────────────────────
+  let worker = null;
+  const W8 = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), vy: 0, yaw: 0, phase: 0, moving: 0 };
+
+  function buildWorker() {
+    if (worker) scene.remove(worker.root);
+    const root = new THREE.Group();
+    const skin = new THREE.MeshStandardMaterial({ color: 0xd9a77e, roughness: 0.8 });
+    const pants = new THREE.MeshStandardMaterial({ color: 0x2c3e66, roughness: 0.85 });
+    const shirt = new THREE.MeshStandardMaterial({ color: 0x5a6a80, roughness: 0.85 });
+    const vest = new THREE.MeshStandardMaterial({ color: 0xff7a1a, roughness: 0.6, emissive: 0xff7a1a, emissiveIntensity: T.glow ? 0.35 : 0.05 });
+    const reflect = new THREE.MeshStandardMaterial({ color: 0xe8edf2, emissive: 0xe8edf2, emissiveIntensity: T.glow ? 0.9 : 0.15 });
+    const hat = new THREE.MeshStandardMaterial({ color: 0xffc400, roughness: 0.4, emissive: 0xffc400, emissiveIntensity: T.glow ? 0.25 : 0 });
+    const boot = new THREE.MeshStandardMaterial({ color: 0x3b2a1e, roughness: 0.9 });
+    const part = (g, m, x, y, z, p) => { const me = new THREE.Mesh(g, m); me.position.set(x, y, z); me.castShadow = T.shadows; p.add(me); return me; };
+    const body = new THREE.Group();
+    root.add(body);
+    const legs = [-1, 1].map((s) => {
+      const hip = new THREE.Group();
+      hip.position.set(s * 0.15, 0.92, 0);
+      part(new THREE.BoxGeometry(0.22, 0.78, 0.24), pants, 0, -0.4, 0, hip);
+      part(new THREE.BoxGeometry(0.24, 0.16, 0.36), boot, 0, -0.84, 0.05, hip);
+      body.add(hip);
+      return hip;
+    });
+    part(new THREE.BoxGeometry(0.56, 0.62, 0.3), shirt, 0, 1.24, 0, body);
+    part(new THREE.BoxGeometry(0.6, 0.5, 0.34), vest, 0, 1.27, 0, body);
+    part(new THREE.BoxGeometry(0.61, 0.06, 0.35), reflect, 0, 1.18, 0, body);
+    part(new THREE.BoxGeometry(0.61, 0.06, 0.35), reflect, 0, 1.36, 0, body);
+    const arms = [-1, 1].map((s) => {
+      const sh = new THREE.Group();
+      sh.position.set(s * 0.38, 1.5, 0);
+      part(new THREE.BoxGeometry(0.16, 0.56, 0.18), shirt, 0, -0.27, 0, sh);
+      part(new THREE.SphereGeometry(0.09, 10, 8), skin, 0, -0.6, 0, sh);
+      body.add(sh);
+      return sh;
+    });
+    // clipboard in the left hand: this worker is taking inventory
+    part(new THREE.BoxGeometry(0.03, 0.34, 0.26), new THREE.MeshStandardMaterial({ color: 0x8a6a45 }), 0.07, -0.62, 0.1, arms[0]);
+    part(new THREE.BoxGeometry(0.035, 0.28, 0.2), new THREE.MeshStandardMaterial({ color: 0xf4f4f0 }), 0.08, -0.6, 0.1, arms[0]);
+    part(new THREE.CylinderGeometry(0.08, 0.09, 0.1, 10), skin, 0, 1.6, 0, body);
+    const head = part(new THREE.SphereGeometry(0.2, 18, 14), skin, 0, 1.82, 0, body);
+    part(new THREE.SphereGeometry(0.235, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), hat, 0, 1.86, 0, body);
+    part(new THREE.CylinderGeometry(0.32, 0.32, 0.03, 20), hat, 0, 1.86, 0.03, body);
+    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), -0.07, 1.84, 0.18, body);
+    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), 0.07, 1.84, 0.18, body);
+    // a soft spot of light that follows the worker on the night shift
+    let lamp = null;
+    if (T.glow) {
+      lamp = new THREE.PointLight(0xffd9a0, 0.9, 14, 2);
+      lamp.position.set(0, 3.2, 0.4);
+      root.add(lamp);
+    }
+    scene.add(root);
+    worker = { root, body, legs, arms, head };
+  }
+
+  function animateWorker(dt, time) {
+    const w = worker;
+    const speed = Math.hypot(W8.vel.x, W8.vel.z);
+    W8.moving += ((speed > 0.3 ? 1 : 0) - W8.moving) * Math.min(1, dt * 10);
+    W8.phase += dt * (speed * 1.45);
+    const swing = Math.sin(W8.phase) * 0.75 * W8.moving;
+    w.legs[0].rotation.x = swing;
+    w.legs[1].rotation.x = -swing;
+    w.arms[0].rotation.x = -swing * 0.8 - 0.25 * (1 - W8.moving);
+    w.arms[1].rotation.x = swing * 0.8;
+    w.body.position.y = Math.abs(Math.sin(W8.phase)) * 0.06 * W8.moving + (1 - W8.moving) * Math.sin(time * 1.8) * 0.01;
+    w.root.position.copy(W8.pos);
+    let dy = W8.yaw - w.root.rotation.y;
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    w.root.rotation.y += dy * Math.min(1, dt * 12);
+  }
+
+  // ── room state ───────────────────────────────────────────────────────────
+  let room = null;          // current layout
+  let itemsById = new Map();
+  let OBST = [];
+  let selected = null;      // {type, id} or link info
+  let hovered = null;
+  let selBox = null, hovBox = null;
+
+  function clearWorld() {
+    const shared = new Set(MATS.values());
+    world.traverse((o) => {
+      // Textures are cached by text, so only the per-object materials go.
+      if ((o.isSprite || o.isMesh) && o.material && !shared.has(o.material)) o.material.dispose();
+    });
+    GEOS.forEach((g) => g.dispose());
+    GEOS = [];
+    while (world.children.length) world.remove(world.children[0]);
+    ANIM.length = 0;
+    PICK = [];
+    SPRITES = [];
+    LINKS = [];
+    PART.length = 0;
+    if (particles) { particles.dispose && particles.dispose(); particles = null; }
+    selBox = hovBox = null;
+  }
+
+  function buildRoom(R) {
+    clearWorld();
+    room = R ? layoutRoom(R) : layoutRoot();
+    itemsById = new Map(room.items.map((it) => [it.id, it]));
+    makeShell(room);
+    room.racks.forEach(makeRack);
+    room.items.forEach((it) => (it.shape === 'slot' ? makeSlot(it) : makeBlock(it)));
+    OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2 }))
+      .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2 })));
+    const { inner, ports } = roomLinks(R);
+    room.links = inner;
+    const pairCount = new Map();
+    inner.forEach((Lk) => {
+      const A = anchorOf(itemsById.get(Lk.a)), B = anchorOf(itemsById.get(Lk.b));
+      if (!A || !B) return;
+      const pk = [Lk.a, Lk.b].sort().join('|');
+      const n = pairCount.get(pk) || 0;
+      pairCount.set(pk, n + 1);
+      makePipe(room, A, B, Lk, n * 1.1);
+    });
+    room.ports = placePorts(room, ports.sort((a, b) => b.count - a.count).slice(0, 40));
+    room.ports.forEach((p) => {
+      const P = makePortMesh(p);
+      p.anchor = P;
+      p.inners.forEach((info) => {
+        const it = itemsById.get(info.id);
+        const B = anchorOf(it);
+        if (!B) return;
+        const A = p.dir === 'out' ? B : P;
+        const Bv = p.dir === 'out' ? P : B;
+        makePipe(room, A, Bv, Object.assign({ a: p.dir === 'out' ? info.id : p.rep, b: p.dir === 'out' ? p.rep : info.id, port: p }, info), 0.6);
+      });
+    });
+    buildParticles();
+    if (T.shadows) renderer && (renderer.shadowMap.enabled = true);
+    else renderer && (renderer.shadowMap.enabled = false);
+    applyFocus();
+    drawCrumbs();
+    if (planOn) drawPlan();
+  }
+
+  // ── focus and highlight ──────────────────────────────────────────────────
+  function focusNodeId() {
+    const h = hovered && hovered.type !== 'link' ? hovered.id : null;
+    const s = selected && selected.type !== 'link' ? selected.id : null;
+    return h || s;
+  }
+  function boundsOf(id) {
+    const it = itemsById.get(id);
+    if (it) {
+      const y0 = it.shape === 'slot' ? it.y : 0;
+      return new THREE.Box3(new THREE.Vector3(it.x - it.w / 2 - 0.15, y0 - 0.05, it.z - it.d / 2 - 0.15), new THREE.Vector3(it.x + it.w / 2 + 0.15, y0 + it.h + 0.15, it.z + it.d / 2 + 0.15));
+    }
+    const p = room && room.ports.find((q) => q.rep === id);
+    if (p) return new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(p.x, p.y - 0.4, p.z), new THREE.Vector3(Math.abs(Math.cos(p.ry)) * 2.8 + 0.4, 2.2, Math.abs(Math.sin(p.ry)) * 2.8 + 0.4));
+    return null;
+  }
+  function setBox(which, id, color) {
+    const old = which === 'sel' ? selBox : hovBox;
+    if (old) { world.remove(old); old.geometry.dispose(); }
+    let b = null;
+    const bounds = id ? boundsOf(id) : null;
+    if (bounds) {
+      b = new THREE.Box3Helper(bounds, color);
+      b.material.depthTest = false;
+      b.renderOrder = 9;
+      world.add(b);
+    }
+    if (which === 'sel') selBox = b; else hovBox = b;
+  }
+  function applyFocus() {
+    const f = focusNodeId();
+    const visible = f && (itemsById.has(f) || (room && room.ports.some((p) => p.rep === f)));
+    const selLink = selected && selected.type === 'link' ? selected.info : null;
+    // Busy rooms start quieter; selecting something brings its pipes forward.
+    const base = (T.glow ? 0.55 : 0.72) * clamp(40 / Math.max(LINKS.length, 1), 0.35, 1);
+    LINKS.forEach((L) => {
+      let on = true, strong = false;
+      if (selLink) { on = L.info === selLink; strong = on; }
+      else if (visible) { on = L.info.a === f || L.info.b === f; strong = on; }
+      L.active = on;
+      L.focus = strong;
+      L.mat.opacity = strong ? 0.98 : on ? base : 0.06;
+    });
+    setBox('sel', selected && selected.type !== 'link' ? selected.id : null, T.glow ? 0xffb23f : 0x1f6fd1);
+    setBox('hov', hovered && hovered.type !== 'link' && (!selected || hovered.id !== selected.id) ? hovered.id : null, T.glow ? 0x9fb3d9 : 0x5a6474);
+    if (planOn) planFocus();
+  }
+
+  // ── camera, input, movement ──────────────────────────────────────────────
+  const cam = { yaw: 0, pitch: 0.5, dist: 17, target: new THREE.Vector3(), follow: false };
+  const keys = new Set();
+  const canvas = renderer ? renderer.domElement : null;
+  const ptr = { x: 0, y: 0, down: false, sx: 0, sy: 0, drag: false, moved: false };
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  function pickAt(cx, cy) {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(PICK, false);
+    for (const h of hits) {
+      const info = h.object.userData.pick;
+      if (!info) continue;
+      if (info.type === 'link') {
+        const L = LINKS.find((x) => x.tube === h.object);
+        if (L && !L.active) continue;
+      }
+      return { info, point: h.point };
+    }
+    const p = new THREE.Vector3();
+    return raycaster.ray.intersectPlane(floorPlane, p) ? { info: null, point: p } : null;
+  }
+
+  if (canvas) {
+    canvas.addEventListener('pointerdown', (e) => {
+      ptr.down = true; ptr.drag = false; ptr.sx = e.clientX; ptr.sy = e.clientY; ptr.x = e.clientX; ptr.y = e.clientY;
+      canvas.setPointerCapture(e.pointerId);
+      canvas.focus({ preventScroll: true });
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
+      ptr.x = e.clientX; ptr.y = e.clientY; ptr.moved = true;
+      if (!ptr.down) return;
+      if (!ptr.drag && Math.hypot(e.clientX - ptr.sx, e.clientY - ptr.sy) > 5) { ptr.drag = true; canvas.classList.add('dragging'); }
+      if (ptr.drag) {
+        cam.yaw -= dx * 0.0055;
+        cam.pitch = clamp(cam.pitch + dy * 0.004, 0.05, 1.35);
+        cam.follow = false;
+      }
+    });
+    canvas.addEventListener('pointerup', (e) => {
+      canvas.classList.remove('dragging');
+      if (ptr.down && !ptr.drag) onClick(e.clientX, e.clientY);
+      ptr.down = false;
+    });
+    canvas.addEventListener('pointerleave', () => { if (hovered) { hovered = null; applyFocus(); } $('#tooltip').hidden = true; });
+    canvas.addEventListener('dblclick', (e) => {
+      const hit = pickAt(e.clientX, e.clientY);
+      if (hit && hit.info && hit.info.type === 'node' && enterable(hit.info.id)) enterBlock(hit.info.id);
+      else if (hit && hit.info && hit.info.type === 'port') focusNode(hit.info.id);
+    });
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      cam.dist = clamp(cam.dist * (1 + e.deltaY * 0.0011), 3.2, 70);
+    }, { passive: false });
+  }
+
+  function onClick(cx, cy) {
+    const hit = pickAt(cx, cy);
+    if (!hit) return;
+    if (hit.info) {
+      if (hit.info.type === 'link') selectLink(hit.info);
+      else if (hit.info.type === 'port') select(hit.info.id, { port: hit.info.port });
+      else if (selected && selected.id === hit.info.id) travelTo(hit.info.id);
+      else select(hit.info.id);
+    } else {
+      travelToPoint(hit.point.x, hit.point.z);
+    }
+  }
+
+  function typing(e) { const t = e.target; return t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'); }
+  window.addEventListener('keydown', (e) => {
+    if (typing(e)) return;
+    if (!$('#welcome').hidden) { if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') { e.preventDefault(); closeWelcome(); } return; }
+    const k = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) {
+      if (planOn) return;
+      keys.add(k);
+      if (k.startsWith('arrow')) e.preventDefault();
+      return;
+    }
+    if (k === ' ') { e.preventDefault(); if (W8.pos.y <= 0.001) W8.vy = 6.5; return; }
+    if (k === '/' || (k === 'k' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); $('#search').focus(); $('#search').select(); return; }
+    if (k === 'tab') { e.preventDefault(); setPlan(!planOn); return; }
+    if (k === 'e' || (k === 'enter' && e.target === canvas)) { interact(); return; }
+    if (k === 'q' || (k === 'backspace' && !e.target.closest('button'))) { e.preventDefault(); exitRoom(); return; }
+    if (k === 't') { setTheme(themeId === 'night' ? 'day' : 'night'); return; }
+    if (k === 'h' || k === '?') { openWelcome(); return; }
+    if (k === 'f' && selected && selected.type !== 'link') { travelTo(selected.id); return; }
+    if (k === 'escape') { if (W8.path) W8.path = null; else closePanel(); }
+  });
+  window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+  window.addEventListener('blur', () => keys.clear());
+
+  function collide(p) {
+    const r = 0.42;
+    for (let pass = 0; pass < 2; pass++) for (const o of OBST) {
+      const cx = clamp(p.x, o.x0, o.x1), cz = clamp(p.z, o.z0, o.z1);
+      const dx = p.x - cx, dz = p.z - cz, d2 = dx * dx + dz * dz;
+      if (d2 >= r * r) continue;
+      if (d2 > 1e-8) { const d = Math.sqrt(d2); p.x = cx + (dx / d) * r; p.z = cz + (dz / d) * r; }
+      else {
+        const opts = [[p.x - o.x0 + r, -1, 0], [o.x1 - p.x + r, 1, 0], [p.z - o.z0 + r, 0, -1], [o.z1 - p.z + r, 0, 1]].sort((a, b) => a[0] - b[0]);
+        p.x += opts[0][1] * opts[0][0]; p.z += opts[0][2] * opts[0][0];
+      }
+    }
+    const hw = room.W / 2 - 0.65, hd = room.D / 2 - 0.65;
+    p.x = clamp(p.x, -hw, hw);
+    const inDoor = Math.abs(p.x) < 1.7;
+    p.z = clamp(p.z, -hd, inDoor && room.R ? room.D / 2 + 0.6 : hd);
+  }
+
+  function updateMovement(dt) {
+    const f = (keys.has('w') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('arrowdown') ? 1 : 0);
+    const s = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
+    const run = keys.has('shift');
+    let dx = 0, dz = 0, speed = run ? 11 : 6;
+    if (f || s) {
+      W8.path = null;
+      const fx = -Math.sin(cam.yaw), fz = -Math.cos(cam.yaw);
+      const rx = Math.cos(cam.yaw), rz = -Math.sin(cam.yaw);
+      dx = fx * f + rx * s; dz = fz * f + rz * s;
+      const l = Math.hypot(dx, dz); dx /= l; dz /= l;
+    } else if (W8.path && W8.path.length) {
+      const wp = W8.path[0];
+      const vx = wp.x - W8.pos.x, vz = wp.z - W8.pos.z, l = Math.hypot(vx, vz);
+      if (l < 0.35) { W8.path.shift(); if (!W8.path.length) arrive(); }
+      else { dx = vx / l; dz = vz / l; speed = l > 6 ? 10 : 7; }
+      cam.follow = true;
+    }
+    const tvx = dx * speed, tvz = dz * speed;
+    const a = Math.min(1, dt * 12);
+    W8.vel.x += (tvx - W8.vel.x) * a;
+    W8.vel.z += (tvz - W8.vel.z) * a;
+    W8.pos.x += W8.vel.x * dt;
+    W8.pos.z += W8.vel.z * dt;
+    W8.vy -= 22 * dt;
+    W8.pos.y = Math.max(0, W8.pos.y + W8.vy * dt);
+    if (W8.pos.y === 0) W8.vy = Math.max(0, W8.vy);
+    collide(W8.pos);
+    if (Math.hypot(W8.vel.x, W8.vel.z) > 0.4) W8.yaw = Math.atan2(W8.vel.x, W8.vel.z);
+    if (room.R && W8.pos.z > room.D / 2 - 0.1 && !transitioning) exitRoom();
+  }
+
+  function updateCamera(dt) {
+    if (cam.follow && W8.path) {
+      let d = (W8.yaw + Math.PI) - cam.yaw;
+      d = Math.atan2(Math.sin(d), Math.cos(d));
+      cam.yaw += d * Math.min(1, dt * 1.6);
+    }
+    const tgt = tmpV.set(W8.pos.x, W8.pos.y + 1.55, W8.pos.z);
+    cam.target.lerp(tgt, Math.min(1, dt * 10));
+    const cp = Math.cos(cam.pitch);
+    let x = cam.target.x + Math.sin(cam.yaw) * cp * cam.dist;
+    let y = cam.target.y + Math.sin(cam.pitch) * cam.dist;
+    let z = cam.target.z + Math.cos(cam.yaw) * cp * cam.dist;
+    const out = 30; // the camera may step outside; walls behind it get hidden
+    x = clamp(x, -room.W / 2 - out, room.W / 2 + out);
+    z = clamp(z, -room.D / 2 - out, room.D / 2 + out);
+    y = clamp(y, 0.6, 60);
+    camera.position.set(x, y, z);
+    camera.lookAt(cam.target);
+  }
+
+  // ── pathfinding (A* on a coarse grid) ────────────────────────────────────
+  function grid() {
+    const cs = 0.5, pad = 0.5;
+    const gw = Math.ceil(room.W / cs), gd = Math.ceil(room.D / cs);
+    const blocked = new Uint8Array(gw * gd);
+    const toI = (x, z) => [clamp(Math.floor((x + room.W / 2) / cs), 0, gw - 1), clamp(Math.floor((z + room.D / 2) / cs), 0, gd - 1)];
+    for (let i = 0; i < gw; i++) for (let j = 0; j < gd; j++) {
+      const x = -room.W / 2 + (i + 0.5) * cs, z = -room.D / 2 + (j + 0.5) * cs;
+      if (Math.abs(x) > room.W / 2 - 0.7 || Math.abs(z) > room.D / 2 - 0.7) { blocked[j * gw + i] = 1; continue; }
+      for (const o of OBST) if (x > o.x0 - pad && x < o.x1 + pad && z > o.z0 - pad && z < o.z1 + pad) { blocked[j * gw + i] = 1; break; }
+    }
+    return { cs, gw, gd, blocked, toI, toW: (i, j) => ({ x: -room.W / 2 + (i + 0.5) * cs, z: -room.D / 2 + (j + 0.5) * cs }) };
+  }
+  function nearestFree(G, i, j) {
+    if (!G.blocked[j * G.gw + i]) return [i, j];
+    for (let r = 1; r < 60; r++) for (let di = -r; di <= r; di++) for (let dj = -r; dj <= r; dj++) {
+      if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;
+      const a = i + di, b = j + dj;
+      if (a >= 0 && b >= 0 && a < G.gw && b < G.gd && !G.blocked[b * G.gw + a]) return [a, b];
+    }
+    return null;
+  }
+  function findPath(x0, z0, x1, z1) {
+    const G = grid();
+    const s = nearestFree(G, ...G.toI(x0, z0)), t = nearestFree(G, ...G.toI(x1, z1));
+    if (!s || !t) return null;
+    const idx = (i, j) => j * G.gw + i;
+    const gS = new Float32Array(G.gw * G.gd).fill(Infinity);
+    const from = new Int32Array(G.gw * G.gd).fill(-1);
+    const closed = new Uint8Array(G.gw * G.gd);
+    const heap = [];
+    const push = (f, k) => { heap.push([f, k]); let c = heap.length - 1; while (c > 0) { const p = (c - 1) >> 1; if (heap[p][0] <= heap[c][0]) break; [heap[p], heap[c]] = [heap[c], heap[p]]; c = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let c = 0; for (;;) { const l = 2 * c + 1, r = l + 1; let m = c; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === c) break; [heap[m], heap[c]] = [heap[c], heap[m]]; c = m; } } return top; };
+    const h = (i, j) => { const dx = Math.abs(i - t[0]), dy = Math.abs(j - t[1]); return Math.max(dx, dy) + 0.414 * Math.min(dx, dy); };
+    gS[idx(...s)] = 0;
+    push(h(...s), idx(...s));
+    const goal = idx(...t);
+    let found = false, guard = 0;
+    while (heap.length && guard++ < 300000) {
+      const [, k] = pop();
+      if (closed[k]) continue;
+      closed[k] = 1;
+      if (k === goal) { found = true; break; }
+      const i = k % G.gw, j = (k / G.gw) | 0;
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+        if (!di && !dj) continue;
+        const a = i + di, b = j + dj;
+        if (a < 0 || b < 0 || a >= G.gw || b >= G.gd) continue;
+        const nk = idx(a, b);
+        if (G.blocked[nk] || closed[nk]) continue;
+        if (di && dj && (G.blocked[idx(i + di, j)] || G.blocked[idx(i, j + dj)])) continue;
+        const g = gS[k] + (di && dj ? 1.414 : 1);
+        if (g < gS[nk]) { gS[nk] = g; from[nk] = k; push(g + h(a, b), nk); }
+      }
+    }
+    if (!found) return null;
+    const cells = [];
+    for (let k = goal; k !== -1; k = from[k]) cells.push(k);
+    cells.reverse();
+    const pts = cells.map((k) => G.toW(k % G.gw, (k / G.gw) | 0));
+    // string-pull: keep only the corners we cannot see past
+    const clear = (A, B) => {
+      const n = Math.ceil(Math.hypot(B.x - A.x, B.z - A.z) / (G.cs * 0.5));
+      for (let q = 1; q < n; q++) {
+        const [i, j] = G.toI(A.x + ((B.x - A.x) * q) / n, A.z + ((B.z - A.z) * q) / n);
+        if (G.blocked[idx(i, j)]) return false;
+      }
+      return true;
+    };
+    const out = [];
+    let anchor = { x: x0, z: z0 };
+    for (let q = 1; q < pts.length; q++) {
+      if (!clear(anchor, pts[q])) { out.push(pts[q - 1]); anchor = pts[q - 1]; }
+    }
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
+  let arrival = null;
+  function arrive() {
+    W8.path = null;
+    const a = arrival;
+    arrival = null;
+    if (a && a.face) W8.yaw = Math.atan2(a.face.x - W8.pos.x, a.face.z - W8.pos.z);
+    if (a && a.then) a.then();
+  }
+  function travelToPoint(x, z, then, face) {
+    const path = findPath(W8.pos.x, W8.pos.z, x, z);
+    arrival = { then, face };
+    if (!path) { W8.pos.set(x, 0, z); collide(W8.pos); arrive(); return; }
+    W8.path = path;
+  }
+  function standPoint(id) {
+    const it = itemsById.get(id);
+    if (it) {
+      const z = it.shape === 'slot' ? it.rack.z + it.rack.d / 2 + 1.3 : it.z + it.d / 2 + 1.6;
+      return { x: it.x, z, face: { x: it.x, z: it.z } };
+    }
+    const p = room.ports.find((q) => q.rep === id);
+    if (p) {
+      const nx = Math.sin(p.ry), nz = Math.cos(p.ry);
+      return { x: p.x + nx * 2.4, z: p.z + nz * 2.4, face: { x: p.x, z: p.z } };
+    }
+    return null;
+  }
+  function travelTo(id, then) {
+    const sp = standPoint(id);
+    if (!sp) { if (then) then(); return; }
+    travelToPoint(sp.x, sp.z, then, sp.face);
+  }
+
+  // ── rooms and navigation ─────────────────────────────────────────────────
+  let transitioning = false;
+  function placeAvatar(from) {
+    const sp = from ? standPoint(from) : null;
+    if (sp) W8.pos.set(sp.x, 0, sp.z);
+    else W8.pos.set(0, 0, room.D / 2 - (room.R ? 5 : 7));
+    W8.yaw = Math.PI;
+    collide(W8.pos);
+    W8.vel.set(0, 0, 0);
+    W8.path = null;
+    arrival = null;
+    cam.yaw = 0;
+    cam.pitch = 0.5;
+    cam.target.set(W8.pos.x, 1.55, W8.pos.z);
+    if (worker) worker.root.rotation.y = W8.yaw;
+  }
+  function goRoom(R, opts) {
+    opts = opts || {};
+    if (transitioning) return;
+    const doIt = () => {
+      hovered = null;
+      if (selected && selected.type === 'link') { selected = null; closePanel(true); }
+      buildRoom(R);
+      placeAvatar(opts.from);
+      planView = null;
+      if (planOn) drawPlan();
+      if (opts.then) opts.then();
+    };
+    if (!opts.instant && !reduceMotion && !planOn) {
+      transitioning = true;
+      $('#fade').classList.add('on');
+      setTimeout(() => { doIt(); $('#fade').classList.remove('on'); setTimeout(() => { transitioning = false; }, 250); }, 260);
+    } else doIt();
+    setHash(R);
+  }
+  function enterBlock(id) { if (enterable(id)) goRoom(id); }
+  function exitRoom() { if (room && room.R) goRoom(parentOf(room.R), { from: room.R }); }
+  function interact() {
+    const near = nearest();
+    if (!near) return;
+    if (enterable(near.id)) enterBlock(near.id); else select(near.id);
+  }
+  function focusNode(id, opts) {
+    opts = opts || {};
+    if (!N.has(id)) return;
+    const R = parentOf(id);
+    const go = () => { select(id); if (!planOn) travelTo(id, opts.enter ? () => enterBlock(id) : null); };
+    if (room && room.R === R) go();
+    else goRoom(R, { then: go });
+  }
+  function setHash(R) {
+    try { history.replaceState(null, '', R ? '#room=' + encodeURIComponent(R) : location.pathname + location.search); } catch (e) { /* file:// may refuse */ }
+  }
+
+  function nearest() {
+    if (!room) return null;
+    let best = null, bd = 2.2;
+    for (const it of room.items) {
+      const z0 = it.shape === 'slot' ? it.rack.z - it.rack.d / 2 : it.z - it.d / 2;
+      const z1 = it.shape === 'slot' ? it.rack.z + it.rack.d / 2 : it.z + it.d / 2;
+      const dx = Math.max(it.x - it.w / 2 - W8.pos.x, 0, W8.pos.x - it.x - it.w / 2);
+      const dz = Math.max(z0 - W8.pos.z, 0, W8.pos.z - z1);
+      let d = Math.hypot(dx, dz);
+      if (it.shape === 'slot') d += Math.abs(W8.pos.x - it.x) * 0.5;
+      if (d < bd) { bd = d; best = it; }
+    }
+    return best;
+  }
+  function updatePrompt() {
+    const el = $('#prompt');
+    if (planOn || transitioning) { el.hidden = true; return; }
+    if (room.R && W8.pos.z > room.D / 2 - 3 && Math.abs(W8.pos.x) < 2.5) {
+      el.innerHTML = `Keep walking to go back to ${esc(parentOf(room.R) ? N.get(parentOf(room.R)).name : 'the main floor')}`;
+      el.hidden = false;
+      return;
+    }
+    const it = nearest();
+    if (!it) { el.hidden = true; return; }
+    const n = N.get(it.id);
+    el.innerHTML = enterable(n.id) ? `<kbd>E</kbd> Walk into ${esc(n.name)}` : `<kbd>E</kbd> Inspect ${esc(n.name)}`;
+    el.hidden = false;
+  }
+
+  // ── info panel ───────────────────────────────────────────────────────────
+  const panel = $('#panel'), body = $('#panelBody');
+  function closePanel(silent) {
+    panel.hidden = true;
+    if (!silent) { selected = null; applyFocus(); }
+  }
+  $('#panelClose').addEventListener('click', () => closePanel());
+
+  function vscodeLink(file, line) {
+    const root = String(D.project.root || '').replace(/\\/g, '/');
+    return 'vscode://file/' + encodeURI(root + '/' + file) + (line ? ':' + line : '');
+  }
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => { t.hidden = true; }, 1400);
+  }
+  function copy(text) {
+    const done = () => toast('Copied ' + text);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => toast(text));
+    else toast(text);
+  }
+
+  function descendantsWhere(id, pred, cap) {
+    const out = [], stack = [id];
+    while (stack.length && out.length < cap) {
+      const cur = stack.pop();
+      const n = N.get(cur);
+      if (n && pred(n)) out.push(n);
+      for (const k of kidsOf(cur)) stack.push(k);
+    }
+    return out;
+  }
+
+  function connectionsOf(id) {
+    const self = new Set(chain(id));
+    const groups = new Map();
+    for (const e of EDGES) {
+      const sIn = e.sc.includes(id), tIn = e.tc.includes(id);
+      if (sIn === tIn) continue;
+      const other = sIn ? e.tc : e.sc;
+      const rep = outsideRep(other, self);
+      if (!rep) continue;
+      const dir = sIn ? 'out' : 'in';
+      const key = rep + '|' + dir;
+      let g = groups.get(key);
+      if (!g) { g = { rep, dir, kinds: new Set(), count: 0, notes: [], edges: [] }; groups.set(key, g); }
+      g.kinds.add(e.kind);
+      g.count += e.count || 1;
+      if (e.description && g.notes.length < 2 && !g.notes.includes(e.description)) g.notes.push(e.description);
+      if (g.edges.length < 40) g.edges.push(e);
+    }
+    return [...groups.values()].sort((a, b) => b.count - a.count);
+  }
+
+  function locRow(l) {
+    const where = l.file + (l.line ? ':' + l.line : '');
+    return `<li><span class="main"><button class="link" data-copy="${esc(where)}" title="Copy path">${esc(where)}</button>${l.label ? `<span class="sub">${esc(l.label)}</span>` : ''}</span><a href="${esc(vscodeLink(l.file, l.line))}" title="Open in VS Code">Open</a></li>`;
+  }
+  function listWithMore(rows, show, id) {
+    if (rows.length <= show) return rows.join('');
+    return rows.slice(0, show).join('') + rows.slice(show).map((r) => r.replace('<li', `<li hidden data-rest="${id}"`)).join('');
+  }
+  function moreBtn(count, show, id) {
+    return count > show ? `<button class="more" data-more="${id}">Show all ${count}</button>` : '';
+  }
+
+  function select(id, opts) {
+    opts = opts || {};
+    const n = N.get(id);
+    if (!n) return;
+    selected = { type: 'node', id };
+    applyFocus();
+    const col = css(kindHex(n.kind));
+    const inRoom = itemsById.has(id);
+    const isOutside = !inRoom && !!opts.port;
+    const chips = (n.tech || []).slice(0, 6).map((t) => `<span class="chip">${esc(t)}</span>`);
+    if (n.test) chips.push('<span class="chip">Test code</span>');
+    if (n.confidence === 'INFERRED') chips.push('<span class="chip warn">Inferred</span>');
+    if (n.stale) chips.push('<span class="chip warn">Description may be out of date</span>');
+    if (n.lang) chips.unshift(`<span class="chip">${esc(LANG[n.lang] || n.lang)}</span>`);
+    const acts = [];
+    if (isOutside) acts.push('<button class="go" data-act="goto">Take me there</button>');
+    else if (enterable(id) && room.R !== id) acts.push('<button class="go" data-act="enter">Walk inside</button>');
+    if (inRoom && !planOn) acts.push('<button data-act="walk">Walk to it</button>');
+    else if (!inRoom && !isOutside) acts.push('<button data-act="goto">Take me there</button>');
+    if (n.path && n.path !== '.') acts.push('<button data-act="copy">Copy path</button>');
+    const st = n.stats || {};
+    const kindTxt = n.kind === 'module' ? `Folder with ${st.files || 0} files` :
+      n.kind === 'file' ? `File, ${n.lines || 0} lines` : (KIND_LABEL[n.kind] || n.kind);
+    let h = `<div class="tag-head" style="--kind:${col}"><span class="hole"></span>
+      <p class="kind">${esc(kindTxt)}${isOutside ? ', outside this room' : ''}</p>
+      <h2>${esc(n.name)}</h2>${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
+      <div class="actions">${acts.join('')}</div></div>`;
+    if (n.description) h += `<section class="sec"><h3>What it is</h3><p>${esc(n.description)}</p></section>`;
+    if (n.purpose) h += `<section class="sec"><h3>Why it's here</h3><p>${esc(n.purpose)}</p></section>`;
+    if (n.doc && n.doc !== n.description) h += `<section class="sec"><h3>From the code</h3><p>${esc(n.doc)}</p></section>`;
+    const locs = (n.locations || []).slice(0, 30).map(locRow);
+    const syms = (n.symbols || []).map((s) => locRow({ file: n.path, line: s.line, label: `${s.kind} ${s.name}` }));
+    if (locs.length || syms.length) {
+      h += `<section class="sec"><h3>Where in the code</h3><ul class="rows">${listWithMore(locs.concat(syms), 8, 'loc')}</ul>${moreBtn(locs.length + syms.length, 8, 'loc')}</section>`;
+    }
+    const eps = [];
+    const files = n.kind === 'file' ? [n] : descendantsWhere(id, (x) => x.kind === 'file' && x.endpoints, 500);
+    files.forEach((f) => (f.endpoints || []).forEach((ep) => eps.push(ep)));
+    if (eps.length) {
+      eps.sort((a, b) => (a.method === 'PAGE') - (b.method === 'PAGE') || a.path.localeCompare(b.path));
+      const rows = eps.map((ep) => `<li><span class="method">${esc(ep.method)}</span><span class="main"><button class="link" data-copy="${esc(ep.file + ':' + ep.line)}" title="${esc(ep.file + ':' + ep.line)}">${esc(ep.path)}</button></span><a href="${esc(vscodeLink(ep.file, ep.line))}">Open</a></li>`);
+      const api = eps.filter((e) => e.method !== 'PAGE').length;
+      h += `<section class="sec"><h3>Endpoints and pages</h3><p class="note">${api} API endpoints, ${eps.length - api} pages</p><ul class="rows">${listWithMore(rows, 10, 'ep')}</ul>${moreBtn(rows.length, 10, 'ep')}</section>`;
+    }
+    const conns = connectionsOf(id);
+    if (conns.length) {
+      const row = (g) => {
+        const o = N.get(g.rep);
+        const kinds = [...g.kinds].map((k) => EDGE_LABEL[k] || k).join(', ');
+        const note = g.notes[0] ? `. ${g.notes[0]}` : '';
+        return `<li><span class="swatch" style="background:${css(edgeHex(linkKind(g.kinds)))}"></span><span class="main"><button class="link" data-goto="${esc(g.rep)}">${esc(o.name)}</button><span class="sub">${esc(kinds)}${g.count > 1 ? ` (${g.count})` : ''}${esc(note)}</span></span><span class="side">${esc(KIND_LABEL[o.kind] || o.kind)}</span></li>`;
+      };
+      const out = conns.filter((g) => g.dir === 'out').map(row), inn = conns.filter((g) => g.dir === 'in').map(row);
+      if (out.length) h += `<section class="sec"><h3>Reaches out to</h3><ul class="rows">${listWithMore(out, 10, 'co')}</ul>${moreBtn(out.length, 10, 'co')}</section>`;
+      if (inn.length) h += `<section class="sec"><h3>Used by</h3><ul class="rows">${listWithMore(inn, 10, 'ci')}</ul>${moreBtn(inn.length, 10, 'ci')}</section>`;
+    }
+    const kids = kidsOf(id).map((k) => N.get(k));
+    if (kids.length) {
+      const counts = {};
+      kids.forEach((k) => { const lbl = (KIND_LABEL[k.kind] || k.kind).toLowerCase(); counts[lbl] = (counts[lbl] || 0) + 1; });
+      const summary = Object.entries(counts).map(([k, v]) => `${v} ${k}${v > 1 && !k.endsWith('s') ? 's' : ''}`).join(', ');
+      const rows = kids.sort((a, b) => (enterable(b.id) - enterable(a.id)) || a.name.localeCompare(b.name))
+        .map((k) => `<li><span class="swatch" style="background:${css(kindHex(k.kind))}"></span><span class="main"><button class="link" data-goto="${esc(k.id)}">${esc(k.name)}</button></span><span class="side">${k.stats && k.stats.files ? k.stats.files + ' files' : esc(KIND_LABEL[k.kind] || '')}</span></li>`);
+      h += `<section class="sec"><h3>Inside</h3><p class="note">${esc(summary)}</p><ul class="rows">${listWithMore(rows, 10, 'in')}</ul>${moreBtn(rows.length, 10, 'in')}</section>`;
+    }
+    if (n.detected_via && n.detected_via.length) {
+      h += `<section class="sec"><h3>How Wirehouse found it</h3><ul class="rows">${n.detected_via.map((v) => `<li><span class="main">${esc(v)}</span></li>`).join('')}</ul></section>`;
+    }
+    body.innerHTML = h;
+    body.scrollTop = 0;
+    panel.hidden = false;
+    bindPanel(n, opts);
+  }
+
+  function selectLink(info) {
+    selected = { type: 'link', info };
+    applyFocus();
+    const a = N.get(info.a), b = N.get(info.b);
+    const k = linkKind(info.kinds);
+    const kinds = [...info.kinds].map((x) => `<span class="chip">${esc(EDGE_LABEL[x] || x)}</span>`).join('');
+    const note = D.link_notes && D.link_notes[chain(info.a).slice(-1)[0] + '->' + chain(info.b).slice(-1)[0]];
+    let h = `<div class="tag-head" style="--kind:${css(edgeHex(k))}"><span class="hole"></span>
+      <p class="kind">Connection${info.count > 1 ? `, ${info.count} links` : ''}</p>
+      <h2>${esc(a.name)} to ${esc(b.name)}</h2><div class="chips">${kinds}</div>
+      <div class="actions"><button data-goto="${esc(info.a)}">Go to ${esc(shortName(a.name, 18))}</button><button data-goto="${esc(info.b)}">Go to ${esc(shortName(b.name, 18))}</button></div></div>`;
+    if (note) h += `<section class="sec"><h3>What flows here</h3><p>${esc(note)}</p></section>`;
+    const descs = [...new Set(info.edges.map((e) => e.description).filter(Boolean))].slice(0, 6);
+    if (descs.length && !note) h += `<section class="sec"><h3>What flows here</h3>${descs.map((d) => `<p>${esc(d)}</p>`).join('')}</section>`;
+    const rows = info.edges.map((e) => {
+      const ev = (e.evidence || [])[0];
+      const s = N.get(e.source), t = N.get(e.target);
+      return `<li><span class="swatch" style="background:${css(edgeHex(e.kind))}"></span><span class="main">${esc(s.path || s.name)} <span class="sub">${esc(EDGE_LABEL[e.kind] || e.kind)} ${esc(t.path || t.name)}${e.confidence === 'INFERRED' ? ' (inferred)' : ''}</span></span>${ev ? `<a href="${esc(vscodeLink(ev.file, ev.line))}" title="${esc(ev.file + ':' + (ev.line || ''))}">Open</a>` : ''}</li>`;
+    });
+    h += `<section class="sec"><h3>Evidence</h3><ul class="rows">${listWithMore(rows, 12, 'ev')}</ul>${moreBtn(rows.length, 12, 'ev')}</section>`;
+    body.innerHTML = h;
+    body.scrollTop = 0;
+    panel.hidden = false;
+    bindPanel(null, {});
+  }
+
+  function bindPanel(n) {
+    body.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', () => copy(b.dataset.copy)));
+    body.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => focusNode(b.dataset.goto)));
+    body.querySelectorAll('[data-more]').forEach((b) => b.addEventListener('click', () => {
+      body.querySelectorAll(`[data-rest="${b.dataset.more}"]`).forEach((r) => { r.hidden = false; });
+      b.remove();
+    }));
+    if (!n) return;
+    body.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
+      const a = b.dataset.act;
+      if (a === 'enter') { if (planOn) goRoom(n.id); else travelTo(n.id, () => enterBlock(n.id)); }
+      if (a === 'walk') travelTo(n.id);
+      if (a === 'goto') focusNode(n.id);
+      if (a === 'copy') copy(n.path);
+    }));
+  }
+
+  // ── hover tooltip ────────────────────────────────────────────────────────
+  function updateHover() {
+    if (!ptr.moved || ptr.drag || !canvas) return;
+    ptr.moved = false;
+    const hit = pickAt(ptr.x, ptr.y);
+    const info = hit && hit.info;
+    const tip = $('#tooltip');
+    const same = (a, b) => (!a && !b) || (a && b && a.type === b.type && a.id === b.id && (a.type !== 'link' || a === b));
+    if (!same(info, hovered)) { hovered = info; applyFocus(); }
+    canvas.classList.toggle('pointing', !!info);
+    if (!info) { tip.hidden = true; return; }
+    if (info.type === 'link') {
+      tip.innerHTML = `<b>${esc(N.get(info.a).name)} to ${esc(N.get(info.b).name)}</b><span>${esc([...info.kinds].map((k) => EDGE_LABEL[k] || k).join(', '))}${info.count > 1 ? `, ${info.count} links` : ''}</span>`;
+    } else {
+      const n = N.get(info.id);
+      const extra = info.type === 'port' ? (info.port.dir === 'out' ? 'Outside this room. This room reaches it.' : 'Outside this room. It reaches in here.') : (n.kind === 'file' ? n.path : (KIND_LABEL[n.kind] || n.kind));
+      tip.innerHTML = `<b>${esc(n.name)}</b><span>${esc(extra)}</span>`;
+    }
+    tip.style.left = Math.min(ptr.x + 16, window.innerWidth - 330) + 'px';
+    tip.style.top = (ptr.y + 18) + 'px';
+    tip.hidden = false;
+  }
+
+  // ── breadcrumbs ──────────────────────────────────────────────────────────
+  function drawCrumbs() {
+    const nav = $('#crumbs');
+    const parts = [{ id: ROOT, name: D.project.name }].concat(room.R ? chain(room.R).reverse().map((id) => ({ id, name: N.get(id).name })) : []);
+    nav.innerHTML = parts.map((p, i) => (i ? '<span class="sep" aria-hidden="true">/</span>' : '') +
+      `<button type="button" data-room="${esc(p.id)}" ${i === parts.length - 1 ? 'aria-current="location"' : ''} title="${esc(p.name)}">${esc(p.name)}</button>`).join('');
+    nav.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      if (b.hasAttribute('aria-current')) return;
+      const target = b.dataset.room;
+      const from = room.R ? chain(room.R).find((x) => parentOf(x) === target) : null;
+      goRoom(target, { from });
+    }));
+    nav.scrollLeft = nav.scrollWidth;
+  }
+
+  // ── search ───────────────────────────────────────────────────────────────
+  const INDEX = D.nodes.map((n) => ({ n, name: n.name.toLowerCase(), path: String(n.path || '').toLowerCase() }));
+  const sIn = $('#search'), sOut = $('#results');
+  let sSel = 0, sHits = [];
+  function runSearch() {
+    const q = sIn.value.trim().toLowerCase();
+    if (!q) { sOut.hidden = true; return; }
+    const terms = q.split(/\s+/);
+    sHits = INDEX.map((r) => {
+      let s = 0;
+      if (r.name === q) s += 100;
+      else if (r.name.startsWith(q)) s += 60;
+      else if (r.name.includes(q)) s += 40;
+      if (terms.every((t) => r.name.includes(t) || r.path.includes(t))) s += 20; else if (!s) return null;
+      if (!r.n.parent) s += 15;
+      if (r.n.kind === 'module') s += 6;
+      if (r.n.test) s -= 8;
+      s -= r.name.length * 0.05;
+      return s > 0 ? { r, s } : null;
+    }).filter(Boolean).sort((a, b) => b.s - a.s).slice(0, 12);
+    sSel = 0;
+    sOut.innerHTML = sHits.length ? sHits.map((h, i) => {
+      const n = h.r.n;
+      const where = n.parent ? chain(n.parent).reverse().map((x) => N.get(x).name).join(' / ') : 'the main floor';
+      return `<li role="option" data-i="${i}" aria-selected="${i === 0}"><span class="dot" style="background:${css(kindHex(n.kind))}"></span><span class="nm">${esc(n.name)}</span><span class="where">${esc(KIND_LABEL[n.kind] || n.kind)} in ${esc(where)}</span></li>`;
+    }).join('') : `<li class="empty">Nothing matches "${esc(sIn.value)}". Try a folder, file or service name.</li>`;
+    sOut.hidden = false;
+    sOut.querySelectorAll('li[data-i]').forEach((li) => li.addEventListener('mousedown', (e) => { e.preventDefault(); pickResult(+li.dataset.i); }));
+  }
+  function pickResult(i) {
+    const h = sHits[i];
+    if (!h) return;
+    sOut.hidden = true;
+    sIn.value = '';
+    sIn.blur();
+    focusNode(h.r.n.id);
+  }
+  sIn.addEventListener('input', runSearch);
+  sIn.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      sSel = clamp(sSel + (e.key === 'ArrowDown' ? 1 : -1), 0, Math.max(0, sHits.length - 1));
+      sOut.querySelectorAll('li[data-i]').forEach((li) => li.setAttribute('aria-selected', String(+li.dataset.i === sSel)));
+    } else if (e.key === 'Enter') { e.preventDefault(); pickResult(sSel); }
+    else if (e.key === 'Escape') { sIn.value = ''; sOut.hidden = true; sIn.blur(); }
+  });
+  sIn.addEventListener('blur', () => setTimeout(() => { sOut.hidden = true; }, 120));
+
+  // ── minimap ──────────────────────────────────────────────────────────────
+  const mm = $('#minimap');
+  const mctx = mm.getContext('2d');
+  let mmT = null;
+  function drawMinimap() {
+    const dpr = window.devicePixelRatio || 1;
+    const cw = mm.clientWidth, ch = mm.clientHeight;
+    if (mm.width !== cw * dpr) { mm.width = cw * dpr; mm.height = ch * dpr; }
+    mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    mctx.clearRect(0, 0, cw, ch);
+    const pad = 8, s = Math.min((cw - pad * 2) / room.W, (ch - pad * 2) / room.D);
+    const ox = cw / 2, oz = ch / 2;
+    mmT = { s, ox, oz };
+    const X = (x) => ox + x * s, Z = (z) => oz + z * s;
+    mctx.fillStyle = css(T.floor); mctx.strokeStyle = css(T.wallLine); mctx.lineWidth = 1.5;
+    mctx.fillRect(X(-room.W / 2), Z(-room.D / 2), room.W * s, room.D * s);
+    mctx.strokeRect(X(-room.W / 2), Z(-room.D / 2), room.W * s, room.D * s);
+    room.zones.forEach((Zn, i) => { mctx.fillStyle = i % 2 ? css(T.floorAlt) : css(T.floor); mctx.fillRect(X(Zn.x0) + 1, Z(Zn.z0) + 1, (Zn.x1 - Zn.x0) * s - 2, (Zn.z1 - Zn.z0) * s - 2); });
+    mctx.globalAlpha = 0.5;
+    room.racks.forEach((r) => { mctx.fillStyle = css(T.wallLine); mctx.fillRect(X(r.x - r.w / 2), Z(r.z - r.d / 2), r.w * s, r.d * s); });
+    mctx.globalAlpha = 1;
+    room.items.forEach((it) => {
+      if (it.shape === 'slot') return;
+      mctx.fillStyle = css(kindHex(N.get(it.id).kind));
+      mctx.fillRect(X(it.x - it.w / 2), Z(it.z - it.d / 2), Math.max(2, it.w * s), Math.max(2, it.d * s));
+    });
+    room.ports.forEach((p) => { mctx.fillStyle = css(kindHex(N.get(p.rep).kind)); mctx.fillRect(X(p.x) - 2, Z(p.z) - 2, 4, 4); });
+    if (selected && selected.type !== 'link' && itemsById.has(selected.id)) {
+      const it = itemsById.get(selected.id);
+      const z = it.shape === 'slot' ? it.rack.z : it.z, d = it.shape === 'slot' ? it.rack.d : it.d;
+      mctx.strokeStyle = T.glow ? '#ffb23f' : '#1f6fd1'; mctx.lineWidth = 2;
+      mctx.strokeRect(X(it.x - it.w / 2) - 2, Z(z - d / 2) - 2, it.w * s + 4, d * s + 4);
+    }
+    mctx.save();
+    mctx.translate(X(W8.pos.x), Z(W8.pos.z));
+    mctx.rotate(-W8.yaw + Math.PI);
+    mctx.fillStyle = '#ff7a1a'; mctx.strokeStyle = '#fff'; mctx.lineWidth = 1.2;
+    mctx.beginPath(); mctx.moveTo(0, -7); mctx.lineTo(5, 5); mctx.lineTo(-5, 5); mctx.closePath(); mctx.fill(); mctx.stroke();
+    mctx.restore();
+  }
+  mm.addEventListener('click', (e) => {
+    if (!mmT || planOn) return;
+    const r = mm.getBoundingClientRect();
+    travelToPoint((e.clientX - r.left - mmT.ox) / mmT.s, (e.clientY - r.top - mmT.oz) / mmT.s);
+  });
+
+  function drawKey() {
+    $('#key').innerHTML = Object.keys(EDGE_LABEL).map((k) => `<i style="background:${css(edgeHex(k))}"></i><span>${esc(EDGE_LABEL[k][0].toUpperCase() + EDGE_LABEL[k].slice(1))}</span>`).join('');
+  }
+  drawKey();
+  $('#keyBtn').addEventListener('click', () => { const k = $('#key'); k.hidden = !k.hidden; $('#keyBtn').textContent = k.hidden ? 'Pipe colors' : 'Hide pipe colors'; });
+
+  // ── 2D floor plan ────────────────────────────────────────────────────────
+  const plan = $('#plan');
+  let planOn = false, planView = null;
+  function fitPlan() {
+    const W = room.W + 8, H = room.D + 8;
+    const ar = window.innerWidth / Math.max(1, window.innerHeight - 70);
+    let w = W, h = H;
+    if (w / h < ar) w = h * ar; else h = w / ar;
+    planView = { x: -w / 2, y: -h / 2 - 3, w, h };
+  }
+  function setViewBox() { plan.setAttribute('viewBox', `${planView.x} ${planView.y} ${planView.w} ${planView.h}`); }
+  function drawPlan() {
+    if (!planView) fitPlan();
+    const P = [];
+    const ink = css(T.wallLine);
+    P.push(`<defs>${Object.keys(T.edge).map((k) => `<marker id="ar-${k}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${css(edgeHex(k))}"/></marker>`).join('')}</defs>`);
+    P.push(`<rect x="${-room.W / 2}" y="${-room.D / 2}" width="${room.W}" height="${room.D}" fill="${css(T.floor)}" stroke="${ink}" stroke-width="0.3"/>`);
+    P.push(`<rect x="-2.2" y="${room.D / 2 - 0.3}" width="4.4" height="0.6" fill="${css(T.bg)}"/>`);
+    room.zones.forEach((Z, i) => {
+      P.push(`<rect x="${Z.x0 + 0.4}" y="${Z.z0 + 0.4}" width="${Z.x1 - Z.x0 - 0.8}" height="${Z.z1 - Z.z0 - 0.8}" fill="${css(i % 2 ? T.floorAlt : T.floor)}" stroke="${css(T.paint)}" stroke-width="0.15" stroke-dasharray="1 0.6"/>`);
+      const txt = Z.empty && Z.id === 'edge' ? 'Gateway and auth: none found' : Z.name;
+      P.push(Z.side ? `<text class="zone-name" x="${(Z.x0 + Z.x1) / 2}" y="${Z.z1 - 3}" font-size="1.6" text-anchor="middle">${esc(txt)}</text>`
+        : `<text class="zone-name" x="${Z.x0 + 1.5}" y="${Z.z1 - 1.3}" font-size="2">${esc(txt)}</text>`);
+    });
+    room.racks.forEach((r) => P.push(`<rect x="${r.x - r.w / 2}" y="${r.z - r.d / 2 - 0.7}" width="${r.w}" height="${r.d + 1.4}" fill="none" stroke="${ink}" stroke-width="0.12" rx="0.2"/>`));
+    const pos = new Map();
+    room.items.forEach((it) => {
+      // racks are drawn flat: each shelf level becomes a row so every slot stays visible
+      if (it.shape === 'slot') {
+        const lvl = Math.round((it.y - 0.32) / 1.2);
+        pos.set(it.id, { x: it.x, z: it.z - 0.7 + lvl * 0.7, w: it.w, d: 0.6 });
+      } else pos.set(it.id, { x: it.x, z: it.z, w: it.w, d: it.d });
+    });
+    const linkSvg = (L, A, B, i) => {
+      const k = linkKind(L.kinds);
+      const mx = (A.x + B.x) / 2, mz = (A.z + B.z) / 2;
+      const dx = B.x - A.x, dz = B.z - A.z, len = Math.hypot(dx, dz) || 1;
+      const off = Math.min(len * 0.18, 6);
+      const cx = mx - (dz / len) * off, cz = mz + (dx / len) * off;
+      const w = clamp(0.1 + Math.log2(L.count + 1) * 0.06, 0.1, 0.45);
+      return `<path class="lnk" data-l="${i}" d="M${A.x},${A.z} Q${cx},${cz} ${B.x},${B.z}" stroke="${css(edgeHex(k))}" stroke-width="${w}" marker-end="url(#ar-${k})" opacity="0.85"/>`;
+    };
+    const planLinks = [];
+    (room.links || []).forEach((L) => { const A = pos.get(L.a), B = pos.get(L.b); if (A && B) { planLinks.push(L); P.push(linkSvg(L, A, B, planLinks.length - 1)); } });
+    room.ports.forEach((p) => p.inners.forEach((info) => {
+      const I = pos.get(info.id); if (!I) return;
+      const pp = { x: p.x, z: p.z };
+      const L = Object.assign({ a: p.dir === 'out' ? info.id : p.rep, b: p.dir === 'out' ? p.rep : info.id }, info);
+      planLinks.push(L);
+      P.push(p.dir === 'out' ? linkSvg(L, I, pp, planLinks.length - 1) : linkSvg(L, pp, I, planLinks.length - 1));
+    }));
+    room.items.forEach((it) => {
+      const n = N.get(it.id), q = pos.get(it.id);
+      const col = css(kindHex(n.kind));
+      const slot = it.shape === 'slot';
+      const fs = slot ? 0.36 : clamp(it.w / 4.2, 1.0, 1.7);
+      P.push(`<g class="blk" data-id="${esc(n.id)}"><rect x="${q.x - q.w / 2}" y="${q.z - q.d / 2}" width="${q.w}" height="${q.d}" rx="${slot ? 0.08 : 0.35}" fill="${col}" fill-opacity="${slot ? 0.8 : 0.28}" stroke="${col}" stroke-width="${slot ? 0.05 : 0.18}"/>` +
+        (it.shape === 'silo' ? `<circle cx="${q.x}" cy="${q.z}" r="${q.w / 2 - 0.4}" fill="none" stroke="${col}" stroke-width="0.12"/>` : '') +
+        `<text x="${q.x}" y="${slot ? q.z + 0.12 : q.z + 0.25}" font-size="${fs}" text-anchor="middle" font-weight="600">${esc(shortName(n.name, slot ? 14 : 24))}</text>` +
+        (!slot ? `<text x="${q.x}" y="${q.z + 0.25 + fs * 1.05}" font-size="${fs * 0.62}" text-anchor="middle" opacity="0.7">${esc(n.kind === 'module' ? (n.stats ? n.stats.files : 0) + ' files' : (KIND_LABEL[n.kind] || n.kind))}</text>` : '') + `</g>`);
+    });
+    room.ports.forEach((p) => {
+      const n = N.get(p.rep), col = css(kindHex(n.kind));
+      P.push(`<g class="blk" data-id="${esc(n.id)}" data-port="1"><rect x="${p.x - 2}" y="${p.z - 0.7}" width="4" height="1.4" rx="0.25" fill="${css(T.bg)}" stroke="${col}" stroke-width="0.18"/><text x="${p.x}" y="${p.z + 0.25}" font-size="0.7" text-anchor="middle">${esc(shortName(n.name, 16))}</text></g>`);
+    });
+    P.push(`<g id="planMe"><circle r="0.6" fill="#ff7a1a" stroke="#fff" stroke-width="0.15"/></g>`);
+    plan.innerHTML = `<g id="vp">${P.join('')}</g>`;
+    plan._links = planLinks;
+    setViewBox();
+    plan.querySelectorAll('.blk').forEach((g) => {
+      g.addEventListener('click', (e) => { e.stopPropagation(); if (plan._dragged) return; select(g.dataset.id, g.dataset.port ? { port: room.ports.find((p) => p.rep === g.dataset.id) } : {}); });
+      g.addEventListener('dblclick', (e) => { e.stopPropagation(); if (g.dataset.port) focusNode(g.dataset.id); else if (enterable(g.dataset.id)) goRoom(g.dataset.id); });
+      g.addEventListener('mouseenter', () => { hovered = { type: 'node', id: g.dataset.id }; planFocus(); });
+      g.addEventListener('mouseleave', () => { hovered = null; planFocus(); });
+    });
+    plan.querySelectorAll('.lnk').forEach((pth) => pth.addEventListener('click', (e) => { e.stopPropagation(); selectLink(plan._links[+pth.dataset.l]); }));
+    planFocus();
+    const me = plan.querySelector('#planMe');
+    if (me) me.setAttribute('transform', `translate(${W8.pos.x},${W8.pos.z})`);
+  }
+  function planFocus() {
+    if (!planOn) return;
+    const f = (hovered && hovered.type !== 'link' && hovered.id) || (selected && selected.type !== 'link' && selected.id);
+    const sl = selected && selected.type === 'link' ? selected.info : null;
+    const links = plan._links || [];
+    const related = new Set();
+    plan.querySelectorAll('.lnk').forEach((p) => {
+      const L = links[+p.dataset.l];
+      const on = sl ? (L.a === sl.a && L.b === sl.b) : !f || L.a === f || L.b === f;
+      p.classList.toggle('dim', !on);
+      if (on && (f || sl)) { related.add(L.a); related.add(L.b); }
+    });
+    plan.querySelectorAll('.blk').forEach((g) => g.classList.toggle('dim', !!(f || sl) && !related.has(g.dataset.id) && g.dataset.id !== f));
+  }
+  function setPlan(on) {
+    planOn = on;
+    plan.toggleAttribute('hidden', !on); // SVG elements have no .hidden property
+    stage.style.visibility = on ? 'hidden' : 'visible';
+    $('#minimapWrap').hidden = on;
+    $('#view3d').classList.toggle('on', !on);
+    $('#view2d').classList.toggle('on', on);
+    $('#prompt').hidden = true;
+    $('#tooltip').hidden = true;
+    keys.clear();
+    if (on) { planView = null; drawPlan(); }
+    else if (canvas) canvas.focus({ preventScroll: true });
+  }
+  $('#view3d').addEventListener('click', () => setPlan(false));
+  $('#view2d').addEventListener('click', () => setPlan(true));
+  (function planPanZoom() {
+    let down = null;
+    plan.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, vx: planView.x, vy: planView.y }; plan._dragged = false; });
+    plan.addEventListener('pointermove', (e) => {
+      if (!down) return;
+      const dx = e.clientX - down.x, dy = e.clientY - down.y;
+      if (!plan._dragged && Math.hypot(dx, dy) > 4) { plan._dragged = true; plan.classList.add('dragging'); }
+      if (!plan._dragged) return;
+      const k = planView.w / plan.clientWidth;
+      planView.x = down.vx - dx * k; planView.y = down.vy - dy * k;
+      setViewBox();
+    });
+    const up = () => { down = null; plan.classList.remove('dragging'); setTimeout(() => { plan._dragged = false; }, 0); };
+    plan.addEventListener('pointerup', up);
+    plan.addEventListener('pointerleave', up);
+    plan.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const f = Math.exp(e.deltaY * 0.0012);
+      const r = plan.getBoundingClientRect();
+      const mx = planView.x + ((e.clientX - r.left) / r.width) * planView.w;
+      const my = planView.y + ((e.clientY - r.top) / r.height) * planView.h;
+      const nw = clamp(planView.w * f, 6, 800), k = nw / planView.w;
+      planView.x = mx - (mx - planView.x) * k; planView.y = my - (my - planView.y) * k;
+      planView.w = nw; planView.h *= k;
+      setViewBox();
+    }, { passive: false });
+  })();
+
+  // ── theme ────────────────────────────────────────────────────────────────
+  function setTheme(id) {
+    themeId = id;
+    T = THEMES[id];
+    store.set('theme', id);
+    document.documentElement.dataset.theme = id;
+    $('#theme').textContent = id === 'night' ? 'Day shift' : 'Night shift';
+    $('#theme').title = `Switch to ${id === 'night' ? 'day' : 'night'} shift lighting (T)`;
+    clearWorld();
+    MATS.forEach((m) => m.dispose());
+    MATS = new Map();
+    TEX.forEach((t) => t.dispose());
+    TEX.clear();
+    lineMats.forEach((m) => m.dispose());
+    lineMats.clear();
+    drawKey();
+    if (!room) return;
+    const keep = W8.pos.clone(), yaw = W8.yaw;
+    buildWorker();
+    buildRoom(room.R);
+    W8.pos.copy(keep); W8.yaw = yaw;
+    if (selected && selected.type !== 'link') select(selected.id); else if (selected) closePanel();
+  }
+  $('#theme').addEventListener('click', () => setTheme(themeId === 'night' ? 'day' : 'night'));
+
+  // ── welcome card ─────────────────────────────────────────────────────────
+  function openWelcome() { $('#welcome').hidden = false; $('#welcomeGo').focus(); }
+  function closeWelcome() { $('#welcome').hidden = true; store.set('welcomed', '1'); if (canvas) canvas.focus({ preventScroll: true }); }
+  $('#welcomeGo').addEventListener('click', closeWelcome);
+  $('#helpBtn').addEventListener('click', openWelcome);
+  $('#welcome').addEventListener('click', (e) => { if (e.target.id === 'welcome') closeWelcome(); });
+
+  // ── main loop ────────────────────────────────────────────────────────────
+  const clock = new THREE.Clock();
+  let frameNo = 0;
+  function resize() {
+    const w = window.innerWidth, h = window.innerHeight;
+    if (renderer) renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    if (planOn && room) { fitPlan(); setViewBox(); }
+  }
+  window.addEventListener('resize', resize);
+
+  function frame() {
+    requestAnimationFrame(frame);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const time = clock.elapsedTime;
+    frameNo++;
+    if (!room) return;
+    if (planOn) {
+      if (frameNo % 10 === 0) { const me = plan.querySelector('#planMe'); if (me) me.setAttribute('transform', `translate(${W8.pos.x},${W8.pos.z})`); }
+      return;
+    }
+    if (!renderer || document.hidden) return;
+    updateMovement(dt);
+    animateWorker(dt, time);
+    updateCamera(dt);
+    updateShell();
+    if (!reduceMotion) ANIM.forEach((f) => f(time));
+    updateParticles(reduceMotion ? time * 0.35 : time);
+    updateHover();
+    if (frameNo % 4 === 0) {
+      const cp = camera.position;
+      SPRITES.forEach((s) => { s.sp.visible = s.sp.position.distanceTo(cp) < s.far; });
+    }
+    if (frameNo % 6 === 0) updatePrompt();
+    if (frameNo % 3 === 0) drawMinimap();
+    renderer.render(scene, camera);
+  }
+
+  // ── lost GPU context ─────────────────────────────────────────────────────
+  // Drivers can drop the WebGL context (GPU reset, sleep, too many tabs), which
+  // leaves a blank canvas. Say so, and rebuild the room once it comes back.
+  if (canvas) {
+    const glMsg = document.createElement('div');
+    glMsg.id = 'glMsg';
+    glMsg.hidden = true;
+    stage.appendChild(glMsg);
+    let lostTimer = 0;
+    canvas.addEventListener('webglcontextlost', () => {
+      glMsg.innerHTML = '<p>The graphics driver dropped the 3D view. Trying to bring it back…</p>';
+      glMsg.hidden = false;
+      clearTimeout(lostTimer);
+      lostTimer = setTimeout(() => {
+        glMsg.innerHTML = '<p>The 3D view could not be restored. Reload the page to try again. The floor plan still works: press Tab or choose Floor plan.</p><button type="button" class="primary">Reload</button>';
+        glMsg.querySelector('button').addEventListener('click', () => location.reload());
+      }, 4000);
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      clearTimeout(lostTimer);
+      glMsg.hidden = true;
+      setTheme(themeId); // recreates every material, texture and mesh
+    });
+  }
+
+  // A small hook for automated checks (also handy in the devtools console).
+  window.__wirehouse = {
+    goRoom, focusNode, select, selectLink, setPlan, setTheme, exitRoom, enterBlock, travelTo,
+    tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
+    state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
+    links: () => room && room.links,
+  };
+
+  async function start() {
+    $('#theme').textContent = themeId === 'night' ? 'Day shift' : 'Night shift';
+    document.documentElement.dataset.theme = themeId;
+    try {
+      await Promise.race([
+        Promise.all([document.fonts.load('600 40px "Barlow Condensed"'), document.fonts.load('700 40px "Barlow Condensed"'), document.fonts.load('500 30px "Barlow"')]),
+        new Promise((r) => setTimeout(r, 1500)),
+      ]);
+    } catch (e) { /* fall back to system fonts */ }
+    resize();
+    buildWorker();
+    const startHash = location.hash;
+    const m = /room=([^&]+)/.exec(startHash);
+    const want = m ? decodeURIComponent(m[1]) : ROOT;
+    goRoom(N.has(want) && enterable(want) ? want : ROOT, { instant: true });
+    const tops = kidsOf(ROOT).length, links = roomLinks(ROOT).inner.length;
+    $('#welcomeTitle').textContent = `${D.project.name} warehouse`;
+    $('#welcomeLead').textContent = `${tops} blocks stand on the main floor with ${links} pipes between them. Each block is part of the system, and each pipe is a connection found in the code. Blocks with a glowing door can be walked into.`;
+    if (store.get('welcomed', '0') !== '1' && !/nowelcome/.test(startHash)) openWelcome();
+    frame();
+  }
+  start();
+})();
