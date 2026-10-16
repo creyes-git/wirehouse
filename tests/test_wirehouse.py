@@ -567,3 +567,24 @@ def test_share_leaves_out_local_paths(repo, tmp_path):
     html = (out / "wirehouse.html").read_text(encoding="utf-8")
     assert str(repo) not in html and str(repo).replace("\\", "/") not in html
     assert json.dumps(str(repo))[1:-1] not in html
+
+
+def test_install_reaches_every_agent_found(tmp_path, capsys):
+    from wirehouse.cli import cmd_install, main
+
+    home = tmp_path / "home"
+    for marker in (".claude", ".cursor", ".gemini/antigravity"):
+        (home / marker).mkdir(parents=True)
+    written = {p.relative_to(home).as_posix() for p in cmd_install(home=home)}
+    assert written == {".agents/skills/wirehouse/SKILL.md", ".claude/skills/wirehouse/SKILL.md",
+                       ".cursor/skills/wirehouse/SKILL.md", ".gemini/skills/wirehouse/SKILL.md",
+                       ".gemini/antigravity/skills/wirehouse/SKILL.md"}
+    text = (home / ".agents/skills/wirehouse/SKILL.md").read_text(encoding="utf-8")
+    assert text.startswith("---\nname: wirehouse") and "{{WIREHOUSE_HOME}}" not in text
+
+    only = cmd_install(["opencode"], [str(tmp_path / "custom")], home=home)
+    assert [p.relative_to(tmp_path).as_posix() for p in only] == [
+        "home/.config/opencode/skills/wirehouse/SKILL.md", "custom/wirehouse/SKILL.md"]
+    capsys.readouterr()
+    assert main(["install", "--print"]) == 0
+    assert "name: wirehouse" in capsys.readouterr().out

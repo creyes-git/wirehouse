@@ -72,8 +72,9 @@ How to do it well:
 - Copy each `hash` exactly, keep entries that are already in the file, and never write
   secret values. Do not open real `.env` files; `.env.example` is fine.
 - Large briefs (over about 60 entries): the brief ends its header with a suggested split
-  ("web / app (20), ..."). Give each group to a subagent that returns its JSON fragment, write
-  the top-level blocks and links yourself, then merge the fragments into one file.
+  ("web / app (20), ..."). If you can run subagents or parallel tasks, give each group to one that
+  returns its JSON fragment; otherwise work through the groups one at a time. Write the top-level
+  blocks and links yourself, then merge the fragments into one file.
 
 Then write the guided layer, in the same file:
 - **tours** (2 to 4): each one tells a story a new teammate needs, in the order things really happen

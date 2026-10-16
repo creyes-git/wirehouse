@@ -9,7 +9,7 @@
   Wirehouse turns a repository into a 3D warehouse you can walk around: services are shipping
   containers, databases are silos, auth is a security gate, and every pipe is a real connection
   found in the code. Trace where a request goes, take a guided tour, and share it all as
-  <b>one offline HTML file</b>. Built for <a href="https://claude.com/claude-code">Claude Code</a>.
+  <b>one offline HTML file</b>. Built for your agents.
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
   <img alt="One offline HTML file" src="https://img.shields.io/badge/output-one%20offline%20HTML%20file-F2C230">
-  <img alt="Made for Claude Code" src="https://img.shields.io/badge/made%20for-Claude%20Code-D97757">
+  <img alt="Built for your agents" src="https://img.shields.io/badge/built%20for-your%20agents-39C0F5">
 </p>
 
 <p align="center">
@@ -31,7 +31,7 @@
 <p align="center">
   <img src="docs/assets/demo.webp" alt="Walking through the warehouse of fastapi/full-stack-fastapi-template: tracing what the backend reaches, walking a request from the user to PostgreSQL, entering the backend, the schema diagram, the floor plan and the Clipboard of tours and quests" width="900">
   <br>
-  <sub>The warehouse of <a href="https://github.com/fastapi/full-stack-fastapi-template">fastapi/full-stack-fastapi-template</a>, described by Claude. <a href="https://__OWNER__.github.io/wirehouse/demo/">Open it yourself</a> (one 1 MB HTML file) · <a href="docs/assets/demo.mp4">MP4 with full-speed walking</a>.</sub>
+  <sub>The warehouse of <a href="https://github.com/fastapi/full-stack-fastapi-template">fastapi/full-stack-fastapi-template</a>, described by a coding agent. <a href="https://__OWNER__.github.io/wirehouse/demo/">Open it yourself</a> (one 1 MB HTML file) · <a href="docs/assets/demo.mp4">MP4 with full-speed walking</a>.</sub>
 </p>
 
 <img src="docs/brand/readme/readme-divider-hazard.svg" alt="" width="100%">
@@ -48,7 +48,7 @@ wall of boxes and arrows:
 - **Explaining the system?** Walk the route from the user to the database and share the link.
 
 Everything you see comes from evidence: each pipe lists the file and line it was found in, and
-anything Claude adds has to cite real code or it is left out.
+anything your agent adds has to cite real code or it is left out.
 
 ## What you can do
 
@@ -59,7 +59,7 @@ anything Claude adds has to cite real code or it is left out.
 </tr>
 <tr>
 <td><img src="docs/assets/screenshot-room.png" alt="Inside the backend: folders as crates, files on shelving racks"><br><b>Walk into any block.</b> Folders are crates, files sit on racks, connections leave through wall ports.</td>
-<td><img src="docs/assets/screenshot-tour.png" alt="A guided tour stop"><br><b>Guided tours and quests</b> written by Claude from the real code, with your progress kept in the browser.</td>
+<td><img src="docs/assets/screenshot-tour.png" alt="A guided tour stop"><br><b>Guided tours and quests</b> written by your agent from the real code, with your progress kept in the browser.</td>
 </tr>
 <tr>
 <td><img src="docs/assets/screenshot-schema.png" alt="Schema diagram of the PostgreSQL database"><br><b>Database rooms</b> with columns, keys and a schema diagram.</td>
@@ -77,19 +77,40 @@ Requires Python 3.11+.
 
 ```bash
 pip install "git+https://github.com/__OWNER__/wirehouse"
-wirehouse install          # adds the /wirehouse skill to Claude Code
+wirehouse install          # adds the wirehouse skill to the coding agents on this machine
 ```
 
-Then, in [Claude Code](https://claude.com/claude-code), inside any project:
+Then, in your coding agent, inside any project:
 
 ```text
 /wirehouse
 ```
 
-Claude scans the project, reads the code to describe every block and connection, writes tours
-and quests, and opens `wirehouse-out/wirehouse.html`.
+(Or just ask: *"map this project with wirehouse"*.) The agent scans the project, reads the code to
+describe every block and connection, writes tours and quests, and opens
+`wirehouse-out/wirehouse.html`.
 
-**No Claude?** The CLI draws the same map with rule-based descriptions and a starter tour:
+### Works with your agent
+
+Wirehouse ships as a skill in the open `SKILL.md` format. `wirehouse install` writes it to the
+shared `~/.agents/skills` folder and to the skills folder of every agent it finds in your home
+folder:
+
+| Agent | Skill folder |
+|-------|--------------|
+| Codex and other agents that read the shared folder | `~/.agents/skills` (always written) |
+| Claude Code | `~/.claude/skills` |
+| Cursor | `~/.cursor/skills` |
+| OpenCode | `~/.config/opencode/skills` |
+| Gemini CLI | `~/.gemini/skills` |
+| Antigravity | `~/.gemini/antigravity/skills` |
+| GitHub Copilot | `~/.copilot/skills` |
+
+Pick agents with `wirehouse install --agent cursor --agent opencode`, add any other skills folder
+with `--dir <folder>`, or run `wirehouse install --print` and paste the instructions into an agent
+that has no skills support. Restart the agent if it was already open.
+
+**No agent?** The CLI draws the same map with rule-based descriptions and a starter tour:
 
 ```bash
 wirehouse build path/to/project --open
@@ -101,15 +122,16 @@ wirehouse build path/to/project --open
 
 | Command | What it does |
 |---------|--------------|
-| `/wirehouse [path]` | In Claude Code: scan, describe, render and open. Add `--quick` to skip the descriptions. |
+| `/wirehouse [path]` | In your agent: scan, describe, render and open. Add `--quick` to skip the descriptions. |
 | `wirehouse build <path> [--open]` | Scan and render in one go, reusing any descriptions from earlier runs. |
-| `wirehouse scan <path>` | Detect structure only: writes `archmap.raw.json` and Claude's worklist `enrich-brief.md`. |
+| `wirehouse scan <path>` | Detect structure only: writes `archmap.raw.json` and the agent's worklist `enrich-brief.md`. |
 | `wirehouse render <path> [--open]` | Merge `enrichment.json` and write `wirehouse.html`. |
 | `--share` | (build, render) Leave out local paths before you publish the page. |
 | `-o <folder>` | Write somewhere other than `<path>/wirehouse-out/`. |
+| `wirehouse install` | Add the skill to your agents (`--agent`, `--dir`, `--print`; see above). |
 
 Descriptions are cached by a hash of the code they describe, so re-running `/wirehouse` after a
-change only asks Claude about what changed. Add `wirehouse-out/` to your `.gitignore`.
+change only asks the agent about what changed. Add `wirehouse-out/` to your `.gitignore`.
 
 ### 2. Walk around
 
@@ -151,8 +173,8 @@ Inspect a block and press **Downstream** (where it leads) or **Upstream** (what 
 Rings and badges mark every place it reaches, with the number of hops, and the trace bar lists
 them so you can jump to any of them.
 
-- Traces follow **recorded connections only**: what the scanner found plus what Claude added with
-  evidence. That is the map's reach, not a promise about runtime impact. Start-up order
+- Traces follow **recorded connections only**: what the scanner found plus what your agent added
+  with evidence. That is the map's reach, not a promise about runtime impact. Start-up order
   (`depends_on`) and provisioning are left out, because they are not traffic.
 - They are **file precise**: a trace from `web/lib/payments.ts` follows that file's connections,
   not the whole frontend's. A connection that points at a whole block (an env var naming a
@@ -170,7 +192,7 @@ Open the **Clipboard** (`C`). **Tours** walk the worker through the system in th
 really happen ("What happens when you log in"). **Quests** send you looking ("Where are passwords
 hashed?") and tick off when you inspect the answer. Progress stays in your browser.
 
-Claude writes them during `/wirehouse`. You can add your own to
+Your agent writes them during `/wirehouse`. You can add your own to
 `wirehouse-out/enrichment.json`:
 
 ```json
@@ -224,7 +246,7 @@ flowchart LR
   B --> C[units<br/>apps and packages]
   C --> D[infra<br/>compose · Docker · Terraform · K8s · CI]
   D --> E[archmap.raw.json]
-  E --> F{{Claude reads the code<br/>enrichment.json}}
+  E --> F{{your agent reads the code<br/>enrichment.json}}
   F --> G[checks<br/>ids · files · lines · secrets]
   G --> H[wirehouse.html<br/>one offline file]
 ```
@@ -237,7 +259,7 @@ flowchart LR
    `API_URL=http://api:8000` links the code that reads it to the `api` service, and
    `DATABASE_URL=postgresql://...@db/...` links it to the Postgres container. Connections are kept
    at file level and rolled up to whatever level you are looking at.
-4. **Enrichment**: Claude reads the code and writes descriptions, connection notes, corrections
+4. **Enrichment**: your agent reads the code and writes descriptions, connection notes, corrections
    (each with file:line evidence), tours and quests. Entries carry a content hash, so later runs only
    ask about code that changed.
 5. **Checks**: every citation is verified against the scan, and secret-looking text is removed.
@@ -246,7 +268,7 @@ flowchart LR
 | Output in `wirehouse-out/` | What it is |
 |------|------------|
 | `archmap.raw.json` | What the rules found |
-| `enrich-brief.md` | Claude's worklist |
+| `enrich-brief.md` | The agent's worklist |
 | `enrichment.json` | Descriptions, corrections, tours and quests, kept between runs |
 | `archmap.json` | The merged data behind the page |
 | `wirehouse.html` | The warehouse |
@@ -272,14 +294,14 @@ Missing your stack? [Tell us where the map is wrong](https://github.com/__OWNER_
 - Runs locally. No network requests, no telemetry, and the page loads nothing from the network.
 - Never reads real `.env` files. Env values, passwords, connection strings, column defaults and
   credentials inside git remotes are never written to the output.
-- Text written by Claude is checked for credential-looking strings, which are removed.
+- Text written by the agent is checked for credential-looking strings, which are removed.
 
 See [SECURITY.md](SECURITY.md) to report a problem.
 
 ## Limits
 
 - Detection is regex based. It favours precision over recall: it would rather miss a connection
-  than draw a wrong one, and Claude's pass adds what it misses (with evidence).
+  than draw a wrong one, and the agent's pass adds what it misses (with evidence).
 - Wiring that only exists at runtime (service discovery, URLs built on the fly, DI containers) is
   found only when it shows up in env vars, config or literals, so traces cannot see it either.
 - Very large rooms (hundreds of files in one folder) render fine but get dense; search is the

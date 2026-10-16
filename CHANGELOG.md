@@ -6,6 +6,22 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **`wirehouse install` reaches any coding agent** (2026-10-16)
+  - Summary: The skill is written to the shared `~/.agents/skills` folder and to the skills folder of
+    every agent found in the home folder (Claude Code, Codex, Cursor, OpenCode, Gemini CLI,
+    Antigravity, GitHub Copilot). `--agent` picks agents, `--dir` adds any other folder, `--print`
+    prints the instructions for agents without skills support.
+  - Why: Wirehouse is built for any agent, not one vendor's; installing only for one left everyone
+    else to copy files by hand.
+
+### Changed
+- **Agent-neutral wording** (2026-10-16)
+  - Summary: The README, docs, banner tagline ("Built for your agents"), skill and brief no longer
+    name one agent; enrichment written by an agent is tagged `"source": "agent"`.
+  - Why: the skill uses the open `SKILL.md` format and works with any agent that can read files
+    and run commands.
+
 ## [0.2.0] - 2026-10-16
 
 The first public release.
@@ -14,7 +30,7 @@ The first public release.
 - **Trace mode.** Light up everything a block leads to (downstream) or everything that leads to it
   (upstream), at file precision, with hop counts. Pick two places and the worker walks the route
   hop by hop, showing the file and line behind each step.
-- **Guided tours and quests** (the Clipboard). Claude writes them during `/wirehouse`; Wirehouse
+- **Guided tours and quests** (the Clipboard). Your agent writes them during `/wirehouse`; Wirehouse
   makes a main-floor tour, a follow-a-request route and a few quests when none are written.
   Progress stays in the browser.
 - **Checked citations.** Every tour stop, quest and added connection is checked against the scan
@@ -43,13 +59,13 @@ The first public release.
 - SQLModel tables are detected, with inherited fields and multi-line `Field(foreign_key=...)`.
 - Traces and routes no longer follow start-up order (`depends_on`) or provisioning, which are not
   traffic; compose services that only run tests do not describe how an app runs.
-- Text Claude writes in descriptions and connection notes is checked for credentials too.
+- Text the agent writes in descriptions and connection notes is checked for credentials too.
 - Room changes during the fade are queued instead of dropped; reduced motion stops particles.
 - Space, Enter, arrows and Backspace keep their normal meaning on buttons and links.
 
 ## [0.1.0] - 2026-10-10
 
-- First working version: scan, Claude enrichment, the 3D warehouse and the floor plan.
+- First working version: scan, agent enrichment, the 3D warehouse and the floor plan.
 
 [Unreleased]: https://github.com/__OWNER__/wirehouse/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/__OWNER__/wirehouse/releases/tag/v0.2.0

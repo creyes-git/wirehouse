@@ -5,7 +5,7 @@ the file + line it is based on), or along a route between two nodes. A *quest* a
 the reader to find something ("Where are passwords checked?") and counts as found
 when they inspect the answer.
 
-Claude writes tours and quests into enrichment.json. They are checked here before
+The coding agent writes tours and quests into enrichment.json. They are checked here before
 they reach the page: every node must exist and every citation must point at a real
 file and line in the project. Problems come back as diagnostics with a stable code,
 the exact subject and how to fix it, so they can be repaired one by one. When
@@ -110,7 +110,7 @@ class Evidence:
 
 
 def validate(data: dict, enrichment: dict) -> tuple[list, list, list]:
-    """Claude's tours and quests -> (tours, quests, diagnostics). Invalid parts are dropped, not guessed."""
+    """The agent's tours and quests -> (tours, quests, diagnostics). Invalid parts are dropped, not guessed."""
     nodes = {n["id"] for n in data["nodes"]}
     ev = Evidence(data)
     diags: list[dict] = []
@@ -321,9 +321,9 @@ def apply(data: dict, enrichment: dict) -> dict:
             if b not in seen and a != b:
                 diags.append(diag("tour/no-recorded-path", f"tours[{t['id']}]", "no recorded connections lead from the first node to the second",
                                   "pick two nodes the map connects (trace downstream from the first in the page to check)"))
-    # Descriptions and connection notes Claude wrote get the same credential check as tours.
+    # Descriptions and connection notes the agent wrote get the same credential check as tours.
     for n in data["nodes"]:
-        if n.get("source") == "claude":
+        if n.get("source") == "agent":
             for field in ("name", "description", "purpose"):
                 if n.get(field) and SECRET_LIKE.search(str(n[field])):
                     n[field] = _clean(n[field], 2000, f"nodes[{n['id']}].{field}", diags)

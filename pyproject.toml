@@ -5,15 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "wirehouse"
 version = "0.2.0"
-description = "Walk through your codebase's architecture as a 3D warehouse: trace requests, take guided tours and share it all as one offline HTML file. Built for Claude Code."
+description = "Walk through your codebase's architecture as a 3D warehouse: trace requests, take guided tours and share it all as one offline HTML file. Built for your agents."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "__AUTHOR__" }]
+authors = [{ name = "__AUTHOR__", email = "github-.boaster602@passmail.com" }]
 keywords = [
     "architecture", "architecture-diagram", "software-architecture", "visualization", "codebase",
-    "three-js", "claude-code", "developer-tools", "onboarding", "static-analysis", "documentation",
+    "three-js", "ai-agents", "agent-skills", "developer-tools", "onboarding", "static-analysis", "documentation",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

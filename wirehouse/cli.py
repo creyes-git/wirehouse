@@ -3,7 +3,7 @@
   wirehouse scan   <path>   detect structure -> archmap.raw.json + enrich-brief.md
   wirehouse render <path>   merge enrichment.json -> archmap.json + wirehouse.html
   wirehouse build  <path>   scan + render in one go (uses any cached enrichment)
-  wirehouse install         install the Claude Code skill (~/.claude/skills/wirehouse)
+  wirehouse install         add the /wirehouse skill to your coding agents (see AGENT_SKILL_DIRS)
 """
 
 from __future__ import annotations
@@ -89,14 +89,43 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False)
     return html_path
 
 
-def cmd_install() -> None:
+# Where each agent looks for personal skills (the open SKILL.md format), relative to the home
+# folder, and the folder whose presence means the agent is installed. `~/.agents/skills` is the
+# shared location several agents read, so it is always written.
+SHARED_SKILL_DIR = ".agents/skills"
+AGENT_SKILL_DIRS = {
+    "claude": (".claude", ".claude/skills"),
+    "codex": (".codex", SHARED_SKILL_DIR),
+    "cursor": (".cursor", ".cursor/skills"),
+    "opencode": (".config/opencode", ".config/opencode/skills"),
+    "gemini": (".gemini", ".gemini/skills"),
+    "antigravity": (".gemini/antigravity", ".gemini/antigravity/skills"),
+    "copilot": (".copilot", ".copilot/skills"),
+}
+
+
+def skill_text() -> str:
     src = Path(__file__).parent / "skill" / "SKILL.md"
-    home = Path(__file__).resolve().parent.parent
-    dest_dir = Path.home() / ".claude" / "skills" / "wirehouse"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    text = src.read_text(encoding="utf-8").replace("{{WIREHOUSE_HOME}}", str(home))
-    (dest_dir / "SKILL.md").write_text(text, encoding="utf-8")
-    _log(f"installed skill to {dest_dir / 'SKILL.md'}. Use /wirehouse in Claude Code.")
+    return src.read_text(encoding="utf-8").replace("{{WIREHOUSE_HOME}}", str(Path(__file__).resolve().parent.parent))
+
+
+def cmd_install(agents: list[str] | None = None, dirs: list[str] | None = None, home: Path | None = None) -> list[Path]:
+    home = home or Path.home()
+    if agents or dirs:
+        targets = [home / AGENT_SKILL_DIRS[a][1] for a in agents or []]
+    else:
+        targets = [home / SHARED_SKILL_DIR]
+        targets += [home / skills for marker, skills in AGENT_SKILL_DIRS.values() if (home / marker).is_dir()]
+    targets += [Path(d).expanduser().resolve() for d in dirs or []]
+    written, text = [], skill_text()
+    for skills in dict.fromkeys(targets):
+        dest = skills / "wirehouse" / "SKILL.md"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text, encoding="utf-8")
+        written.append(dest)
+        _log(f"installed skill to {dest}")
+    _log("Ask your agent for /wirehouse (or \"map this project with wirehouse\"). Restart it if it was already open.")
+    return written
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -113,11 +142,19 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--open", action="store_true", help="open the HTML in your browser")
             sp.add_argument("--share", action="store_true",
                             help="leave out local paths (this machine's folders, uncommitted files) before publishing the page")
-    sub.add_parser("install", help="install the Claude Code skill")
+    sp = sub.add_parser("install", help="add the /wirehouse skill to your coding agents",
+                        description="Writes SKILL.md to ~/.agents/skills plus the skills folder of every agent found "
+                                    "in your home folder, unless --agent or --dir is given.")
+    sp.add_argument("--agent", action="append", choices=sorted(AGENT_SKILL_DIRS), help="only this agent (repeatable)")
+    sp.add_argument("--dir", action="append", help="also write to this skills folder (any other agent)")
+    sp.add_argument("--print", action="store_true", help="print the instructions instead, to paste into any agent")
     args = p.parse_args(argv)
 
     if args.cmd == "install":
-        cmd_install()
+        if args.print:
+            print(skill_text())
+        else:
+            cmd_install(args.agent, args.dir)
         return 0
     project = Path(args.path).resolve()
     if not project.is_dir():

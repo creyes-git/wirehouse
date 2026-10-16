@@ -34,7 +34,7 @@ the project).
 ## Reporting
 
 Report unacceptable behaviour privately to the maintainer, [@__OWNER__](https://github.com/__OWNER__),
-through a direct message on GitHub, or by opening a private
+by email at [github-.boaster602@passmail.com](mailto:github-.boaster602@passmail.com), or by opening a private
 [security advisory](https://github.com/__OWNER__/wirehouse/security/advisories/new) if you prefer
 not to be identified in public. Reports are handled confidentially. Maintainers may remove, edit
 or reject contributions, and temporarily or permanently ban participants, following the

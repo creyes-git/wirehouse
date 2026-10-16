@@ -2,7 +2,7 @@
 
 Everything here is regex based on purpose: it is fast, dependency free and
 good enough for architecture-level maps. Precision matters more than recall;
-Claude's enrichment pass fills the gaps.
+the agent's enrichment pass fills the gaps.
 """
 
 from __future__ import annotations

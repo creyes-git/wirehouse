@@ -1,7 +1,7 @@
-"""Claude enrichment: write a brief, merge Claude's answers back in.
+"""Agent enrichment: write a brief, merge the coding agent's answers back in.
 
-The rule-based scan knows *what* is connected; Claude adds *why*. The skill
-asks Claude to read `enrich-brief.md`, open the relevant files and write
+The rule-based scan knows *what* is connected; the agent adds *why*. The skill
+asks the agent to read `enrich-brief.md`, open the relevant files and write
 `enrichment.json`. Entries carry the node's content hash, so on the next run
 only nodes whose code changed are asked about again.
 """
@@ -226,7 +226,7 @@ def merge(data: dict, enrichment: dict) -> dict:
         parent = an.get("parent") if an.get("parent") in nodes else None
         n = {"id": an["id"], "name": an.get("name", an["id"]), "kind": kind, "layer": an.get("layer") or KINDS.get(kind),
              "parent": parent, "description": an.get("description", ""), "purpose": an.get("purpose", ""),
-             "tech": an.get("tech", []), "locations": an.get("locations", []), "source": "claude"}
+             "tech": an.get("tech", []), "locations": an.get("locations", []), "source": "agent"}
         data["nodes"].append(n)
         nodes[n["id"]] = n
 
@@ -235,7 +235,7 @@ def merge(data: dict, enrichment: dict) -> dict:
             data["edges"].append({"source": ae["source"], "target": ae["target"],
                                   "kind": ae.get("kind") if ae.get("kind") in EDGE_KINDS else "uses",
                                   "description": ae.get("description", ""), "evidence": ae.get("evidence", []),
-                                  "confidence": "INFERRED", "count": 1, "source_tag": "claude"})
+                                  "confidence": "INFERRED", "count": 1, "source_tag": "agent"})
         else:
             warnings.append(f"add_edges: unknown endpoint in {ae}")
 
@@ -251,7 +251,7 @@ def merge(data: dict, enrichment: dict) -> dict:
         if patch.get("kind") in KINDS and n["parent"] is None:
             n["kind"] = patch["kind"]
             n["layer"] = patch.get("layer") or KINDS[patch["kind"]] or n["layer"]
-        n["source"] = "claude"
+        n["source"] = "agent"
         if patch.get("hash") and patch["hash"] != n.get("hash"):
             n["stale"] = True
 

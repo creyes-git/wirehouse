@@ -48,9 +48,9 @@ wirehouse build path/to/project --open
 | `wirehouse/detectors/` | Per-file facts, units (apps and packages), infra, table columns |
 | `wirehouse/signatures.py` | About 115 technologies: imports, packages, URLs, images to blocks |
 | `wirehouse/build.py` | Turns facts into the archmap (blocks, rooms, connections) |
-| `wirehouse/enrich.py`, `guide.py` | Claude's brief, merging enrichment, checking tours and citations |
+| `wirehouse/enrich.py`, `guide.py` | The agent's brief, merging enrichment, checking tours and citations |
 | `wirehouse/render/` | The viewer: `template.html`, `app.css`, `app.js` (Three.js r149, vendored) |
-| `wirehouse/skill/SKILL.md` | The `/wirehouse` instructions Claude follows |
+| `wirehouse/skill/SKILL.md` | The `/wirehouse` instructions the agent follows |
 
 `AGENTS.md` has the architecture notes and conventions in more detail.
 
