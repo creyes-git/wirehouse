@@ -358,6 +358,19 @@ button.link { border: 0; background: none; padding: 0; cursor: pointer; color: v
 .erd-link.dim { opacity: 0.2; }
 .erd-arrowhead { fill: var(--muted); }
 
+/* ── export menu ───────────────────────────────────────── */
+.menu-wrap { position: relative; flex: none; }
+.menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 12; width: 270px; padding: 4px;
+  background: var(--surface-solid); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow);
+}
+.menu button {
+  display: block; width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: var(--r-sm);
+  cursor: pointer; font: 600 16px/1.2 var(--sign);
+}
+.menu button:hover, .menu button:focus-visible { background: var(--raise); }
+.menu button span { display: block; font: 400 13px/1.3 var(--body); color: var(--muted); }
+
 /* ── welcome ───────────────────────────────────────────── */
 #welcome { position: fixed; inset: 0; display: grid; place-items: center; z-index: 40; background: rgba(0, 0, 0, 0.35); padding: 16px; }
 #welcome .card {
@@ -393,6 +406,7 @@ button.link { border: 0; background: none; padding: 0; cursor: pointer; color: v
   #crumbs { order: 5; flex-basis: 100%; }
   .search { flex: 1 1 140px; }
   #theme { display: none; }
+  .menu-wrap { display: none; }
   #clip { top: auto; bottom: 12px; max-height: 60vh; }
   #panel { top: auto; height: 55vh; }
   #bar, #panel:not([hidden]) ~ #bar { left: 12px; right: 12px; bottom: 12px; }

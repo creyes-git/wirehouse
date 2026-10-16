@@ -27,6 +27,14 @@
     <button id="view2d" type="button">Floor plan</button>
   </div>
   <button id="clipBtn" class="ghost" type="button" aria-controls="clip" aria-expanded="false" title="Tours and quests (C)">Clipboard</button>
+  <div class="menu-wrap">
+    <button id="exportBtn" class="ghost" type="button" aria-haspopup="menu" aria-controls="exportMenu" aria-expanded="false" title="Save or share a picture (X)">Export</button>
+    <div id="exportMenu" class="menu" role="menu" hidden>
+      <button type="button" role="menuitem" data-x="png">Save picture<span>PNG of this view, without the panels</span></button>
+      <button type="button" role="menuitem" data-x="copy">Copy picture<span>Paste it into chat or a doc</span></button>
+      <button type="button" role="menuitem" data-x="card">Save share card<span id="exportCardSub">1200 × 630</span></button>
+    </div>
+  </div>
   <button id="theme" class="ghost" type="button" title="Switch lighting (T)">Day shift</button>
   <button id="helpBtn" class="ghost round" type="button" title="Controls (H)" aria-label="Controls">?</button>
 </header>
@@ -74,6 +82,7 @@
       <dt><kbd>T</kbd></dt><dd>Switch between night and day shift</dd>
       <dt><kbd>R</kbd></dt><dd>Route from the inspected block: pick an end and walk it</dd>
       <dt><kbd>C</kbd></dt><dd>Clipboard: guided tours and quests</dd>
+      <dt><kbd>X</kbd></dt><dd>Export a picture or a share card of what you are looking at</dd>
       <dt><kbd>Space</kbd> <kbd>,</kbd> <kbd>.</kbd></dt><dd>During a tour or route: play or pause, back, next</dd>
       <dt><kbd>Esc</kbd></dt><dd>Back out one step (stop, close, clear)</dd>
     </dl>

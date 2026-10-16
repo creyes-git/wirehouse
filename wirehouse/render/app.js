@@ -2411,6 +2411,192 @@
   })();
   onEscape(12, () => !erd.hidden, () => closeErd());
 
+  // ── export: pictures and share cards ─────────────────────────────────────
+  // A picture is the view itself (3D or floor plan) without the panels around it.
+  // A share card is 1200 x 630: the picture plus what is being shown (a route, a
+  // trace, a tour stop or one block) and the commit it was drawn from.
+  const exportBtn = $('#exportBtn'), exportMenu = $('#exportMenu');
+  const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'view';
+
+  function canvasToBlob(c) { return new Promise((res) => c.toBlob((b) => res(b), 'image/png')); }
+  function planStyles() {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (k) => cs.getPropertyValue(k).trim();
+    return `text{font-family:"Barlow Condensed","Arial Narrow",sans-serif;fill:${v('--ink')}}.zone-name{font-weight:700;fill:${v('--muted')};opacity:.5}` +
+      `.dim{opacity:.18}.lnk{fill:none;stroke-linecap:round}.off{display:none}`;
+  }
+  /** The current view as a canvas: the 3D scene, or the floor plan drawn from its SVG. */
+  async function viewCanvas(fit) {
+    if (!planOn && renderer) {
+      renderer.render(scene, camera);   // read right after drawing: no preserveDrawingBuffer needed
+      const src = renderer.domElement, c = document.createElement('canvas');
+      c.width = src.width; c.height = src.height;
+      c.getContext('2d').drawImage(src, 0, 0);
+      return c;
+    }
+    const r = fit || plan.getBoundingClientRect(), k = Math.min(2, window.devicePixelRatio || 1);
+    const clone = plan.cloneNode(true);
+    clone.removeAttribute('hidden');
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    clone.setAttribute('width', r.width);
+    clone.setAttribute('height', r.height);
+    if (fit) {   // frame the whole room for the card instead of the window's pan and zoom
+      let w = room.W + 6, h = room.D + 8;
+      if (w / h < r.width / r.height) w = h * r.width / r.height; else h = w * r.height / r.width;
+      clone.setAttribute('viewBox', `${-w / 2} ${-h / 2 - 2} ${w} ${h}`);
+      clone.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    }
+    const st = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    st.textContent = planStyles();
+    clone.insertBefore(st, clone.firstChild);
+    const url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' }));
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+      const c = document.createElement('canvas');
+      c.width = Math.round(r.width * k); c.height = Math.round(r.height * k);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = css(T.bg); ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      return c;
+    } finally { URL.revokeObjectURL(url); }
+  }
+
+  function cardFacts() {
+    const name = (id) => (N.get(id) || { name: id }).name;
+    const TC = T.trace;
+    if (player) {
+      const st = player.stops[player.i];
+      return { kicker: player.kind === 'route' ? 'Route' : 'Tour', color: TC.route, title: player.title,
+        sub: `Stop ${player.i + 1} of ${player.stops.length}: ${st.title || name(st.id)}`,
+        lines: player.stops.slice(0, 7).map((s, k) => `${k + 1}. ${s.title || name(s.id)}`) };
+    }
+    if (trace && trace.mode === 'route') {
+      if (!trace.path) return { kicker: 'Route', color: TC.route, title: `${name(trace.a)} to ${name(trace.b)}`, sub: 'No recorded path in this direction', lines: [] };
+      return { kicker: 'Route', color: TC.route, title: `${name(trace.a)} to ${name(trace.b)}`,
+        sub: `${plural(trace.stops.length, 'stop')}${trace.loose ? ', loose (block to block in places)' : ', through recorded connections'}`,
+        lines: trace.stops.slice(0, 7).map((s, k) => `${k + 1}. ${name(s.id)}${k && s.edge ? `  (${EDGE_LABEL[s.edge.kind] || s.edge.kind})` : ''}`) };
+    }
+    if (trace) {
+      const down = trace.mode === 'down', groups = new Map(), startRep = projector(room.R)(trace.id);
+      (MARK.hop || new Map()).forEach((d, id) => { if (id !== startRep) { if (!groups.has(d)) groups.set(d, []); groups.get(d).push(name(id)); } });
+      const reached = [...groups.values()].reduce((s, g) => s + g.length, 0);
+      return { kicker: down ? 'Downstream' : 'Upstream', color: TC[trace.mode], title: down ? `Where ${name(trace.id)} leads` : `What leads to ${name(trace.id)}`,
+        sub: reached ? `${plural(reached, 'place')}, up to ${hops(Math.max(...groups.keys()))} away` : 'Nothing recorded',
+        lines: [...groups.keys()].sort((a, b) => a - b).slice(0, 6).map((d) => `${d ? hops(d) : 'Same block'}: ${groups.get(d).sort().join(', ')}`) };
+    }
+    if (selected && selected.type !== 'link') {
+      const n = N.get(selected.id), conns = connectionsOf(selected.id);
+      const outs = conns.filter((g) => g.dir === 'out').map((g) => name(g.rep)), ins = conns.filter((g) => g.dir === 'in').map((g) => name(g.rep));
+      return { kicker: KIND_LABEL[n.kind] || n.kind, color: kindHex(n.kind), title: n.name,
+        sub: String(n.purpose || n.description || '').split(/(?<=[.!?])\s/)[0],
+        lines: [outs.length ? `Reaches out to: ${outs.slice(0, 6).join(', ')}` : '', ins.length ? `Used by: ${ins.slice(0, 6).join(', ')}` : ''].filter(Boolean) };
+    }
+    const tops = kidsOf(ROOT).map((id) => N.get(id));
+    const zoneLine = (z, label) => { const xs = tops.filter((n) => n.layer === z).map((n) => n.name); return xs.length ? `${label}: ${xs.slice(0, 5).join(', ')}${xs.length > 5 ? ` +${xs.length - 5}` : ''}` : ''; };
+    return { kicker: 'Architecture', color: T.trace.route, title: `${D.project.name} warehouse`,
+      sub: `${plural(tops.length, 'block')} on the main floor, ${plural(roomLinks(ROOT).inner.length, 'pipe')} between them`,
+      lines: [zoneLine('clients', 'Clients'), zoneLine('edge', 'Gateway and auth'), zoneLine('services', 'Services'), zoneLine('data', 'Data'), zoneLine('external', 'Loading dock')].filter(Boolean) };
+  }
+  function wrap(ctx, text, maxW, maxLines) {
+    const words = String(text).split(/\s+/), out = [];
+    let cur = '';
+    for (const w of words) {
+      const t = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(t).width > maxW && cur) { out.push(cur); cur = w; } else cur = t;
+      if (out.length === maxLines) break;
+    }
+    if (out.length < maxLines && cur) out.push(cur);
+    if (out.length === maxLines && words.join(' ').length > out.join(' ').length) out[maxLines - 1] = out[maxLines - 1].replace(/\s*\S*$/, '') + '…';
+    return out;
+  }
+  async function shareCard() {
+    const view = await viewCanvas(planOn ? { width: 730, height: 630 } : null);
+    const W = 1200, H = 630, c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const ctx = c.getContext('2d'), f = cardFacts(), night = T.glow;
+    ctx.fillStyle = css(T.bg); ctx.fillRect(0, 0, W, H);
+    // the view, cover-fitted to the right of the text column
+    const L = 470, vw = W - L, s = Math.max(vw / view.width, H / view.height);
+    const sw = vw / s, sh = H / s;
+    ctx.drawImage(view, (view.width - sw) / 2, (view.height - sh) / 2, sw, sh, L, 0, vw, H);
+    const g = ctx.createLinearGradient(L - 2, 0, L + 90, 0);
+    g.addColorStop(0, css(T.bg)); g.addColorStop(1, night ? 'rgba(7,11,22,0)' : 'rgba(223,226,228,0)');
+    ctx.fillStyle = g; ctx.fillRect(L - 2, 0, 92, H);
+    ctx.fillStyle = css(T.bg); ctx.fillRect(0, 0, L, H);
+    // hazard stripe
+    for (let x = -30; x < L + 30; x += 24) {
+      ctx.fillStyle = night ? '#ffb23f' : '#f2c230';
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 12, 0); ctx.lineTo(x + 2, 10); ctx.lineTo(x - 10, 10); ctx.closePath(); ctx.fill();
+    }
+    const ink = night ? '#eef2f8' : '#1b2330', muted = night ? '#93a0b8' : '#5a6474';
+    let y = 54;
+    ctx.fillStyle = muted; ctx.font = '600 20px "Barlow Condensed", "Arial Narrow", sans-serif';
+    ctx.fillText(`WIREHOUSE · ${String(D.project.name).toUpperCase()}`, 40, y);
+    y += 26;
+    ctx.font = '700 17px "Barlow Condensed", "Arial Narrow", sans-serif';
+    const kw = ctx.measureText(f.kicker.toUpperCase()).width + 18;
+    ctx.fillStyle = css(f.color); ctx.fillRect(40, y, kw, 26);
+    ctx.fillStyle = '#0b0f17'; ctx.fillText(f.kicker.toUpperCase(), 49, y + 19);
+    y += 46;
+    ctx.fillStyle = ink; ctx.font = '700 46px "Barlow Condensed", "Arial Narrow", sans-serif';
+    wrap(ctx, f.title, L - 70, 3).forEach((t) => { y += 44; ctx.fillText(t, 40, y); });
+    y += 34;
+    ctx.fillStyle = muted; ctx.font = '500 20px "Barlow", "Segoe UI", sans-serif';
+    wrap(ctx, f.sub, L - 70, 2).forEach((t) => { ctx.fillText(t, 40, y); y += 26; });
+    y += 12;
+    ctx.fillStyle = ink; ctx.font = '500 18px "Barlow", "Segoe UI", sans-serif';
+    for (const line of f.lines) {
+      const ls = wrap(ctx, line, L - 70, 2);
+      if (y + ls.length * 24 > H - 60) break;
+      ls.forEach((t) => { ctx.fillText(t, 40, y); y += 24; });
+      y += 4;
+    }
+    ctx.fillStyle = muted; ctx.font = '500 15px "Barlow", "Segoe UI", sans-serif';
+    const where = room && room.R ? chain(room.R).reverse().map((id) => N.get(id).name).join(' / ') : 'main floor';
+    ctx.fillText(`Recorded connections only · ${where}${REPO && REPO.short ? ` · commit ${REPO.short}` : ''}`, 40, H - 30);
+    return { canvas: c, name: `${slug(D.project.name)}-${slug(f.kicker + '-' + f.title)}.png` };
+  }
+  async function download(canvas, name) {
+    const blob = await canvasToBlob(canvas);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    EXPORTS.push({ name, width: canvas.width, height: canvas.height, bytes: blob.size });
+    toast(`Saved ${name}`, 2000);
+  }
+  const EXPORTS = [];   // receipts, for the automated checks
+  const EXPORT_ACTS = {
+    png: async () => download(await viewCanvas(), `${slug(D.project.name)}-${planOn ? 'floor-plan' : 'warehouse'}.png`),
+    card: async () => { const c = await shareCard(); download(c.canvas, c.name); },
+    copy: () => {
+      // ClipboardItem must be created inside the click; it takes a promise of the image
+      if (!navigator.clipboard || !window.ClipboardItem) { toast('This browser cannot copy pictures; use Save instead', 2600); return; }
+      const blob = viewCanvas().then(canvasToBlob);
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]).then(() => toast('Picture copied'), () => toast('Copying was blocked; use Save instead', 2600));
+    },
+  };
+  function toggleExport(on) {
+    exportMenu.hidden = on == null ? !exportMenu.hidden : !on;
+    exportBtn.setAttribute('aria-expanded', String(!exportMenu.hidden));
+    if (!exportMenu.hidden) {
+      const what = cardFacts();
+      $('#exportCardSub').textContent = `${what.kicker}: ${shortName(what.title, 40)}`;
+      exportMenu.querySelector('button').focus();
+    }
+  }
+  exportBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleExport(); });
+  exportMenu.querySelectorAll('[data-x]').forEach((b) => b.addEventListener('click', () => { toggleExport(false); EXPORT_ACTS[b.dataset.x](); }));
+  exportMenu.addEventListener('keydown', (e) => {
+    const items = [...exportMenu.querySelectorAll('button')], i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+  });
+  document.addEventListener('click', (e) => { if (!exportMenu.hidden && !exportMenu.contains(e.target)) toggleExport(false); });
+  KEYS.x = () => toggleExport();
+  onEscape(11, () => !exportMenu.hidden, () => { toggleExport(false); exportBtn.focus(); });
+
   // ── breadcrumbs ──────────────────────────────────────────────────────────
   function drawCrumbs() {
     const nav = $('#crumbs');
@@ -2825,6 +3011,7 @@
     startTrace, startPick, startRoute, startJourney, clearTrace, goStop, setPlaying, startTour, toggleClip,
     progress: () => JSON.parse(JSON.stringify(PROG)),
     openErd,
+    exportReceipts: () => EXPORTS.slice(), shareCard: async () => { const c = await shareCard(); return { name: c.name, w: c.canvas.width, h: c.canvas.height, url: c.canvas.toDataURL('image/png') }; },
     trace: () => trace && (trace.mode === 'route'
       ? { mode: 'route', loose: trace.loose, stops: trace.stops.map((s) => s.id), path: trace.path && trace.path.map((p) => p.id) }
       : { mode: trace.mode, id: trace.id, marks: MARK.hop && Object.fromEntries(MARK.hop) }),
