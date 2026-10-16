@@ -315,7 +315,7 @@
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true });
   } catch (e) {
-    stage.innerHTML = '<p style="padding:90px 24px;max-width:60ch">This browser could not start WebGL, so the 3D warehouse cannot be shown. The floor plan still works: press Tab or choose Floor plan.</p>';
+    stage.innerHTML = '<p style="padding:90px 24px;max-width:60ch">This browser could not start WebGL, so the 3D warehouse cannot be shown. The floor plan still works: press P or choose Floor plan.</p>';
   }
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 700);
@@ -943,6 +943,8 @@
     });
     GEOS.forEach((g) => g.dispose());
     GEOS = [];
+    markObjs.forEach((o) => o.geometry && o.geometry.dispose());   // trace rings own their geometry
+    markObjs = [];
     while (world.children.length) world.remove(world.children[0]);
     ANIM.length = 0;
     PICK = [];
@@ -1929,7 +1931,7 @@
       markObjs.push(lb);
     });
   }
-  BUILD_HOOKS.push(() => { markObjs = []; computeMarks(); drawMarks(); });
+  BUILD_HOOKS.push(() => { computeMarks(); drawMarks(); });
   function refreshMarks() {
     computeMarks();
     drawMarks();
@@ -2930,7 +2932,10 @@
     buildWorker();
     buildRoom(room.R);
     W8.pos.copy(keep); W8.yaw = yaw;
-    if (selected && selected.type !== 'link') select(selected.id); else if (selected) closePanel();
+    if (selected && selected.type !== 'link') {
+      const port = room.ports.find((p) => p.rep === selected.id);
+      select(selected.id, port && !itemsById.has(selected.id) ? { port } : {});
+    } else if (selected) closePanel();
   }
   $('#theme').addEventListener('click', () => setTheme(themeId === 'night' ? 'day' : 'night'));
 
@@ -2994,7 +2999,7 @@
       glMsg.hidden = false;
       clearTimeout(lostTimer);
       lostTimer = setTimeout(() => {
-        glMsg.innerHTML = '<p>The 3D view could not be restored. Reload the page to try again. The floor plan still works: press Tab or choose Floor plan.</p><button type="button" class="primary">Reload</button>';
+        glMsg.innerHTML = '<p>The 3D view could not be restored. Reload the page to try again. The floor plan still works: press P or choose Floor plan.</p><button type="button" class="primary">Reload</button>';
         glMsg.querySelector('button').addEventListener('click', () => location.reload());
       }, 4000);
     });

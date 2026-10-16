@@ -42,8 +42,14 @@ wirehouse build path/to/project --open
 | `E` | walk into the block in front of you |
 | `Q`, or walk out the door | go back to the room above |
 | `/` | search everything and walk straight to it |
-| `Tab` | switch between walking and the 2D floor plan |
+| `P` | switch between walking and the 2D floor plan |
 | `T` | switch between night shift and day shift lighting |
+| Trace buttons on the tag | light up everything a block leads to (downstream) or everything that leads to it (upstream) |
+| `R` | pick an end point and walk the route from the inspected block, hop by hop |
+| `C` | the Clipboard: guided tours and quests, with your progress |
+| `Space` `,` `.` | during a tour or route walk: play or pause, back, next |
+| `X` | save or copy a picture of the view, or a 1200 x 630 share card |
+| `Esc` | back out one step: close the menu, pause, stop, clear the trace, close the tag |
 
 The floor is laid out in zones from the entrance to the back: **Clients**,
 **Gateway and auth** (shown even when empty, because "no auth found" is worth knowing),
@@ -51,7 +57,35 @@ The floor is laid out in zones from the entrance to the back: **Clients**,
 Terraform, Kubernetes, hosting, observability) runs down the left side.
 
 Pipe colors: calls (blue), data reads and writes (amber), auth (pink), messages (red),
-code imports (grey), provisioning (green). The pipe key is in the bottom-left corner.
+code imports (grey), provisioning (green), foreign keys between tables (tan). The pipe key in the
+bottom-left corner is also a filter: switch a kind off to hide its pipes and leave it out of
+traces (switching off imports gives runtime-only reach).
+
+### Trace, route, tour
+
+- **Trace** follows recorded connections only: what the scanner found plus what enrichment added
+  with evidence. It is the map's reach, not a promise about runtime impact. It works at file
+  precision (a trace from `web/lib/payments.ts` only follows that file's connections); a
+  connection that points at a whole block, such as an env var naming a service, reaches
+  everything inside that block. Hops count block boundaries.
+- **Route** finds the shortest recorded path between two places and the worker walks it, showing
+  the file and line behind each hop. When files do not line up but the blocks connect, the route
+  says it is *loose*.
+- **Tours** walk the worker through the system stop by stop, and **quests** ask you to find things
+  ("Which file handles POST /orders/{order_id}/pay?") and tick off when you inspect the answer.
+  Claude writes them during `/wirehouse`; without Claude, Wirehouse makes a few from the scan.
+  Progress stays in your browser.
+- **Database rooms** list each table's columns and keys, and *Open schema diagram* draws the
+  tables with their foreign keys (SQL, Prisma, SQLAlchemy, Django, Drizzle, TypeORM).
+
+### Links and sharing
+
+The address bar always describes the view: `#room=`, `#focus=`, `#trace=down~<id>`,
+`#route=<from>~<to>&stop=2`, `#tour=<id>&stop=3`, `#plan=1`. *Copy link* on the tag or the trace
+bar copies it. File and line links go to the code host at the exact commit that was scanned
+(GitHub, GitLab, Bitbucket and Azure DevOps, read from the git remote; credentials in the remote
+are never stored), so they keep working when the HTML is shared. Files with uncommitted changes
+are marked. *VS Code* links open the file on the machine that ran the scan.
 
 ## How it works
 
@@ -78,9 +112,14 @@ scan  ->  per-file facts  ->  units  ->  infra  ->  archmap.raw.json  ->  + enri
    kept at file level and rolled up to whatever level you are looking at.
 6. **Enrichment** (`enrich.py`): `enrich-brief.md` lists the blocks, folders and
    connections that need human text. Claude writes `enrichment.json` (descriptions,
-   purposes, connection notes, and corrections with evidence). Entries carry a content hash,
-   so later runs only ask about code that changed.
-7. **Render** (`render/`): Three.js r149, the Barlow fonts, the data and the app are
+   purposes, connection notes, corrections with evidence, tours and quests). Entries carry a
+   content hash, so later runs only ask about code that changed.
+7. **Guide** (`guide.py`): checks every tour stop, quest answer and citation against the scan
+   (node ids, files, line ranges, secret-looking text) and prints one line per problem, such as
+   `error [evidence/line-out-of-range] tours[checkout].stops[2]: ... -> fix`. Invalid parts are
+   left out, never guessed. Without enrichment it makes a main-floor tour, a follow-a-request
+   route tour and a few quests.
+8. **Render** (`render/`): Three.js r149, the Barlow fonts, the data and the app are
    inlined into one HTML file of about 1.2 MB. No network access needed.
 
 ### Output files
@@ -108,7 +147,10 @@ scan  ->  per-file facts  ->  units  ->  infra  ->  archmap.raw.json  ->  + enri
 ## Limits
 
 - Detection is regex based. It favours precision over recall, and Claude's enrichment step
-  can add what it misses (with evidence) or remove false positives.
+  can add what it misses (with evidence) or remove false positives. A provider URL only puts a
+  block on the floor when the code around it makes a request.
+- Traces and routes only know recorded connections, so wiring the scan cannot see (service
+  discovery, URLs built at runtime) is not in them.
 - Dynamic wiring (service discovery, URLs built at runtime, DI containers) is only found
   when it shows up in env vars, config or literals.
 - Very large rooms (hundreds of files in one folder) render fine but get dense; search is
@@ -120,6 +162,10 @@ scan  ->  per-file facts  ->  units  ->  infra  ->  archmap.raw.json  ->  + enri
 pip install -e ".[dev]"
 python -m pytest
 ```
+
+`tests/test_viewer.py` drives the page in a headless browser (traces, routes, links, tours,
+quests, the schema diagram, exports) and is skipped unless Playwright is installed:
+`pip install -e ".[browser]"` plus an installed Chrome or Edge (or `python -m playwright install chromium`).
 
 The tests build a small Next.js + FastAPI + Postgres + Redis fixture repo and check the
 detected blocks, connections, endpoints and tables, the enrichment round trip, that no
