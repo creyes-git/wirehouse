@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="440" height="96" viewBox="0 0 440 96" role="img" aria-label="Wirehouse">
-  <defs><clipPath id="c"><rect x="8" y="16" width="64" height="64" rx="10"/></clipPath></defs>
-  <rect x="8" y="16" width="64" height="64" rx="10" fill="#F2C230"/>
-  <g clip-path="url(#c)" fill="#1B2330" transform="translate(8 16) scale(1.34)"><path d="M0,0 h12 l-48,48 h-12z"/><path d="M24,0 h12 l-48,48 h-12z"/><path d="M48,0 h12 l-48,48 h-12z"/><path d="M72,0 h12 l-48,48 h-12z"/><path d="M96,0 h12 l-48,48 h-12z"/></g>
-  <rect x="10" y="18" width="60" height="60" rx="8" fill="none" stroke="#F2C230" stroke-width="4"/>
-  <text x="92" y="66" font-family="'Barlow Condensed','Arial Narrow','Roboto Condensed',sans-serif" font-weight="700" font-size="52" letter-spacing="0.5" fill="#EEF2F8">Wirehouse</text>
-</svg>

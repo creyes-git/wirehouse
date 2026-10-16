@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 HERE = Path(__file__).parent
 
@@ -24,6 +25,7 @@ def render_html(data: dict) -> str:
     fonts = fonts_path.read_text(encoding="utf-8") if fonts_path.is_file() else ""
     parts = {
         "__TITLE__": html.escape(title),
+        "__FAVICON__": "data:image/svg+xml," + quote((HERE / "vendor" / "favicon.svg").read_text(encoding="utf-8").strip(), safe=" =:/,'"),   # quotes stay encoded: this sits in href="..."
         "/*__FONTS__*/": fonts,
         "/*__CSS__*/": css,
         "/*__THREE__*/": three,

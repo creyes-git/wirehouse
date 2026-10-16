@@ -1,11 +1,9 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
-    <img src="docs/assets/logo-light.svg" alt="Wirehouse" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/readme-banner-dark.svg">
+    <img alt="Wirehouse: walk through your codebase like a warehouse." src="docs/brand/readme/readme-banner-light.svg" width="100%">
   </picture>
 </p>
-
-<h3 align="center">Walk through your codebase like a warehouse.</h3>
 
 <p align="center">
   Wirehouse turns a repository into a 3D warehouse you can walk around: services are shipping
@@ -36,7 +34,7 @@
   <sub>The warehouse of <a href="https://github.com/fastapi/full-stack-fastapi-template">fastapi/full-stack-fastapi-template</a>, described by Claude. <a href="https://__OWNER__.github.io/wirehouse/demo/">Open it yourself</a> (one 1 MB HTML file) · <a href="docs/assets/demo.mp4">MP4 with full-speed walking</a>.</sub>
 </p>
 
----
+<img src="docs/brand/readme/readme-divider-hazard.svg" alt="" width="100%">
 
 ## Why
 
@@ -114,6 +112,11 @@ Descriptions are cached by a hash of the code they describe, so re-running `/wir
 change only asks Claude about what changed. Add `wirehouse-out/` to your `.gitignore`.
 
 ### 2. Walk around
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/readme-how-it-maps-dark.svg">
+  <img alt="Web apps are kiosks, services are shipping containers, databases are silos, queues are conveyor belts, auth is a security gate, third-party APIs are the loading dock." src="docs/brand/readme/readme-how-it-maps-light.svg" width="100%">
+</picture>
 
 The floor is laid out from the entrance to the back: **Clients**, **Gateway and auth** (shown even
 when empty, because "no auth found" is worth knowing), **Services**, **Data**, and the

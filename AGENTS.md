@@ -35,4 +35,4 @@ Pipeline: `scan` → per-file facts → units → infra → `archmap.raw.json` �
 - HTML self-containment invariant (`test_html_is_self_contained`): exactly 3 `</script>`, no network loads. Links out to code hosts are plain `<a href>`, never loads.
 - Truth before spectacle: anything the viewer lights, counts or narrates (traces, routes, tours, quests, share cards) must come from recorded edges or validated enrichment, and must say so when it is loose or inferred.
 - `archify/` is a third-party reference copy (gitignored), not part of Wirehouse.
-- Anything published (the demo in `docs/demo/`, screenshots) is rendered with `--share`, so no local paths leak. `docs/brand/logo-prompt.md` is the logo brief.
+- Anything published (the demo in `docs/demo/`, screenshots) is rendered with `--share`, so no local paths leak. `docs/brand/` is the brand kit (logo, favicons, social, README art; see its README for usage rules). The viewer inlines `render/vendor/favicon.svg` and draws the symbol in the top bar.

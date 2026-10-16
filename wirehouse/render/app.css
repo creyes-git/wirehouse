@@ -86,11 +86,9 @@ kbd {
   z-index: 10;
 }
 .brand { display: flex; align-items: center; gap: 8px; flex: none; }
-.brand-mark {
-  width: 22px; height: 22px; border-radius: 3px;
-  background: repeating-linear-gradient(-45deg, var(--accent) 0 5px, var(--accent-ink) 5px 10px);
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
+.brand-mark { width: 26px; height: 26px; flex: none; }
+.brand-mark .bm-badge { fill: var(--accent); }   /* yellow by day, amber at night: the brand kit's rule */
+.brand-mark .bm-ink { fill: var(--accent-ink); }
 .brand-name { font: 700 19px/1 var(--sign); letter-spacing: 0.02em; }
 
 #crumbs {

@@ -1,0 +1,29 @@
+/* Wirehouse brand tokens */
+:root {
+  --wh-yellow: #F2C230;   /* primary */
+  --wh-amber: #FFB23F;    /* night variant */
+  --wh-ink: #1B2330;
+  --wh-navy: #070B16;
+  --wh-concrete: #E3E1DB;
+  --wh-paper: #F7F6F2;
+  --wh-pipe-blue: #39C0F5;
+  --wh-pipe-amber: #FBBF24;
+  --wh-pipe-pink: #F472B6;
+
+  --wh-font: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --wh-radius: 12px;      /* matches the badge corner (12/56) */
+}
+
+/* Hazard tape: a 45° stripe band, e.g. for section dividers */
+.wh-hazard {
+  height: 12px;
+  background: repeating-linear-gradient(-45deg, var(--wh-ink) 0 8px, var(--wh-yellow) 8px 16px);
+}
+
+/* Wordmark-style headline */
+.wh-display {
+  font-family: var(--wh-font);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.02;
+}
