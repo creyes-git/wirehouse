@@ -258,6 +258,48 @@ button.primary {
 #fade { position: fixed; inset: 0; background: var(--bg); opacity: 0; pointer-events: none; transition: opacity 0.28s ease; z-index: 15; }
 #fade.on { opacity: 1; }
 
+/* ── trace bar: reach, routes, tours ───────────────────── */
+#bar {
+  position: fixed; left: 250px; right: 12px; bottom: 16px; z-index: 8;
+  max-width: 760px; margin: 0 auto;
+  max-height: 46vh; overflow: auto; padding: 12px 16px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
+  box-shadow: var(--shadow); backdrop-filter: blur(10px);
+}
+.bar-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; font-size: 15px; }
+.bar-kind {
+  font: 700 13px/1 var(--sign); letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 4px 8px; border-radius: var(--r-sm); background: var(--c); color: var(--accent-ink);
+}
+.bar-note { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+.bar-list { margin-top: 8px; display: grid; gap: 6px; }
+.hop-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.hop { font: 600 13px/1 var(--sign); color: var(--muted); min-width: 64px; }
+.chip-btn, .bar-steps .stop {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--raise);
+  border-radius: 999px; padding: 2px 10px; cursor: pointer; font-size: 13px;
+}
+.chip-btn i { width: 8px; height: 8px; border-radius: 2px; }
+.chip-btn:hover, .bar-steps .stop:hover { border-color: var(--accent); }
+.bar-steps { margin-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.bar-steps i { color: var(--muted); font-style: normal; }
+.bar-steps .stop span { font: 700 12px/1 var(--sign); color: var(--muted); }
+.bar-step h4 { margin: 10px 0 4px; font: 700 20px/1.1 var(--sign); }
+.bar-step p { margin: 0 0 6px; max-width: 70ch; }
+.bar-step .rows li { font-size: 13px; }
+.bar-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.bar-acts button {
+  border: 1px solid var(--line); background: var(--raise); border-radius: var(--r-sm); padding: 5px 12px;
+  cursor: pointer; font: 600 15px/1.2 var(--sign);
+}
+.bar-acts button.go { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.bar-acts button:disabled { opacity: 0.4; cursor: default; }
+.trace-acts { align-items: center; margin-top: 8px; }
+.trace-acts span { font: 600 14px/1 var(--sign); color: var(--muted); margin-right: 2px; }
+.trace-acts button { padding: 4px 10px; font-size: 14px; }
+#plan .badge text { pointer-events: none; }
+#panel:not([hidden]) ~ #bar { right: 404px; }
+
 /* ── welcome ───────────────────────────────────────────── */
 #welcome { position: fixed; inset: 0; display: grid; place-items: center; z-index: 40; background: rgba(0, 0, 0, 0.35); padding: 16px; }
 #welcome .card {
@@ -294,6 +336,7 @@ button.primary {
   .search { flex: 1 1 140px; }
   #theme { display: none; }
   #panel { top: auto; height: 55vh; }
+  #bar, #panel:not([hidden]) ~ #bar { left: 12px; right: 12px; bottom: 12px; }
   #minimap { width: 150px; height: 110px; }
 }
 

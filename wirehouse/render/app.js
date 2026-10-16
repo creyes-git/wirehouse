@@ -62,8 +62,9 @@
     const rset = new Set(R ? chain(R) : []);
     const add = (map, key, base, e) => {
       let L = map.get(key);
-      if (!L) { L = Object.assign({ kinds: new Set(), count: 0, edges: [] }, base); map.set(key, L); }
+      if (!L) { L = Object.assign({ kinds: new Set(), count: 0, edges: [], ids: new Set() }, base); map.set(key, L); }
       L.kinds.add(e.kind);
+      L.ids.add(e.i);   // every edge, uncapped: traces light pipes by edge
       L.count += e.count || 1;
       if (L.edges.length < 300) L.edges.push(e);
       return L;
@@ -994,6 +995,7 @@
     if (planOn) drawPlan();
   }
   const BUILD_HOOKS = [];   // later sections: () => void after a room is built
+  const FILTER_HOOKS = [];  // later sections: () => void when the pipe filter changes
 
   // ── focus and highlight ──────────────────────────────────────────────────
   function focusNodeId() {
@@ -1025,12 +1027,12 @@
     if (which === 'sel') selBox = b; else hovBox = b;
   }
   function applyFocus() {
-    const f = focusNodeId();
+    const lit = litLinks();   // a trace, route or tour step lights its own pipes; hovering still peeks
+    const f = lit ? (hovered && hovered.type !== 'link' ? hovered.id : null) : focusNodeId();
     const visible = f && (itemsById.has(f) || (room && room.ports.some((p) => p.rep === f)));
     const selLink = selected && selected.type === 'link' ? selected.info : null;
     // Busy rooms start quieter; selecting something brings its pipes forward.
     const base = (T.glow ? 0.55 : 0.72) * clamp(40 / Math.max(LINKS.length, 1), 0.35, 1);
-    const lit = litLinks();   // a trace, route or tour step lights its own pipes
     LINKS.forEach((L) => {
       let on = true, strong = false;
       if (selLink) { on = L.info === selLink; strong = on; }
@@ -1435,7 +1437,7 @@
       const i = kv.indexOf('=');
       if (i > 0) out[kv.slice(0, i)] = kv.slice(i + 1); else if (kv) out[kv] = '1';
     });
-    for (const k of Object.keys(out)) out[k] = k === 'route' ? out[k].split('~').map(dec) : dec(out[k]);
+    for (const k of Object.keys(out)) out[k] = k === 'route' || k === 'trace' ? out[k].split('~').map(dec) : dec(out[k]);
     return out;
   }
   function applyHash(h) {
@@ -1481,7 +1483,7 @@
   }
   function updatePrompt() {
     const el = $('#prompt');
-    if (planOn || transitioning) { el.hidden = true; return; }
+    if (planOn || transitioning || !$('#bar').hidden) { el.hidden = true; return; }
     if (room.R && W8.pos.z > room.D / 2 - 3 && Math.abs(W8.pos.x) < 2.5) {
       el.innerHTML = `Keep walking to go back to ${esc(parentOf(room.R) ? N.get(parentOf(room.R)).name : 'the main floor')}`;
       el.hidden = false;
@@ -1591,6 +1593,7 @@
     opts = opts || {};
     const n = N.get(id);
     if (!n) return;
+    if (pick && pick.from !== id) { const from = pick.from; endPick(); startRoute(from, id); return; }
     selected = { type: 'node', id };
     applyFocus();
     const col = css(kindHex(n.kind));
@@ -1614,7 +1617,8 @@
     let h = `<div class="tag-head" style="--kind:${col}"><span class="hole"></span>
       <p class="kind">${esc(kindTxt)}${isOutside ? ', outside this room' : ''}</p>
       <h2>${esc(n.name)}</h2>${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
-      <div class="actions">${acts.join('')}</div></div>`;
+      <div class="actions">${acts.join('')}</div>
+      <div class="actions trace-acts"><span>Trace</span><button data-act="down" title="Everything this leads to, following recorded connections">Downstream</button><button data-act="up" title="Everything that leads here">Upstream</button><button data-act="route" title="Pick an end point and walk the path (R)">Route to…</button></div></div>`;
     if (n.description) h += `<section class="sec"><h3>What it is</h3><p>${esc(n.description)}</p></section>`;
     if (n.purpose) h += `<section class="sec"><h3>Why it's here</h3><p>${esc(n.purpose)}</p></section>`;
     if (n.doc && n.doc !== n.description) h += `<section class="sec"><h3>From the code</h3><p>${esc(n.doc)}</p></section>`;
@@ -1734,6 +1738,395 @@
     tip.style.top = (ptr.y + 18) + 'px';
     tip.hidden = false;
   }
+
+  // ── trace: reach, routes and journeys ────────────────────────────────────
+  // Traces follow recorded connections only: what the scanner found plus what
+  // enrichment added with evidence. That is the map's reach, not a promise about
+  // runtime impact. A connection that points at a whole block (an env var naming a
+  // service) reaches everything inside that block, because the map cannot say which
+  // file answers it. Hops count block boundaries, so an import chain inside one
+  // block does not make something look further away.
+  const OUT_E = new Map(), IN_E = new Map();
+  EDGES.forEach((e) => {
+    if (!OUT_E.has(e.source)) OUT_E.set(e.source, []);
+    OUT_E.get(e.source).push(e);
+    if (!IN_E.has(e.target)) IN_E.set(e.target, []);
+    IN_E.get(e.target).push(e);
+  });
+  const topOf = (id) => { const c = chain(id); return c[c.length - 1]; };
+  const hops = (d) => `${d} hop${d === 1 ? '' : 's'}`;
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const where = (id) => { const n = N.get(id); return !n ? id : n.parent ? n.path || n.name : n.name; };
+
+  /** Shortest-hop walk over recorded edges. dir 'down' follows edges forward, 'up' backward. */
+  function walk(start, dir, opts) {
+    opts = opts || {};
+    const down = dir !== 'up';
+    const dist = new Map(), via = new Map(), used = new Set(), ancDone = new Set(), buckets = [];
+    const relax = (id, d, from, e) => {
+      if (dist.has(id) && dist.get(id) <= d) return;
+      dist.set(id, d);
+      via.set(id, from == null ? null : { from, e });
+      (buckets[d] = buckets[d] || []).push(id);
+    };
+    const step = (id, d, e, other) => {
+      if (HIDE.has(e.kind) || !N.has(other)) return;
+      used.add(e.i);
+      relax(other, d + (topOf(other) === topOf(id) ? 0 : 1), id, e);
+    };
+    relax(start, 0, null, null);
+    let found = null;
+    for (let d = 0; d < buckets.length && d <= 40 && !found; d++) {
+      const B = buckets[d] || [];
+      for (let i = 0; i < B.length; i++) {
+        const id = B[i];
+        if (dist.get(id) !== d) continue;
+        if (opts.stop && id !== start && opts.stop(id)) { found = id; break; }
+        for (const c of kidsOf(id)) relax(c, d, id, null);   // a whole block reaches what is inside it
+        if (opts.loose) { const t = topOf(id); if (t !== id) relax(t, d, id, null); }
+        if (down) (OUT_E.get(id) || []).forEach((e) => step(id, d, e, e.target));
+        else {
+          (IN_E.get(id) || []).forEach((e) => step(id, d, e, e.source));
+          // a connection into a whole block may land on anything inside it
+          for (const a of chain(id).slice(1)) {
+            if (ancDone.has(a)) continue;
+            ancDone.add(a);
+            (IN_E.get(a) || []).forEach((e) => step(id, d, e, e.source));
+          }
+        }
+      }
+    }
+    return { start, dir: down ? 'down' : 'up', dist, via, used, found };
+  }
+  function pathTo(res, end) {
+    const out = [];
+    for (let c = end; c != null;) { const v = res.via.get(c); out.push({ id: c, e: v ? v.e : null }); c = v ? v.from : null; }
+    return out.reverse();
+  }
+  /** id -> what stands for it in room R: a child of R, a wall port, or null (R itself or above). */
+  function projector(R) {
+    const rset = new Set(R ? chain(R) : []);
+    return (id) => {
+      const ch = chain(id);
+      if (!R) return ch[ch.length - 1];
+      return ch.includes(R) ? childOf(ch, R) : outsideRep(ch, rset);
+    };
+  }
+  function lcaRoom(a, b) {
+    const B = new Set(chain(b));
+    for (const x of chain(parentOf(a))) if (B.has(x) && x !== b) return x;
+    return ROOT;
+  }
+
+  let trace = null;    // {mode:'down'|'up', id, res} or {mode:'route', a, b, path, loose, used, stops}
+  let pick = null;     // choosing where a route ends: {from, res}
+  let player = null;   // stepping through a route or tour: {kind, title, stops, i, playing}
+
+  function startTrace(dir, id) {
+    if (!N.has(id)) return;
+    endPick(true); stopPlayer(true);
+    trace = { mode: dir === 'up' ? 'up' : 'down', id, res: walk(id, dir) };
+    refreshMarks(); drawBar(); syncHash();
+  }
+  function startPick(from) {
+    if (!N.has(from)) return;
+    stopPlayer(true);
+    trace = null;
+    pick = { from, res: walk(from, 'down') };
+    refreshMarks(); drawBar(); syncHash();
+  }
+  function endPick(quiet) { if (!pick) return; pick = null; if (!quiet) { refreshMarks(); drawBar(); } }
+  function startRoute(a, b) {
+    if (!N.has(a) || !N.has(b) || a === b) return;
+    endPick(true); stopPlayer(true);
+    const reaches = (id) => chain(id).includes(b);
+    let res = walk(a, 'down', { stop: reaches }), loose = false;
+    if (!res.found) { res = walk(a, 'down', { stop: reaches, loose: true }); loose = !!res.found; }
+    const path = res.found ? pathTo(res, res.found) : null;
+    const used = new Set(path ? path.filter((p) => p.e).map((p) => p.e.i) : []);
+    trace = { mode: 'route', a, b, path, loose, used, stops: path ? routeStops(path, a, b) : [] };
+    refreshMarks(); drawBar(); syncHash();
+  }
+  function routeStops(path, a, b) {
+    const R0 = lcaRoom(a, b), rep = projector(R0), stops = [];
+    path.forEach((p) => {
+      const r = rep(p.id);
+      if (!r) return;
+      const last = stops[stops.length - 1];
+      if (!last || last.id !== r) stops.push({ id: r, room: R0, edge: p.e, inside: [] });
+      else if (p.id !== r && p.e) last.inside.push(p.id);
+    });
+    return stops;
+  }
+  function clearTrace() { trace = null; endPick(true); stopPlayer(true); refreshMarks(); drawBar(); syncHash(); }
+  FILTER_HOOKS.push(() => {
+    if (trace && trace.mode === 'route') startRoute(trace.a, trace.b);
+    else if (trace) startTrace(trace.mode, trace.id);
+    else if (pick) startPick(pick.from);
+  });
+
+  // marks: rings on the floor and badges for whatever is being traced
+  function computeMarks() {
+    MARK.lit = null; MARK.ids = null; MARK.hop = null; MARK.badges = new Map();
+    if (!room) return;
+    const rep = projector(room.R), TC = T.trace;
+    const byHop = (res, color, startText) => {
+      const best = new Map();
+      res.dist.forEach((d, id) => { const r = rep(id); if (r && (!best.has(r) || best.get(r) > d)) best.set(r, d); });
+      const s = rep(res.start);
+      best.forEach((d, r) => MARK.badges.set(r, { text: r === s ? startText : hops(d), color, strong: r === s }));
+      MARK.ids = new Set(best.keys());
+      MARK.lit = (info) => { for (const i of info.ids) if (res.used.has(i)) return true; return false; };
+      MARK.hop = best;
+    };
+    if (player) {
+      const order = new Map();
+      player.stops.forEach((st, k) => { const r = rep(st.id); if (r && !order.has(r)) order.set(r, k); });
+      order.forEach((k, r) => MARK.badges.set(r, { text: String(k + 1), color: TC.route, strong: k === player.i }));
+      MARK.ids = new Set(order.keys());
+      if (player.used) MARK.lit = (info) => { for (const i of info.ids) if (player.used.has(i)) return true; return false; };
+    } else if (pick) byHop(pick.res, TC.route, 'From');
+    else if (trace && trace.mode === 'route') {
+      if (!trace.path) return;
+      const order = [];
+      trace.path.forEach((p) => { const r = rep(p.id); if (r && !order.includes(r)) order.push(r); });
+      const end = rep(trace.b);
+      order.forEach((r, k) => MARK.badges.set(r, { text: k === 0 ? 'Start' : r === end ? 'End' : String(k + 1), color: TC.route, strong: k === 0 || r === end }));
+      MARK.ids = new Set(order);
+      MARK.lit = (info) => { for (const i of info.ids) if (trace.used.has(i)) return true; return false; };
+    } else if (trace) byHop(trace.res, TC[trace.mode], 'Start');
+  }
+  let markObjs = [];
+  function drawMarks() {
+    markObjs.forEach((o) => {
+      world.remove(o);
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+    markObjs = [];
+    if (!room || !MARK.badges || !MARK.badges.size) return;
+    MARK.badges.forEach((b, id) => {
+      const it = itemsById.get(id);
+      const port = !it && room.ports.find((p) => p.rep === id);
+      if (!it && !port) return;
+      if (it && it.shape !== 'slot') {
+        const r = Math.max(it.w, it.d) / 2 + 0.7;
+        const ring = new THREE.Mesh(new THREE.RingGeometry(r, r + (b.strong ? 0.45 : 0.28), 48),
+          new THREE.MeshBasicMaterial({ color: b.color, transparent: true, opacity: b.strong ? 0.95 : 0.7, depthWrite: false, side: THREE.DoubleSide }));
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(it.x, 0.05, it.z);
+        ring.renderOrder = 4;
+        world.add(ring);
+        markObjs.push(ring);
+      }
+      const lb = label([b.text], b.strong ? 1.0 : 0.8, { bg: css(b.color), ink: T.glow ? '#0b0f17' : '#ffffff', big: 56, weight: 700, pad: 12 });
+      if (it) {
+        const tall = it.shape === 'machine' || it.shape === 'gate' || N.get(id).kind === 'ai';
+        lb.position.set(it.x, it.shape === 'slot' ? it.y + it.h + 0.5 : it.h + (tall ? 3.9 : 2.2), it.z);
+      } else lb.position.set(port.x + Math.sin(port.ry) * 0.7, port.y + 1.0, port.z + Math.cos(port.ry) * 0.7);
+      world.add(lb);
+      markObjs.push(lb);
+    });
+  }
+  BUILD_HOOKS.push(() => { markObjs = []; computeMarks(); drawMarks(); });
+  function refreshMarks() {
+    computeMarks();
+    drawMarks();
+    applyFocus();
+    if (planOn) drawPlan();
+  }
+
+  // the trace bar: what is lit, why, and what you can do next
+  const bar = $('#bar');
+  function hiddenNote() {
+    return HIDE.size ? ` Not following pipes that ${[...HIDE].map((k) => EDGE_LABEL[k]).join(', ')} (switched off in the pipe key).` : '';
+  }
+  function drawBar() {
+    let h = '';
+    const TC = T.trace;
+    if (player) h = playerBar();
+    else if (pick) {
+      const n = Math.max(0, (MARK.ids ? MARK.ids.size : 1) - 1);
+      h = `<div class="bar-head"><span class="bar-kind" style="--c:${css(TC.route)}">Route</span><span>From <b>${esc(N.get(pick.from).name)}</b>: pick where it ends</span></div>
+        <p class="bar-note">Click a block or a wall port, or find it with <kbd>/</kbd>. Badges mark the ${plural(n, 'place')} in this room it can reach.${hiddenNote()}</p>
+        <div class="bar-acts"><button data-b="cancel">Cancel</button></div>`;
+    } else if (trace && trace.mode === 'route') {
+      const a = N.get(trace.a), b = N.get(trace.b);
+      if (!trace.path) {
+        h = `<div class="bar-head"><span class="bar-kind" style="--c:${css(TC.route)}">Route</span><span><b>${esc(a.name)}</b> to <b>${esc(b.name)}</b></span></div>
+          <p class="bar-note">The map has no recorded path in this direction.${hiddenNote()}</p>
+          <div class="bar-acts"><button data-b="swap">Try ${esc(shortName(b.name, 18))} to ${esc(shortName(a.name, 18))}</button><button data-b="clear">Clear</button></div>`;
+      } else {
+        const steps = trace.stops.map((st, k) => `<button class="stop" data-goto="${esc(st.id)}"><span>${k + 1}</span>${esc(shortName(N.get(st.id).name, 26))}</button>`).join('<i aria-hidden="true">→</i>');
+        h = `<div class="bar-head"><span class="bar-kind" style="--c:${css(TC.route)}">Route</span><span><b>${esc(a.name)}</b> to <b>${esc(b.name)}</b> · ${plural(trace.stops.length, 'stop')}</span></div>
+          <div class="bar-steps">${steps}</div>
+          <p class="bar-note">${trace.loose ? 'Loose route: the blocks connect, but not through the same files, so part of it is block to block.' : 'The shortest path through recorded connections.'}${hiddenNote()}</p>
+          <div class="bar-acts"><button class="go" data-b="journey">Walk the route</button><button data-b="swap">Reverse</button><button data-b="link">Copy link</button><button data-b="clear">Clear</button></div>`;
+      }
+    } else if (trace) {
+      const n = N.get(trace.id), down = trace.mode === 'down';
+      const best = MARK.hop || new Map();
+      const groups = new Map();
+      const startRep = projector(room.R)(trace.id);
+      best.forEach((d, id) => { if (id !== startRep) { if (!groups.has(d)) groups.set(d, []); groups.get(d).push(id); } });
+      const reached = [...groups.values()].reduce((s, g) => s + g.length, 0);
+      const max = reached ? Math.max(...groups.keys()) : 0;
+      const list = [...groups.keys()].sort((x, y) => x - y).map((d) => `<div class="hop-row"><span class="hop">${d === 0 ? 'Same block' : hops(d)}</span>${groups.get(d)
+        .sort((x, y) => N.get(x).name.localeCompare(N.get(y).name))
+        .map((id) => `<button class="chip-btn" data-goto="${esc(id)}"><i style="background:${css(kindHex(N.get(id).kind))}"></i>${esc(shortName(N.get(id).name, 24))}</button>`).join('')}</div>`).join('');
+      h = `<div class="bar-head"><span class="bar-kind" style="--c:${css(TC[trace.mode])}">${down ? 'Downstream' : 'Upstream'}</span>
+        <span>${down ? 'Where' : 'What leads to'} <b>${esc(n.name)}</b>${down ? ' leads' : ''} · ${reached ? `${plural(reached, 'place')}, up to ${hops(max)} away` : 'nothing recorded'}</span></div>
+        ${list ? `<div class="bar-list">${list}</div>` : ''}
+        <p class="bar-note">Follows recorded connections only, so wiring the scan could not see is not included.${hiddenNote()}</p>
+        <div class="bar-acts"><button data-b="flip">${down ? 'Upstream' : 'Downstream'} instead</button><button data-b="link">Copy link</button><button data-b="clear">Clear</button></div>`;
+    }
+    bar.hidden = !h;
+    bar.innerHTML = h;
+    bar.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => focusNode(b.dataset.goto)));
+    bar.querySelectorAll('[data-b]').forEach((b) => b.addEventListener('click', () => BAR_ACTS[b.dataset.b]()));
+    if (h) $('#prompt').hidden = true;
+  }
+  const BAR_ACTS = {
+    cancel: () => { endPick(); syncHash(); },
+    clear: () => clearTrace(),
+    link: () => copyLink(),
+    flip: () => startTrace(trace.mode === 'down' ? 'up' : 'down', trace.id),
+    swap: () => startRoute(trace.b, trace.a),
+    journey: () => startJourney(0, true),
+    prev: () => goStop(player.i - 1),
+    next: () => goStop(player.i + 1),
+    play: () => setPlaying(!player.playing),
+    stop: () => stopPlayer(),
+  };
+
+  // the player walks the worker from stop to stop (routes here, tours later)
+  function startJourney(i, playing) {
+    if (!trace || trace.mode !== 'route' || !trace.path) return;
+    const a = N.get(trace.a), b = N.get(trace.b);
+    startPlayer({
+      kind: 'route', title: `${a.name} to ${b.name}`, used: trace.used, playing,
+      stops: trace.stops.map((st, k) => ({ id: st.id, room: st.room, html: routeStopHtml(st, k) })),
+    }, i);
+  }
+  function routeStopHtml(st, k) {
+    const n = N.get(st.id);
+    let h = '';
+    if (k === 0) h += `<p>Start at <b>${esc(n.name)}</b> (${esc((KIND_LABEL[n.kind] || n.kind).toLowerCase())}).</p>`;
+    else if (st.edge) {
+      const e = st.edge, ev = (e.evidence || [])[0];
+      h += `<p><b>${esc(where(e.source))}</b> ${esc(EDGE_LABEL[e.kind] || e.kind)} <b>${esc(where(e.target))}</b>${e.description ? `: ${esc(e.description)}` : ''}${e.confidence === 'INFERRED' ? ' <span class="chip warn">inferred</span>' : ''}</p>`;
+      if (ev) h += `<ul class="rows"><li><span class="main">${esc(ev.file + (ev.line ? ':' + ev.line : ''))}</span>${srcLinks(ev.file, ev.line)}</li></ul>`;
+    } else h += `<p>Into <b>${esc(n.name)}</b>. The map links these blocks, but not through the same files (loose step).</p>`;
+    if (st.inside.length) h += `<p class="bar-note">Inside ${esc(n.name)}: ${st.inside.slice(0, 4).map((x) => esc(where(x))).join(' → ')}${st.inside.length > 4 ? ' → …' : ''}</p>`;
+    return h;
+  }
+  function startPlayer(p, i) {
+    endPick(true);
+    if (player) clearTimeout(player.timer);
+    player = Object.assign({ i: -1, playing: false, timer: 0 }, p);
+    goStop(i || 0);
+  }
+  function stopPlayer(quiet) {
+    if (!player) return;
+    clearTimeout(player.timer);
+    const was = player;
+    player = null;
+    W8.path = null;
+    arrival = null;
+    PLAYER_HOOKS.forEach((f) => f(was));
+    if (!quiet) { refreshMarks(); drawBar(); syncHash(); }
+  }
+  const PLAYER_HOOKS = [];   // later sections: (stoppedPlayer) => void
+  function setPlaying(on) {
+    if (!player) return;
+    player.playing = on;
+    clearTimeout(player.timer);
+    if (!on) { W8.path = null; arrival = null; }
+    else if (!player.arrived) { goStop(player.i); return; }
+    else if (player.i < player.stops.length - 1) { goStop(player.i + 1); return; }
+    else player.playing = false;
+    drawBar();
+  }
+  function dwell(st) { return player.kind === 'route' ? 1700 : clamp(2600 + String(st.text || '').length * 35, 3000, 9000); }
+  function goStop(i) {
+    if (!player) return;
+    clearTimeout(player.timer);
+    i = clamp(i, 0, player.stops.length - 1);
+    player.i = i;
+    player.arrived = false;
+    const st = player.stops[i];
+    const R = st.room != null ? st.room : parentOf(st.id);
+    const arrive = () => {
+      if (!player || player.i !== i) return;
+      player.arrived = true;
+      STOP_HOOKS.forEach((f) => f(st, i));
+      drawBar();
+      if (player.playing) {
+        player.timer = setTimeout(() => {
+          if (!player || player.i !== i) return;
+          if (i < player.stops.length - 1) goStop(i + 1); else { player.playing = false; drawBar(); }
+        }, dwell(st));
+      }
+    };
+    const here = () => {
+      if (!player || player.i !== i) return;
+      if (player.kind !== 'route') {
+        const port = room.ports.find((p) => p.rep === st.id);
+        select(st.id, port && !itemsById.has(st.id) ? { port } : {});
+      }
+      refreshMarks();
+      drawBar();
+      if (planOn) { arrive(); return; }
+      if (reduceMotion) {
+        const sp = standPoint(st.id);
+        if (sp) { W8.pos.set(sp.x, 0, sp.z); collide(W8.pos); W8.yaw = Math.atan2(sp.face.x - sp.x, sp.face.z - sp.z); }
+        arrive();
+      } else travelTo(st.id, arrive);
+    };
+    drawBar();
+    syncHash();
+    if ((room ? room.R : ROOT) !== R) goRoom(R, { then: here }); else here();
+  }
+  const STOP_HOOKS = [];   // later sections: (stop, index) => void on arrival
+  function playerBar() {
+    const st = player.stops[player.i], n = N.get(st.id), last = player.stops.length - 1;
+    return `<div class="bar-head"><span class="bar-kind" style="--c:${css(T.trace.route)}">${player.kind === 'route' ? 'Route' : 'Tour'}</span>
+        <span><b>${esc(player.title)}</b> · stop ${player.i + 1} of ${player.stops.length}${player.arrived ? '' : ', walking…'}</span></div>
+      <div class="bar-step"><h4>${esc(st.title || n.name)}</h4>${st.html || ''}</div>
+      <div class="bar-acts"><button data-b="prev" ${player.i === 0 ? 'disabled' : ''} aria-label="Previous stop">◀ Back</button>
+        <button class="go" data-b="play" aria-pressed="${player.playing}">${player.playing ? 'Pause' : player.i === last && player.arrived ? 'At the end' : 'Play'}</button>
+        <button data-b="next" ${player.i === last ? 'disabled' : ''} aria-label="Next stop">Next ▶</button>
+        <button data-b="link">Copy link</button><button data-b="stop">Done</button></div>`;
+  }
+
+  PANEL_ACTS.down = (n) => startTrace('down', n.id);
+  PANEL_ACTS.up = (n) => startTrace('up', n.id);
+  PANEL_ACTS.route = (n) => startPick(n.id);
+  KEYS.r = () => {
+    if (selected && selected.type !== 'link') startPick(selected.id);
+    else toast('Inspect a block first, then press R to pick where the route ends');
+  };
+  KEYS[','] = () => { if (player) goStop(player.i - 1); };
+  KEYS['.'] = () => { if (player) goStop(player.i + 1); };
+  keySpace = () => { if (!player) return false; setPlaying(!player.playing); return true; };
+  onEscape(20, () => !!pick, () => { endPick(); syncHash(); });
+  onEscape(30, () => !!(player && player.playing), () => setPlaying(false));
+  onEscape(40, () => !!player, () => stopPlayer());
+  onEscape(50, () => !!trace, () => clearTrace());
+
+  HASH_PARTS.push(() => {
+    if (pick) return null;
+    if (trace && trace.mode === 'route') return 'route=' + encId(trace.a) + '~' + encId(trace.b) + (player && player.kind === 'route' ? '&stop=' + (player.i + 1) : '');
+    if (trace) return 'trace=' + trace.mode + '~' + encId(trace.id);
+    return null;
+  });
+  HASH_APPLY.push((h) => {
+    if (h.route && h.route.length === 2 && N.has(h.route[0]) && N.has(h.route[1])) {
+      startRoute(h.route[0], h.route[1]);
+      if (h.stop && trace && trace.path) startJourney(clamp((+h.stop || 1) - 1, 0, trace.stops.length - 1), false);
+    } else if (h.trace && h.trace.length === 2 && N.has(h.trace[1])) startTrace(h.trace[0], h.trace[1]);
+    else if (trace || pick || (player && player.kind === 'route')) clearTrace();
+  });
 
   // ── breadcrumbs ──────────────────────────────────────────────────────────
   function drawCrumbs() {
@@ -1877,7 +2270,6 @@
     $('#keyBtn').textContent = ($('#key').hidden ? 'Pipe key' : 'Hide pipe key') + (HIDE.size ? ` (${HIDE.size} off)` : '');
     $('#keyBtn').setAttribute('aria-expanded', String(!$('#key').hidden));
   }
-  const FILTER_HOOKS = [];   // later sections: () => void when the filter changes
   BUILD_HOOKS.push(drawKey);
   $('#keyBtn').addEventListener('click', () => { const k = $('#key'); k.hidden = !k.hidden; drawKey(); });
 
@@ -1951,6 +2343,15 @@
       const n = N.get(p.rep), col = css(kindHex(n.kind));
       P.push(`<g class="blk" data-id="${esc(n.id)}" data-port="1" tabindex="0" role="button" aria-label="${esc(n.name + ', outside this room')}"><rect x="${p.x - 2}" y="${p.z - 0.7}" width="4" height="1.4" rx="0.25" fill="${css(T.bg)}" stroke="${col}" stroke-width="0.18"/><text x="${p.x}" y="${p.z + 0.25}" font-size="0.7" text-anchor="middle">${esc(shortName(n.name, 16))}</text></g>`);
     });
+    if (MARK.badges) MARK.badges.forEach((b, id) => {
+      const it = itemsById.get(id);
+      if (it && it.shape === 'slot') return;   // racks are too tight for badges: the highlight says it
+      const q = pos.get(id) || (() => { const p = room.ports.find((x) => x.rep === id); return p ? { x: p.x, z: p.z, d: 1.4 } : null; })();
+      if (!q) return;
+      const w = Math.max(1.6, b.text.length * 0.42 + 0.6), y = q.z - q.d / 2 - 1.05;
+      P.push(`<g class="badge${b.strong ? ' strong' : ''}"><rect x="${q.x - w / 2}" y="${y - 0.55}" width="${w}" height="1.1" rx="0.55" fill="${css(b.color)}"/>` +
+        `<text x="${q.x}" y="${y + 0.28}" font-size="0.75" text-anchor="middle" font-weight="700" fill="${T.glow ? '#0b0f17' : '#ffffff'}">${esc(b.text)}</text></g>`);
+    });
     P.push(`<g id="planMe"><circle r="0.6" fill="#ff7a1a" stroke="#fff" stroke-width="0.15"/></g>`);
     plan.innerHTML = `<g id="vp">${P.join('')}</g>`;
     plan._links = planLinks;
@@ -1977,12 +2378,14 @@
   }
   function planFocus() {
     if (!planOn) return;
-    const f = (hovered && hovered.type !== 'link' && hovered.id) || (selected && selected.type !== 'link' && selected.id);
-    const sl = selected && selected.type === 'link' ? selected.info : null;
+    const trace = litLinks();
+    const hov = hovered && hovered.type !== 'link' && hovered.id;
+    const f = trace ? hov : hov || (selected && selected.type !== 'link' && selected.id);
+    const sl = !trace && selected && selected.type === 'link' ? selected.info : null;
     const links = plan._links || [];
     const related = new Set();
-    const lit = !f && !sl ? litLinks() : null;
-    const marked = !f && !sl ? markedIds() : null;
+    const lit = !f ? trace : null;
+    const marked = !f && trace ? markedIds() : null;
     plan.querySelectorAll('.lnk').forEach((p) => {
       const L = links[+p.dataset.l];
       const on = sl ? (L.a === sl.a && L.b === sl.b) : f ? L.a === f || L.b === f : lit ? lit(L) : true;
@@ -2136,6 +2539,11 @@
   // A small hook for automated checks (also handy in the devtools console).
   window.__wirehouse = {
     goRoom, focusNode, select, selectLink, setPlan, setTheme, exitRoom, enterBlock, travelTo,
+    startTrace, startPick, startRoute, startJourney, clearTrace, goStop, setPlaying,
+    trace: () => trace && (trace.mode === 'route'
+      ? { mode: 'route', loose: trace.loose, stops: trace.stops.map((s) => s.id), path: trace.path && trace.path.map((p) => p.id) }
+      : { mode: trace.mode, id: trace.id, marks: MARK.hop && Object.fromEntries(MARK.hop) }),
+    player: () => player && { kind: player.kind, i: player.i, n: player.stops.length, playing: player.playing, arrived: player.arrived, stops: player.stops.map((s) => s.id) },
     tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
