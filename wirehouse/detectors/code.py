@@ -111,6 +111,7 @@ CS_MINIMAL = re.compile(r"\.Map(Get|Post|Put|Patch|Delete|Methods)\(\s*\"([^\"]*
 
 # ── tables ───────────────────────────────────────────────────────────────────
 SQLA_TABLE = re.compile(r"__tablename__\s*=\s*['\"](\w+)['\"]")
+SQLMODEL_TABLE = re.compile(r"^class[ \t]+(\w+)\([^)]*\btable\s*=\s*True[^)]*\)\s*:", re.M)
 DJANGO_MODEL = re.compile(r"^class[ \t]+(\w+)\((?:models\.)?Model\)", re.M)
 PRISMA_MODEL = re.compile(r"^model[ \t]+(\w+)[ \t]*\{", re.M)
 DRIZZLE_TABLE = re.compile(r"\b(?:pgTable|mysqlTable|sqliteTable)\(\s*['\"](\w+)['\"]")
@@ -335,6 +336,11 @@ def _tables(sf: SourceFile, f: FileFacts, L: _Lines) -> None:
     if sf.lang == "python":
         for m in SQLA_TABLE.finditer(text):
             add(m.group(1), L.line(m.start()), "SQLAlchemy model")
+        if "sqlmodel" in text.lower():
+            for m in SQLMODEL_TABLE.finditer(text):
+                body = text[m.end():m.end() + 2000]
+                if not re.search(r"^\s+__tablename__", body.split("\nclass ", 1)[0], re.M):
+                    add(m.group(1).lower(), L.line(m.start()), "SQLModel model")
         if "models" in sf.rel:
             for m in DJANGO_MODEL.finditer(text):
                 add(m.group(1), L.line(m.start()), "Django model")

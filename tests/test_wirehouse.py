@@ -470,3 +470,78 @@ def test_schema_dialects():
     to = schema.typeorm_columns(typeorm, 0)
     assert [(c["name"], c.get("pk", False)) for c in to] == [("id", True), ("url", False), ("ownerId", False)]
     assert to[2]["fk"]["table"] == "User"
+
+
+def test_template_style_repo(tmp_path):
+    # Shaped like fastapi/full-stack-fastapi-template: services split over compose.yml and
+    # compose.override.yml, a backend built from the repo root with backend/Dockerfile, Traefik
+    # routing through labels, SQLModel tables and a React Email package.
+    files = {
+        "compose.yml": """
+            services:
+              proxy:
+                image: traefik:v3.1
+              db:
+                image: postgres:17
+              backend:
+                image: backend:latest
+                build:
+                  context: .
+                  dockerfile: backend/Dockerfile
+                environment:
+                  - POSTGRES_SERVER=db
+                  - FRONTEND_HOST=http://localhost:5173
+                labels:
+                  - traefik.enable=true
+        """,
+        "compose.override.yml": "services:\n  db:\n    restart: always\n  backend:\n    command: fastapi run --reload app/main.py\n",
+        "pyproject.toml": '[tool.uv.workspace]\nmembers = ["backend"]\n',
+        "scripts/release.py": "print('release')\n",
+        "backend/pyproject.toml": '[project]\nname = "app"\ndependencies = ["fastapi", "sqlmodel", "psycopg"]\n',
+        "backend/Dockerfile": "FROM python:3.12\nCOPY ./backend /app\nCMD [\"fastapi\", \"run\", \"app/main.py\"]\n",
+        "backend/app/main.py": "from fastapi import FastAPI\nfrom app.core.config import settings\napp = FastAPI()\n",
+        "backend/app/core/config.py": "import os\nclass Settings:\n    FRONTEND_HOST: str = os.getenv('FRONTEND_HOST', 'http://localhost:5173')\nsettings = Settings()\n",
+        "backend/app/core/db.py": "import os\nfrom sqlmodel import create_engine\nengine = create_engine(os.environ['DATABASE_URL'])\n",
+        "backend/app/models.py": """
+            import uuid
+            from sqlmodel import Field, Relationship, SQLModel
+
+            class UserBase(SQLModel):
+                email: str = Field(unique=True, max_length=255)
+
+            class UpdatePassword(SQLModel):
+                new_password: str
+
+            class User(UserBase, table=True):
+                id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+                items: list["Item"] = Relationship(back_populates="owner")
+
+            class Item(SQLModel, table=True):
+                id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+                owner_id: uuid.UUID = Field(
+                    foreign_key="user.id", nullable=False
+                )
+        """,
+        "frontend/package.json": json.dumps({"name": "frontend", "dependencies": {"react": "19", "react-dom": "19"}, "devDependencies": {"vite": "6"}}),
+        "frontend/src/main.tsx": "const base = import.meta.env.VITE_API_URL;\nexport const x = fetch(`${base}/api/v1/items`);\n",
+        "packages/react-email/package.json": json.dumps({"name": "emails", "dependencies": {"react-email": "6", "@react-email/components": "1", "react": "19"}}),
+        "packages/react-email/src/emails/reset.tsx": "export default function Reset() { return null }\n",
+    }
+    for rel, body in files.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    nodes, links = _index(data)
+    tops = {i for i, n in nodes.items() if n["parent"] is None}
+    assert not any(i.startswith("svc:") for i in tops)                      # override file adds no duplicates
+    assert nodes["unit:python:backend"]["compose"] == ["backend"]            # Dockerfile folder picks the unit
+    assert ("res:traefik", "unit:python:backend", "calls") in links         # labels route through Traefik
+    assert ("unit:python:backend", "unit:js:frontend", "calls") not in links  # FRONTEND_HOST is not a call
+    assert {("actor:users", "res:traefik", "calls"), ("actor:users", "unit:js:frontend", "calls")} <= links
+    assert nodes["unit:js:packages/react-email"]["kind"] == "library"
+    user = {c["name"]: c for c in nodes["table:postgres:user"]["columns"]}
+    assert set(user) == {"email", "id"} and user["id"].get("pk")              # inherited field, not UpdatePassword's
+    item = {c["name"]: c for c in nodes["table:postgres:item"]["columns"]}
+    assert item["owner_id"]["fk"] == {"table": "user", "column": "id"}
+    assert ("table:postgres:item", "table:postgres:user", "references") in {(e["source"], e["target"], e["kind"]) for e in data["edges"]}

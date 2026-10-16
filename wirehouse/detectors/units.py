@@ -155,6 +155,8 @@ JS_FRAMEWORKS = [
     # (dependency, kind, framework label)
     ("expo", "mobile", "Expo"), ("react-native", "mobile", "React Native"),
     ("electron", "desktop", "Electron"), ("@tauri-apps/api", "desktop", "Tauri"),
+    # email templates rendered by a backend, not an app people open
+    ("react-email", "library", "React Email"), ("@react-email/components", "library", "React Email"), ("mjml", "library", "MJML emails"),
     ("next", "frontend", "Next.js"), ("nuxt", "frontend", "Nuxt"), ("@sveltejs/kit", "frontend", "SvelteKit"),
     ("@remix-run/react", "frontend", "Remix"), ("@react-router/dev", "frontend", "React Router"), ("astro", "frontend", "Astro"),
     ("gatsby", "frontend", "Gatsby"), ("@angular/core", "frontend", "Angular"),

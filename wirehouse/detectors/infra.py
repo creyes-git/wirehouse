@@ -43,6 +43,7 @@ class ComposeService:
     depends_on: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
     profiles: list[str] = field(default_factory=list)
+    routed_by: list[str] = field(default_factory=list)   # "traefik" when its labels enable a router
 
 
 @dataclass
@@ -135,6 +136,12 @@ def _parse_compose(scan: ScanResult, rel: str, infra: Infra) -> None:
             env = dict(e.split("=", 1) if "=" in e else (e, "") for e in map(str, env))
         cs.env = {str(k): "" if v is None else str(v) for k, v in env.items()}
         cs.profiles = [str(p) for p in svc.get("profiles") or []]
+        labels = svc.get("labels") or {}
+        keys = [str(k) for k in labels] if isinstance(labels, dict) else [str(x).split("=", 1)[0] for x in labels]
+        values = {str(k): str(v) for k, v in labels.items()} if isinstance(labels, dict) else dict(
+            str(x).split("=", 1) if "=" in str(x) else (str(x), "") for x in labels)
+        if values.get("traefik.enable", "").lower() == "true" or any(k.startswith("traefik.http.routers.") for k in keys):
+            cs.routed_by.append("traefik")
         for k, v in cs.env.items():
             infra.env.append(EnvVar(k, v, rel, _line_of(text, k), service=name))
         infra.compose.append(cs)
@@ -287,10 +294,38 @@ def _parse_gateway(scan: ScanResult, rel: str, infra: Infra) -> None:
                                  targets=sorted(set(targets))))
 
 
+def _compose_rank(rel: str) -> tuple:
+    name = rel.rsplit("/", 1)[-1].lower()
+    return (rel.count("/"), "override" in name, name not in ("compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml"), rel)
+
+
+def _merge_compose(services: list[ComposeService]) -> list[ComposeService]:
+    """Services with the same name in the same folder are one service spread over several files
+    (compose.yml + compose.override.yml): merge them, the base file first, as Compose does."""
+    merged: dict[tuple[str, str], ComposeService] = {}
+    for cs in services:
+        key = (cs.file.rsplit("/", 1)[0] if "/" in cs.file else "", cs.name)
+        m = merged.get(key)
+        if m is None:
+            merged[key] = cs
+            continue
+        m.image = cs.image or m.image
+        if cs.build_context is not None:
+            m.build_context, m.dockerfile = cs.build_context, cs.dockerfile or m.dockerfile
+        m.command = cs.command or m.command
+        m.ports = list(dict.fromkeys(m.ports + cs.ports))
+        m.depends_on = list(dict.fromkeys(m.depends_on + cs.depends_on))
+        m.env = {**m.env, **cs.env}
+        m.profiles = list(dict.fromkeys(m.profiles + cs.profiles))
+        m.routed_by = list(dict.fromkeys(m.routed_by + cs.routed_by))
+    return list(merged.values())
+
+
 def detect_infra(scan: ScanResult) -> Infra:
     infra = Infra()
-    for rel in scan.configs.get("compose", []):
+    for rel in sorted(scan.configs.get("compose", []), key=_compose_rank):
         _parse_compose(scan, rel, infra)
+    infra.compose = _merge_compose(infra.compose)
     for rel in scan.configs.get("dockerfile", []):
         _parse_dockerfile(scan, rel, infra)
     # Compose may point at a Dockerfile the scan skipped (unusual names).

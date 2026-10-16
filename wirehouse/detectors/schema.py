@@ -166,7 +166,7 @@ def prisma_columns(text: str, offset: int, models: set[str]) -> list[dict]:
 # ── Python ORMs ──────────────────────────────────────────────────────────────
 def _py_class_body(text: str, offset: int) -> str:
     """The indented body of the class whose header is at or just before `offset`."""
-    start = text.rfind("\nclass ", 0, offset + 1)
+    start = text.rfind("\nclass ", 0, offset + len("\nclass "))   # the header may start right at `offset`
     start = 0 if start < 0 and text.startswith("class ") else start + 1
     if start < 0 or not text.startswith("class ", start):
         return ""
@@ -210,6 +210,43 @@ def django_columns(text: str, offset: int) -> list[dict]:
         cols = [c for c in cols if not (c["name"] == "id" and "primary_key=True" in args)]
         cols.append(_col(name, kind, pk="primary_key=True" in args, null=None if "null=True" in args else False))
     return cols
+
+
+SQLMODEL_FIELD = re.compile(r"^[ \t]+(\w+)\s*:\s*([^=\n#]+?)\s*(?:=\s*(.*))?$", re.M)
+
+
+def sqlmodel_columns(text: str, offset: int) -> list[dict]:
+    """Fields of a SQLModel table class, including those inherited from base classes in the same file."""
+    classes = {m.group(1): (m.group(2), m.start()) for m in re.finditer(r"^class[ \t]+(\w+)\(([^)]*)\)\s*:", text, re.M)}
+    head = re.compile(r"^class[ \t]+(\w+)\(", re.M).search(text, offset)
+    if not head or head.group(1) not in classes:
+        return []
+
+    def fields(name, seen):
+        if name not in classes or name in seen:
+            return []
+        seen.add(name)
+        bases, start = classes[name]
+        out = []
+        for b in [x.strip() for x in bases.split(",") if "=" not in x]:
+            out += fields(b, seen)
+        body = _py_class_body(text, start)
+        for m in SQLMODEL_FIELD.finditer(body):
+            fname, type_, default = m.group(1), m.group(2).strip(), m.group(3) or ""
+            if default.count("(") > default.count(")"):   # Field( ... ) spread over several lines
+                full = _balanced(body, body.index("(", m.start(3)))
+                default = default + (full or "")
+            if fname.startswith("_") or fname == "model_config" or "Relationship(" in default or type_.startswith(("ClassVar", "list[", "List[")):
+                continue
+            fk = re.search(r"foreign_key\s*=\s*['\"]([\w.]+)['\"]", default)
+            target = fk.group(1).split(".") if fk else None
+            optional = "None" in type_ or "Optional[" in type_
+            out = [c for c in out if c["name"] != fname]
+            out.append(_col(fname, re.sub(r"\s*\|\s*None|Optional\[|\]$", "", type_), pk="primary_key=True" in default.replace(" ", ""),
+                            fk=(target[0], target[-1]) if target and len(target) > 1 else None, null=None if optional else False))
+        return out
+
+    return fields(head.group(1), set())
 
 
 # ── TypeScript ORMs ──────────────────────────────────────────────────────────
@@ -275,6 +312,8 @@ def attach(lang: str, text: str, tables: list[dict], line_starts: list[int]) -> 
                 cols = prisma_columns(text, offset, models)
             elif via == "SQLAlchemy model":
                 cols = sqlalchemy_columns(text, offset)
+            elif via == "SQLModel model":
+                cols = sqlmodel_columns(text, offset)
             elif via == "Django model":
                 cols = django_columns(text, offset)
             elif via == "Drizzle table":

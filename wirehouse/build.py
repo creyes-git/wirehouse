@@ -38,7 +38,8 @@ RES_EDGE_KIND = {"database": "data", "cache": "data", "storage": "data", "search
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal", "[::1]"}
 CALLISH = re.compile(r"fetch|axios|request|httpx|requests\.|urlopen|HttpClient|ENDPOINT|BASE_URL|_URL|baseURL|baseUrl|api|ky\.|got\(|\.post\(|\.get\(", re.I)
 # Env vars that describe *this* app's own address or allowed callers, not outgoing calls.
-SELF_URL_VARS = re.compile(r"CORS|ORIGIN|ALLOWED|REDIRECT|CALLBACK|PUBLIC_.*URL|APP_URL|SITE_URL|BASE_PATH|NEXTAUTH_URL|AUTH_URL|TRUSTED", re.I)
+SELF_URL_VARS = re.compile(r"CORS|ORIGIN|ALLOWED|REDIRECT|CALLBACK|PUBLIC_.*URL|APP_URL|SITE_URL|BASE_PATH|NEXTAUTH_URL|AUTH_URL|TRUSTED"
+                           r"|FRONTEND_(?:HOST|URL|ORIGIN|BASE)|CLIENT_URL|UI_URL|WEB_URL|DASHBOARD_URL", re.I)
 JS_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro"]
 
 
@@ -197,7 +198,7 @@ class Builder:
                 continue
             df = self.infra.dockerfiles.get(cs.dockerfile or "")
             cmd = cs.command or (df.cmd if df else "")
-            unit = self._unit_from_command(cmd, cs.build_context, df)
+            unit = self._unit_from_command(cmd, cs.build_context, df, cs.dockerfile)
             if unit is None:
                 nid = f"svc:{cs.name}"
                 self.add_node(node(nid, cs.name, "service", tech=["container"], compose=[cs.name], locations=[loc(cs.file, cs.line)]))
@@ -220,7 +221,7 @@ class Builder:
     def _has_other_instance(self, sig: Signature) -> bool:
         return sum(1 for cs in self.infra.compose if cs.build_context is None and sig in match_image(cs.image)) > 1
 
-    def _unit_from_command(self, cmd: str, context: str, df) -> Unit | None:
+    def _unit_from_command(self, cmd: str, context: str, df, dockerfile: str | None = None) -> Unit | None:
         paths = []
         for m in re.finditer(r"-m\s+([\w.]+)", cmd):
             paths.append(m.group(1).replace(".", "/"))
@@ -243,6 +244,11 @@ class Builder:
               "python" if re.search(r"python|uvicorn|gunicorn|celery|hypercorn|daphne", low) else \
               "dotnet" if "dotnet" in low else None
         cands = [u for u in self.units if fam is None or u.family == fam]
+        df_dir = _dirname(dockerfile) if dockerfile else None
+        if df_dir and df_dir != base:
+            by_df = [u for u in cands if u.dir == df_dir]
+            if len(by_df) == 1:
+                return by_df[0]
         exact = [u for u in cands if u.dir == base]
         if exact:
             return exact[0]
@@ -692,6 +698,12 @@ class Builder:
                                   description=f"{t['name']}.{c['name']} -> {self.nodes[target]['name']}.{fk['column']}")
 
     def _compose_edges(self):
+        traefik = [n for n in self.nodes if n == "res:traefik" or n.startswith("res:traefik:")]
+        for cs in self.infra.compose:
+            tgt = self.service_target.get(cs.name)
+            if "traefik" in cs.routed_by and traefik and tgt and tgt not in traefik:
+                self.add_edge(traefik[0], tgt, "calls", evidence=[loc(cs.file, cs.line)],
+                              description=f"routes requests to `{cs.name}` (Traefik labels)")
         for cs in self.infra.compose:
             src = self.service_target.get(cs.name)
             for dep in cs.depends_on:
@@ -741,7 +753,9 @@ class Builder:
     def _users(self):
         clients = [n for n in self.nodes.values() if n["parent"] is None and n["kind"] in ("frontend", "mobile", "desktop")]
         gateways = [n for n in self.nodes.values() if n["parent"] is None and n["kind"] == "gateway"]
-        entry = gateways or clients
+        # People reach the gateways, plus any client app no gateway routes to (an SPA served elsewhere).
+        behind = {e["target"] for e in self.edges.values() if self.nodes[e["source"]]["kind"] == "gateway"}
+        entry = gateways + [c for c in clients if c["id"] not in behind] if gateways else clients
         if not entry:
             entry = [n for n in self.nodes.values() if n["parent"] is None and n["kind"] == "service"
                      and any(c.get("endpoints") for c in self._descendant_files(n["id"]))]
