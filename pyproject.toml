@@ -4,16 +4,40 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wirehouse"
-version = "0.1.0"
-description = "Walk through your project's architecture as a 3D warehouse: services, APIs, databases, auth and the pipes between them, in one offline HTML file."
+version = "0.2.0"
+description = "Walk through your codebase's architecture as a 3D warehouse: trace requests, take guided tours and share it all as one offline HTML file. Built for Claude Code."
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "__AUTHOR__" }]
+keywords = [
+    "architecture", "architecture-diagram", "software-architecture", "visualization", "codebase",
+    "three-js", "claude-code", "developer-tools", "onboarding", "static-analysis", "documentation",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = ["pyyaml>=6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 browser = ["pytest>=8", "playwright>=1.40"]   # optional viewer tests (tests/test_viewer.py)
+
+[project.urls]
+Homepage = "https://github.com/__OWNER__/wirehouse"
+Demo = "https://__OWNER__.github.io/wirehouse/demo/"
+Issues = "https://github.com/__OWNER__/wirehouse/issues"
+Changelog = "https://github.com/__OWNER__/wirehouse/blob/main/CHANGELOG.md"
 
 [project.scripts]
 wirehouse = "wirehouse.cli:main"

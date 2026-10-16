@@ -1141,8 +1141,8 @@
     return false;
   }
   onEscape(10, () => !$('#welcome').hidden, () => closeWelcome());
-  onEscape(80, () => !!W8.path, () => { W8.path = null; arrival = null; });
-  onEscape(90, () => !panel.hidden, () => closePanel());
+  onEscape(35, () => !!W8.path, () => { W8.path = null; arrival = null; });
+  onEscape(45, () => !panel.hidden, () => closePanel());
 
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
@@ -1533,7 +1533,7 @@
   function srcLinks(file, line) {
     const w = webLink(file, line);
     return `<span class="links">${w ? `<a href="${esc(w.href)}" target="_blank" rel="noopener" title="${esc(w.title)}"${w.warn ? ' class="warn"' : ''}>${esc(REPO.host_name)}${w.warn ? ' *' : ''}</a>` : ''}` +
-      `<a href="${esc(vscodeLink(file, line))}" title="Open in VS Code (only on the computer that ran the scan)">VS Code</a></span>`;
+      (D.project.root ? `<a href="${esc(vscodeLink(file, line))}" title="Open in VS Code (only on the computer that ran the scan)">VS Code</a>` : '') + '</span>';
   }
   function toast(msg, ms) {
     const t = $('#toast');
@@ -1749,6 +1749,9 @@
   // service) reaches everything inside that block, because the map cannot say which
   // file answers it. Hops count block boundaries, so an import chain inside one
   // block does not make something look further away.
+  // Start-up order (compose depends_on) and provisioning (Terraform, hosting) describe how things
+  // are deployed, not what talks to what at runtime, so traces and routes do not follow them.
+  const NOT_TRAFFIC = new Set(['depends_on', 'provisions']);
   const OUT_E = new Map(), IN_E = new Map();
   EDGES.forEach((e) => {
     if (!OUT_E.has(e.source)) OUT_E.set(e.source, []);
@@ -1773,7 +1776,7 @@
       (buckets[d] = buckets[d] || []).push(id);
     };
     const step = (id, d, e, other) => {
-      if (HIDE.has(e.kind) || !N.has(other)) return;
+      if (HIDE.has(e.kind) || NOT_TRAFFIC.has(e.kind) || !N.has(other)) return;
       used.add(e.i);
       relax(other, d + (topOf(other) === topOf(id) ? 0 : 1), id, e);
     };
@@ -1980,7 +1983,7 @@
       h = `<div class="bar-head"><span class="bar-kind" style="--c:${css(TC[trace.mode])}">${down ? 'Downstream' : 'Upstream'}</span>
         <span>${down ? 'Where' : 'What leads to'} <b>${esc(n.name)}</b>${down ? ' leads' : ''} · ${reached ? `${plural(reached, 'place')}, up to ${hops(max)} away` : 'nothing recorded'}</span></div>
         ${list ? `<div class="bar-list">${list}</div>` : ''}
-        <p class="bar-note">Follows recorded connections only, so wiring the scan could not see is not included.${hiddenNote()}</p>
+        <p class="bar-note">Follows recorded connections that carry traffic (not start-up order or provisioning), so wiring the scan could not see is not included.${hiddenNote()}</p>
         <div class="bar-acts"><button data-b="flip">${down ? 'Upstream' : 'Downstream'} instead</button><button data-b="link">Copy link</button><button data-b="clear">Clear</button></div>`;
     }
     bar.hidden = !h;

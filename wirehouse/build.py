@@ -204,6 +204,10 @@ class Builder:
                 self.add_node(node(nid, cs.name, "service", tech=["container"], compose=[cs.name], locations=[loc(cs.file, cs.line)]))
                 self.service_target[cs.name] = nid
                 continue
+            if re.search(r"(?:^|[-_])(?:tests?|e2e|playwright|cypress|selenium)(?:$|[-_])", cs.name) or \
+                    re.search(r"playwright|cypress", cs.dockerfile or "", re.I):
+                self.service_target[cs.name] = unit.id   # still reachable by name, but not "how it runs"
+                continue
             unit.compose_services.append(cs.name)
             # A command override that is not a server (e.g. `python -m pkg.ingest run`) is a one-shot job:
             # it does not listen on the port the shared image EXPOSEs.

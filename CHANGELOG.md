@@ -1,0 +1,55 @@
+# Changelog
+
+All notable changes to Wirehouse are listed here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
+[Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+## [0.2.0] - 2026-10-16
+
+The first public release.
+
+### Added
+- **Trace mode.** Light up everything a block leads to (downstream) or everything that leads to it
+  (upstream), at file precision, with hop counts. Pick two places and the worker walks the route
+  hop by hop, showing the file and line behind each step.
+- **Guided tours and quests** (the Clipboard). Claude writes them during `/wirehouse`; Wirehouse
+  makes a main-floor tour, a follow-a-request route and a few quests when none are written.
+  Progress stays in the browser.
+- **Checked citations.** Every tour stop, quest and added connection is checked against the scan
+  (node ids, files, line ranges, secret-looking text). Problems are reported as
+  `error [code] subject: message -> fix`; invalid parts are left out, never guessed.
+- **Database rooms.** Columns, keys and a schema diagram for SQL DDL, Prisma, SQLAlchemy,
+  SQLModel, Django, Drizzle and TypeORM. Foreign keys become pipes between tables.
+- **Links into a view.** The URL restores the room, selection, trace, route, tour stop and floor
+  plan. Source links go to GitHub, GitLab, Bitbucket or Azure DevOps at the scanned commit.
+- **Export.** Save or copy a picture of the view, or a 1200 x 630 share card.
+- `--share` for `build` and `render`: leaves out this machine's folder paths and the list of
+  uncommitted files before you publish a page.
+- Route tours are checked for a recorded path (`tour/no-recorded-path`); the brief documents node
+  ids, table ids and the `kind` override.
+- Pipe key doubles as a filter (and traces follow it); Escape backs out one step at a time.
+- Optional browser tests (`tests/test_viewer.py`, `pip install -e ".[browser]"`).
+
+### Changed
+- The floor plan toggle moved from `Tab` to `P`, so `Tab` moves through the page again.
+
+### Fixed
+- Provider URLs in data files no longer put empty blocks on the floor.
+- Compose services split across `compose.yml` and `compose.override.yml` are merged; a
+  Dockerfile's folder picks the app a service runs; Traefik labels route to services.
+- `FRONTEND_HOST`-style settings are no longer drawn as calls; React Email packages are libraries.
+- SQLModel tables are detected, with inherited fields and multi-line `Field(foreign_key=...)`.
+- Traces and routes no longer follow start-up order (`depends_on`) or provisioning, which are not
+  traffic; compose services that only run tests do not describe how an app runs.
+- Text Claude writes in descriptions and connection notes is checked for credentials too.
+- Room changes during the fade are queued instead of dropped; reduced motion stops particles.
+- Space, Enter, arrows and Backspace keep their normal meaning on buttons and links.
+
+## [0.1.0] - 2026-10-10
+
+- First working version: scan, Claude enrichment, the 3D warehouse and the floor plan.
+
+[Unreleased]: https://github.com/__OWNER__/wirehouse/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/__OWNER__/wirehouse/releases/tag/v0.2.0

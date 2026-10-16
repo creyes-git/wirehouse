@@ -47,7 +47,7 @@ def cmd_scan(project: Path, out_dir: Path) -> dict:
     return data
 
 
-def cmd_render(project: Path, out_dir: Path, open_it: bool) -> Path:
+def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False) -> Path:
     from wirehouse import guide
     from wirehouse.enrich import load_enrichment, merge
     from wirehouse.render.html import write_html
@@ -59,6 +59,12 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool) -> Path:
     enrichment = load_enrichment(out_dir)
     data = merge(data, enrichment)
     data = guide.apply(data, enrichment)
+    if share:
+        # For publishing: no absolute paths of this machine (they name the user) and no list of
+        # uncommitted files. Code-host links keep working; VS Code links are left out.
+        data["project"].pop("root", None)
+        if data.get("repo"):
+            data["repo"].pop("dirty", None)
     stale = sum(1 for n in data["nodes"] if n.get("stale"))
     (out_dir / MAP_NAME).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
     html_path = write_html(data, out_dir / HTML_NAME)
@@ -105,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         sp.add_argument("-o", "--out", help="output folder (default: <path>/wirehouse-out)")
         if name != "scan":
             sp.add_argument("--open", action="store_true", help="open the HTML in your browser")
+            sp.add_argument("--share", action="store_true",
+                            help="leave out local paths (this machine's folders, uncommitted files) before publishing the page")
     sub.add_parser("install", help="install the Claude Code skill")
     args = p.parse_args(argv)
 
@@ -118,7 +126,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in ("scan", "build"):
         cmd_scan(project, out_dir)
     if args.cmd in ("render", "build"):
-        cmd_render(project, out_dir, args.open)
+        cmd_render(project, out_dir, args.open, args.share)
     return 0
 
 

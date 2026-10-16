@@ -25,7 +25,8 @@ the description step.
 wirehouse --version || python -m wirehouse --version
 ```
 
-If neither works, install it from its source folder: `pip install -e "{{WIREHOUSE_HOME}}"`.
+If neither works, install it: `pip install "git+https://github.com/__OWNER__/wirehouse"` (or, from a
+source checkout, `pip install -e "{{WIREHOUSE_HOME}}"`).
 Use `python -m wirehouse` in later steps if the `wirehouse` command is not on PATH.
 
 ### 2. Scan
@@ -34,7 +35,8 @@ Use `python -m wirehouse` in later steps if the `wirehouse` command is not on PA
 wirehouse scan "<path>"
 ```
 
-This writes `<path>/wirehouse-out/archmap.raw.json` and `enrich-brief.md`, and prints how
+(Add `-o <folder>` to every command to write somewhere else.) This writes
+`<path>/wirehouse-out/archmap.raw.json` and `enrich-brief.md`, and prints how
 many blocks, folders and connections still need descriptions. Previously written
 descriptions are cached by content hash, so a re-run only asks about what changed.
 

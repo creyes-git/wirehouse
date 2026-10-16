@@ -1,175 +1,316 @@
-# Wirehouse
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img src="docs/assets/logo-light.svg" alt="Wirehouse" width="420">
+  </picture>
+</p>
 
-Walk through your project's architecture as a 3D warehouse.
+<h3 align="center">Walk through your codebase like a warehouse.</h3>
 
-Wirehouse scans a codebase and builds one offline HTML file where the system is a
-building you can walk around. Each part of the system is a block on the warehouse floor:
-frontends as kiosks, services as shipping containers, databases as silos, queues as
-conveyor belts, auth as a security gate, third-party APIs parked at the loading dock.
-Pipes with moving particles are the real connections found in the code. Walk into a
-block and you are in a room holding its folders as crates and its files on shelving racks.
-Connections that leave the room come in through ports on the walls.
+<p align="center">
+  Wirehouse turns a repository into a 3D warehouse you can walk around: services are shipping
+  containers, databases are silos, auth is a security gate, and every pipe is a real connection
+  found in the code. Trace where a request goes, take a guided tour, and share it all as
+  <b>one offline HTML file</b>. Built for <a href="https://claude.com/claude-code">Claude Code</a>.
+</p>
 
-It is a sibling of [graphify](../graphify): graphify maps files and symbols as a knowledge
-graph; Wirehouse maps the architecture (what runs, what stores data, who talks to whom)
-and lets you drill down to the code.
+<p align="center">
+  <a href="https://github.com/__OWNER__/wirehouse/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/__OWNER__/wirehouse/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
+  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
+  <img alt="One offline HTML file" src="https://img.shields.io/badge/output-one%20offline%20HTML%20file-F2C230">
+  <img alt="Made for Claude Code" src="https://img.shields.io/badge/made%20for-Claude%20Code-D97757">
+</p>
+
+<p align="center">
+  <a href="https://__OWNER__.github.io/wirehouse/demo/"><b>Try the live demo</b></a> ·
+  <a href="#quick-start"><b>Quick start</b></a> ·
+  <a href="#how-to-use"><b>How to use</b></a> ·
+  <a href="#how-it-works"><b>How it works</b></a> ·
+  <a href="CONTRIBUTING.md"><b>Contributing</b></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/demo.webp" alt="Walking through the warehouse of fastapi/full-stack-fastapi-template: tracing what the backend reaches, walking a request from the user to PostgreSQL, entering the backend, the schema diagram, the floor plan and the Clipboard of tours and quests" width="900">
+  <br>
+  <sub>The warehouse of <a href="https://github.com/fastapi/full-stack-fastapi-template">fastapi/full-stack-fastapi-template</a>, described by Claude. <a href="https://__OWNER__.github.io/wirehouse/demo/">Open it yourself</a> (one 1 MB HTML file) · <a href="docs/assets/demo.mp4">MP4 with full-speed walking</a>.</sub>
+</p>
+
+---
+
+## Why
+
+Architecture diagrams go stale the day they are drawn, and reading a new codebase file by file
+tells you *what* is there but not *how it fits together*. Wirehouse builds the map from the code
+every time, and makes exploring it feel like walking a well-run warehouse instead of reading a
+wall of boxes and arrows:
+
+- **New teammate?** Take the guided tour, then go find things on your own with quests.
+- **Reviewing a change?** Trace what a service reaches before you touch it.
+- **Explaining the system?** Walk the route from the user to the database and share the link.
+
+Everything you see comes from evidence: each pipe lists the file and line it was found in, and
+anything Claude adds has to cite real code or it is left out.
+
+## What you can do
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/screenshot-trace.png" alt="Downstream trace from the backend, with rings and hop counts"><br><b>Trace</b> everything a block leads to, or everything that leads to it, with hop counts. File precise.</td>
+<td width="50%"><img src="docs/assets/screenshot-route.png" alt="The worker walking the route from Users to PostgreSQL"><br><b>Walk a route</b> from A to B, hop by hop, with the code behind each step.</td>
+</tr>
+<tr>
+<td><img src="docs/assets/screenshot-room.png" alt="Inside the backend: folders as crates, files on shelving racks"><br><b>Walk into any block.</b> Folders are crates, files sit on racks, connections leave through wall ports.</td>
+<td><img src="docs/assets/screenshot-tour.png" alt="A guided tour stop"><br><b>Guided tours and quests</b> written by Claude from the real code, with your progress kept in the browser.</td>
+</tr>
+<tr>
+<td><img src="docs/assets/screenshot-schema.png" alt="Schema diagram of the PostgreSQL database"><br><b>Database rooms</b> with columns, keys and a schema diagram.</td>
+<td><img src="docs/assets/screenshot-plan.png" alt="2D floor plan"><br><b>Floor plan</b> in 2D for a quick overview, fully keyboard accessible.</td>
+</tr>
+</table>
+
+Also: night and day shift lighting, search that walks you to anything, links that reopen the exact
+view, commit-pinned links to GitHub, GitLab, Bitbucket and Azure DevOps, and pictures or
+1200 × 630 share cards of what you are looking at.
 
 ## Quick start
 
+Requires Python 3.11+.
+
 ```bash
-pip install -e .            # from this folder (needs Python 3.11+)
-wirehouse install           # adds the /wirehouse skill to Claude Code
+pip install "git+https://github.com/__OWNER__/wirehouse"
+wirehouse install          # adds the /wirehouse skill to Claude Code
 ```
 
-In Claude Code, run `/wirehouse` in any project (or `/wirehouse path/to/project`). Claude
-scans the project, reads the code to write plain-language descriptions, and renders
-`wirehouse-out/wirehouse.html`.
+Then, in [Claude Code](https://claude.com/claude-code), inside any project:
 
-Without Claude, the CLI produces the same map with rule-based descriptions:
+```text
+/wirehouse
+```
+
+Claude scans the project, reads the code to describe every block and connection, writes tours
+and quests, and opens `wirehouse-out/wirehouse.html`.
+
+**No Claude?** The CLI draws the same map with rule-based descriptions and a starter tour:
 
 ```bash
 wirehouse build path/to/project --open
 ```
 
-## In the warehouse
+## How to use
+
+### 1. Make a map
+
+| Command | What it does |
+|---------|--------------|
+| `/wirehouse [path]` | In Claude Code: scan, describe, render and open. Add `--quick` to skip the descriptions. |
+| `wirehouse build <path> [--open]` | Scan and render in one go, reusing any descriptions from earlier runs. |
+| `wirehouse scan <path>` | Detect structure only: writes `archmap.raw.json` and Claude's worklist `enrich-brief.md`. |
+| `wirehouse render <path> [--open]` | Merge `enrichment.json` and write `wirehouse.html`. |
+| `--share` | (build, render) Leave out local paths before you publish the page. |
+| `-o <folder>` | Write somewhere other than `<path>/wirehouse-out/`. |
+
+Descriptions are cached by a hash of the code they describe, so re-running `/wirehouse` after a
+change only asks Claude about what changed. Add `wirehouse-out/` to your `.gitignore`.
+
+### 2. Walk around
+
+The floor is laid out from the entrance to the back: **Clients**, **Gateway and auth** (shown even
+when empty, because "no auth found" is worth knowing), **Services**, **Data**, and the
+**Loading dock** for third-party providers. **Ops** (CI/CD, Terraform, Kubernetes, hosting,
+observability) runs down the left side.
 
 | Do this | To |
 |---------|----|
-| `W` `A` `S` `D` / arrows (`Shift` to run) | walk the worker around |
+| `W` `A` `S` `D` / arrows (`Shift` to run, `Space` to jump) | walk the worker around |
 | Drag, scroll | look around, zoom |
-| Click a block, rack item or pipe | open its inventory tag (description, code locations, endpoints, connections) |
-| Click the floor or the minimap | walk there |
-| `E` | walk into the block in front of you |
-| `Q`, or walk out the door | go back to the room above |
+| Click a block, rack item or pipe | open its inventory tag: description, code locations, endpoints, connections |
+| Click it again, or the floor, or the minimap | walk there |
+| `E` / `Q` | walk into the block in front of you / step back out |
 | `/` | search everything and walk straight to it |
 | `P` | switch between walking and the 2D floor plan |
-| `T` | switch between night shift and day shift lighting |
-| Trace buttons on the tag | light up everything a block leads to (downstream) or everything that leads to it (upstream) |
-| `R` | pick an end point and walk the route from the inspected block, hop by hop |
-| `C` | the Clipboard: guided tours and quests, with your progress |
-| `Space` `,` `.` | during a tour or route walk: play or pause, back, next |
-| `X` | save or copy a picture of the view, or a 1200 x 630 share card |
-| `Esc` | back out one step: close the menu, pause, stop, clear the trace, close the tag |
+| `T` | switch between night shift and day shift |
+| `R` | route from the inspected block: pick an end point and walk it |
+| `C` | the Clipboard: tours and quests |
+| `X` | export a picture or a share card |
+| `Space` `,` `.` | during a tour or route: play or pause, back, next |
+| `Esc` | back out one step: close, pause, stop, clear |
+| `?` | show the controls |
 
-The floor is laid out in zones from the entrance to the back: **Clients**,
-**Gateway and auth** (shown even when empty, because "no auth found" is worth knowing),
-**Services**, **Data**, and the **Loading dock** for external providers. **Ops** (CI/CD,
-Terraform, Kubernetes, hosting, observability) runs down the left side.
+Pipe colors: calls (blue), reads and writes (amber), sign-in (pink), messages (red), code imports
+(grey), provisioning (green), foreign keys (tan). The **pipe key** in the bottom-left corner is
+also a filter: switch a kind off to hide it everywhere, traces included. Switching off imports
+gives you runtime-only reach.
 
-Pipe colors: calls (blue), data reads and writes (amber), auth (pink), messages (red),
-code imports (grey), provisioning (green), foreign keys between tables (tan). The pipe key in the
-bottom-left corner is also a filter: switch a kind off to hide its pipes and leave it out of
-traces (switching off imports gives runtime-only reach).
+### 3. Trace and route
 
-### Trace, route, tour
+Inspect a block and press **Downstream** (where it leads) or **Upstream** (what leads to it).
+Rings and badges mark every place it reaches, with the number of hops, and the trace bar lists
+them so you can jump to any of them.
 
-- **Trace** follows recorded connections only: what the scanner found plus what enrichment added
-  with evidence. It is the map's reach, not a promise about runtime impact. It works at file
-  precision (a trace from `web/lib/payments.ts` only follows that file's connections); a
-  connection that points at a whole block, such as an env var naming a service, reaches
-  everything inside that block. Hops count block boundaries.
-- **Route** finds the shortest recorded path between two places and the worker walks it, showing
-  the file and line behind each hop. When files do not line up but the blocks connect, the route
-  says it is *loose*.
-- **Tours** walk the worker through the system stop by stop, and **quests** ask you to find things
-  ("Which file handles POST /orders/{order_id}/pay?") and tick off when you inspect the answer.
-  Claude writes them during `/wirehouse`; without Claude, Wirehouse makes a few from the scan.
-  Progress stays in your browser.
-- **Database rooms** list each table's columns and keys, and *Open schema diagram* draws the
-  tables with their foreign keys (SQL, Prisma, SQLAlchemy, Django, Drizzle, TypeORM).
+- Traces follow **recorded connections only**: what the scanner found plus what Claude added with
+  evidence. That is the map's reach, not a promise about runtime impact. Start-up order
+  (`depends_on`) and provisioning are left out, because they are not traffic.
+- They are **file precise**: a trace from `web/lib/payments.ts` follows that file's connections,
+  not the whole frontend's. A connection that points at a whole block (an env var naming a
+  service) reaches everything inside it.
+- **Hops count block boundaries**, so a chain of imports inside one service does not make
+  something look further away.
 
-### Links and sharing
+Press **R** (or *Route to…*) and pick an end point: Wirehouse finds the shortest recorded path and
+the worker walks it stop by stop, showing the file and line behind each hop. If the blocks connect
+but the files do not line up, the route says it is **loose**.
 
-The address bar always describes the view: `#room=`, `#focus=`, `#trace=down~<id>`,
-`#route=<from>~<to>&stop=2`, `#tour=<id>&stop=3`, `#plan=1`. *Copy link* on the tag or the trace
-bar copies it. File and line links go to the code host at the exact commit that was scanned
-(GitHub, GitLab, Bitbucket and Azure DevOps, read from the git remote; credentials in the remote
-are never stored), so they keep working when the HTML is shared. Files with uncommitted changes
-are marked. *VS Code* links open the file on the machine that ran the scan.
+### 4. Tours and quests
+
+Open the **Clipboard** (`C`). **Tours** walk the worker through the system in the order things
+really happen ("What happens when you log in"). **Quests** send you looking ("Where are passwords
+hashed?") and tick off when you inspect the answer. Progress stays in your browser.
+
+Claude writes them during `/wirehouse`. You can add your own to
+`wirehouse-out/enrichment.json`:
+
+```json
+{
+  "tours": [
+    {"id": "login", "title": "What happens when you log in", "stops": [
+      {"node": "unit:js:frontend", "text": "The login form posts the email and password.",
+       "evidence": [{"file": "frontend/src/routes/login.tsx", "line": 42}]}
+    ]},
+    {"id": "request", "title": "Follow a request to the database", "route": ["actor:users", "res:postgres"]}
+  ],
+  "quests": [
+    {"question": "Where are passwords hashed?", "answer": ["file:backend/app/core/security.py"],
+     "hint": "Look in the backend's core folder.", "explain": "...",
+     "evidence": [{"file": "backend/app/core/security.py", "line": 20}]}
+  ]
+}
+```
+
+`wirehouse render` checks every node id, file and line, and prints one line per problem:
+
+```text
+error [evidence/line-out-of-range] tours[login].stops[0]: `frontend/src/routes/login.tsx` has 30 lines, cited line 42 -> open the file and cite the line the claim is based on
+```
+
+Invalid parts are left out of the page, never guessed. Without enrichment, Wirehouse makes a
+main-floor tour, a follow-a-request route and a few quests from what it found.
+
+### 5. Database rooms
+
+Walk into a database to see its tables on racks, with foreign keys as pipes between them. The
+inventory tag lists each table's columns and keys, and **Open schema diagram** draws them all.
+Columns are read from SQL migrations, Prisma, SQLAlchemy, SQLModel, Django, Drizzle and TypeORM.
+
+### 6. Share it
+
+- The address bar always describes the view (`#room=`, `#focus=`, `#trace=down~<id>`,
+  `#route=<from>~<to>&stop=2`, `#tour=<id>&stop=3`, `#plan=1`), and **Copy link** copies it.
+- Code links go to your code host **at the exact commit that was scanned**, so they keep working
+  when the file is shared. Files with uncommitted changes are marked.
+- **Export** (`X`) saves or copies a picture of the view, or a 1200 × 630 share card describing the
+  route, trace or tour on screen.
+- The page is a single file with everything inlined. Email it, attach it to a pull request, or
+  host it anywhere static. Use `--share` so it does not include your local folder paths.
 
 ## How it works
 
+```mermaid
+flowchart LR
+  A[scan<br/>honours .gitignore] --> B[per-file facts<br/>imports · env · URLs · endpoints · tables]
+  B --> C[units<br/>apps and packages]
+  C --> D[infra<br/>compose · Docker · Terraform · K8s · CI]
+  D --> E[archmap.raw.json]
+  E --> F{{Claude reads the code<br/>enrichment.json}}
+  F --> G[checks<br/>ids · files · lines · secrets]
+  G --> H[wirehouse.html<br/>one offline file]
 ```
-scan  ->  per-file facts  ->  units  ->  infra  ->  archmap.raw.json  ->  + enrichment.json  ->  wirehouse.html
-```
 
-1. **Scan** (`scan.py`): walks the repo, honouring `.gitignore` and skipping build output,
-   dependency folders and large files. Real `.env` files are never read; only templates
-   such as `.env.example`.
-2. **Per-file facts** (`detectors/code.py`): imports, env var reads, URLs, top-level
-   symbols, leading doc comments, HTTP endpoints (FastAPI, Flask, Django, Express, NestJS,
-   Next.js app and pages routers, ASP.NET controllers and minimal APIs) and table definitions
-   (SQLAlchemy, Django, Prisma, Drizzle, TypeORM, Mongoose, EF Core, SQL DDL).
-3. **Units** (`detectors/units.py`): every `package.json`, Python manifest and `.csproj`
-   becomes a unit, classified by framework (Next.js, FastAPI, ASP.NET Core, Celery and so on).
-4. **Infra** (`detectors/infra.py`): docker-compose, Dockerfiles, env templates,
-   `appsettings.json` connection strings, Terraform, Kubernetes manifests, CI workflows,
-   gateway configs and hosting files.
-5. **Build** (`build.py`): about 115 technology signatures (`signatures.py`) turn imports,
-   dependencies, URLs, env values and docker images into blocks. Env vars wire things
-   together: `API_URL=http://api:8000` links the file that reads it to the `api` service,
-   and `DATABASE_URL=postgresql://...@db/...` links it to the Postgres container. Edges are
-   kept at file level and rolled up to whatever level you are looking at.
-6. **Enrichment** (`enrich.py`): `enrich-brief.md` lists the blocks, folders and
-   connections that need human text. Claude writes `enrichment.json` (descriptions,
-   purposes, connection notes, corrections with evidence, tours and quests). Entries carry a
-   content hash, so later runs only ask about code that changed.
-7. **Guide** (`guide.py`): checks every tour stop, quest answer and citation against the scan
-   (node ids, files, line ranges, secret-looking text) and prints one line per problem, such as
-   `error [evidence/line-out-of-range] tours[checkout].stops[2]: ... -> fix`. Invalid parts are
-   left out, never guessed. Without enrichment it makes a main-floor tour, a follow-a-request
-   route tour and a few quests.
-8. **Render** (`render/`): Three.js r149, the Barlow fonts, the data and the app are
-   inlined into one HTML file of about 1.2 MB. No network access needed.
+1. **Scan** walks the repo, honours `.gitignore`, skips build output and dependency folders, and
+   never opens real `.env` files (templates like `.env.example` are fine).
+2. **Detectors** find imports, env var reads, URLs, HTTP endpoints (FastAPI, Flask, Django, Express,
+   NestJS, Next.js, ASP.NET), tables and columns, apps and packages, and infrastructure.
+3. **Build** maps about 115 technology signatures to blocks. Env values wire things together:
+   `API_URL=http://api:8000` links the code that reads it to the `api` service, and
+   `DATABASE_URL=postgresql://...@db/...` links it to the Postgres container. Connections are kept
+   at file level and rolled up to whatever level you are looking at.
+4. **Enrichment**: Claude reads the code and writes descriptions, connection notes, corrections
+   (each with file:line evidence), tours and quests. Entries carry a content hash, so later runs only
+   ask about code that changed.
+5. **Checks**: every citation is verified against the scan, and secret-looking text is removed.
+6. **Render** inlines Three.js, the fonts, the data and the app into one HTML file of about 1 MB.
 
-### Output files
-
-| File | What it is |
+| Output in `wirehouse-out/` | What it is |
 |------|------------|
-| `wirehouse-out/archmap.raw.json` | What the rules found |
-| `wirehouse-out/enrich-brief.md` | Claude's worklist |
-| `wirehouse-out/enrichment.json` | Descriptions and corrections, kept between runs |
-| `wirehouse-out/archmap.json` | The merged data behind the page |
-| `wirehouse-out/wirehouse.html` | The warehouse |
+| `archmap.raw.json` | What the rules found |
+| `enrich-brief.md` | Claude's worklist |
+| `enrichment.json` | Descriptions, corrections, tours and quests, kept between runs |
+| `archmap.json` | The merged data behind the page |
+| `wirehouse.html` | The warehouse |
 
-## Supported stacks (v1)
+## What it detects
 
-- **JavaScript / TypeScript**: Next.js, React, Vue, Svelte, Nuxt, Remix, Astro, Angular,
-  Express, Fastify, NestJS, Hono, Electron, React Native; tsconfig path aliases resolved.
-- **Python**: FastAPI, Flask, Django, Starlette, Litestar, Celery, RQ, Streamlit and more;
-  relative and absolute imports resolved.
-- **.NET**: ASP.NET Core, Worker services, Azure Functions, Blazor, WPF and MAUI;
-  ProjectReferences, EF Core DbSets and connection strings.
-- **Infra**: docker-compose, Dockerfile, Terraform (AWS, Azure, GCP resource types),
-  Kubernetes, GitHub Actions and other CI, Nginx, Caddy and Traefik, Vercel, Netlify, Fly
-  and similar hosting files.
+- **JavaScript / TypeScript**: Next.js, React, Vue, Svelte, Nuxt, Remix, Astro, Angular, Express,
+  Fastify, NestJS, Hono, Electron, React Native; tsconfig path aliases.
+- **Python**: FastAPI, Flask, Django, Starlette, Litestar, Celery, RQ, Streamlit and more.
+- **.NET**: ASP.NET Core, Worker services, Azure Functions, Blazor, WPF, MAUI; EF Core and
+  connection strings.
+- **Data**: Postgres, MySQL, SQL Server, SQLite, MongoDB, Redis, queues, object storage and search,
+  with tables and columns from SQL, Prisma, SQLAlchemy, SQLModel, Django, Drizzle and TypeORM.
+- **Infra**: docker-compose (including override files), Dockerfiles, Terraform (AWS, Azure, GCP),
+  Kubernetes, GitHub Actions and other CI, Nginx, Caddy, Traefik, Vercel, Netlify, Fly.
+- **Third parties**: Stripe, Clerk, Auth0, Supabase, Firebase, OpenAI, Anthropic, Sentry and about
+  a hundred more.
+
+Missing your stack? [Tell us where the map is wrong](https://github.com/__OWNER__/wirehouse/issues/new?template=wrong_map.yml).
+
+## Privacy and safety
+
+- Runs locally. No network requests, no telemetry, and the page loads nothing from the network.
+- Never reads real `.env` files. Env values, passwords, connection strings, column defaults and
+  credentials inside git remotes are never written to the output.
+- Text written by Claude is checked for credential-looking strings, which are removed.
+
+See [SECURITY.md](SECURITY.md) to report a problem.
 
 ## Limits
 
-- Detection is regex based. It favours precision over recall, and Claude's enrichment step
-  can add what it misses (with evidence) or remove false positives. A provider URL only puts a
-  block on the floor when the code around it makes a request.
-- Traces and routes only know recorded connections, so wiring the scan cannot see (service
-  discovery, URLs built at runtime) is not in them.
-- Dynamic wiring (service discovery, URLs built at runtime, DI containers) is only found
-  when it shows up in env vars, config or literals.
-- Very large rooms (hundreds of files in one folder) render fine but get dense; search is
-  the fastest way around.
+- Detection is regex based. It favours precision over recall: it would rather miss a connection
+  than draw a wrong one, and Claude's pass adds what it misses (with evidence).
+- Wiring that only exists at runtime (service discovery, URLs built on the fly, DI containers) is
+  found only when it shows up in env vars, config or literals, so traces cannot see it either.
+- Very large rooms (hundreds of files in one folder) render fine but get dense; search is the
+  fastest way around.
+- The page needs WebGL for the 3D view; the floor plan works without it.
 
-## Development
+## Roadmap
+
+- **Change review**: compare two scans (or a branch against `main`) and walk the differences.
+- **History**: a timeline of how each block changed, from git.
+- More stacks: Go, Java/Kotlin (Spring), Ruby on Rails, PHP (Laravel).
+- Bigger repos: instanced rendering for rooms with thousands of files.
+
+Ideas welcome in [Discussions](https://github.com/__OWNER__/wirehouse/discussions).
+
+## Contributing
+
+Contributions are welcome, and the most useful one is a project where the map is wrong. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup, the ground rules and where things live, and please
+follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ```bash
-pip install -e ".[dev]"
-python -m pytest
+pip install -e ".[dev]" && python -m pytest
 ```
 
-`tests/test_viewer.py` drives the page in a headless browser (traces, routes, links, tours,
-quests, the schema diagram, exports) and is skipped unless Playwright is installed:
-`pip install -e ".[browser]"` plus an installed Chrome or Edge (or `python -m playwright install chromium`).
+## Acknowledgements
 
-The tests build a small Next.js + FastAPI + Postgres + Redis fixture repo and check the
-detected blocks, connections, endpoints and tables, the enrichment round trip, that no
-secret values leak into the output, and that the HTML is self-contained.
+- [Three.js](https://threejs.org) (MIT) renders the warehouse, and the
+  [Barlow](https://github.com/jpt/barlow) typeface (SIL Open Font License) labels it. Both are
+  vendored in `wirehouse/render/vendor/` with their licenses.
+- Trace, route, links-into-a-view and evidence-first validation were inspired by
+  [Archify](https://github.com/tt-a1i/archify) (MIT) and its "truth before spectacle" principle.
+- The demo maps [fastapi/full-stack-fastapi-template](https://github.com/fastapi/full-stack-fastapi-template) (MIT).
 
-Third-party assets: Three.js (MIT, `render/vendor/THREE_LICENSE`) and the Barlow typeface
-(SIL Open Font License, `render/vendor/BARLOW_OFL.txt`).
+## License
+
+[MIT](LICENSE) © __AUTHOR__

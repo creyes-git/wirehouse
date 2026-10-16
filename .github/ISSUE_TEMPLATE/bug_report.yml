@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in the CLI, the skill or the warehouse page does not work.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. wirehouse build . --open
+        2. Press R on the api block
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Console or CLI output
+      description: CLI output, or errors from the browser console (F12). Remove anything private.
+      render: text
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: wirehouse 0.2.0, Python 3.12, Windows 11, Chrome 140
+    validations:
+      required: true

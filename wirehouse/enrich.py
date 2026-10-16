@@ -97,7 +97,7 @@ def write_brief(data: dict, enrichment: dict, out_dir: Path) -> tuple[Path, int,
         '  "version": 1,',
         '  "nodes": {',
         '    "<node id>": {"description": "1-2 sentences: what it is", "purpose": "1 sentence: its role in the system", "hash": "<hash from this brief>"},',
-        '    "<node id>": {"name": "optional better display name", "description": "...", "purpose": "...", "hash": "..."}',
+        '    "<node id>": {"name": "optional better display name", "kind": "optional, top-level only", "description": "...", "purpose": "...", "hash": "..."}',
         "  },",
         '  "links": {"<source id>-><target id>": {"description": "what flows over this connection, and when"}},',
         '  "add_nodes": [{"id": "res:custom-x", "name": "...", "kind": "external", "description": "...", "purpose": "...", "locations": [{"file": "path", "line": 1}]}],',
@@ -120,6 +120,10 @@ def write_brief(data: dict, enrichment: dict, out_dir: Path) -> tuple[Path, int,
         "- Only add nodes/edges the rules missed, and only with evidence (file + line). Remove false positives with `remove_*`.",
         f"- Allowed kinds: {', '.join(k for k, v in KINDS.items() if v)}. Edge kinds: {', '.join(EDGE_KINDS)}.",
         "- Never write secret values (keys, passwords, tokens) into the JSON.",
+        "- Node ids: top-level blocks and folders are listed below. Files are `file:<path from project root>` and",
+        "  tables are `table:<database>:<lowercase name>` (listed under each database). Any id in `archmap.raw.json` works.",
+        "- `kind` (top-level blocks only) fixes a block the rules put in the wrong zone, e.g. release scripts detected",
+        "  as a `worker` that are really `ci`. Evidence may point at any file in the project, scanned or not.",
         "",
         "- `name`: only set it when the folder or package name hides what the block is (for example `superdb` ->",
         "  \"Market data warehouse\"). Never just repeat the path.",
@@ -148,7 +152,8 @@ def write_brief(data: dict, enrichment: dict, out_dir: Path) -> tuple[Path, int,
         if n["parent"] and nodes[n["parent"]]["parent"]:
             label += " / " + n.get("path", "").split("/")[len(nodes[t].get("path", ".").split("/")) if nodes[t].get("path", ".") != "." else 0]
         groups[label] = groups.get(label, 0) + 1
-    lines += ["Suggested split for subagents: " + ", ".join(f"{k} ({v})" for k, v in groups.items()), ""]
+    if len(todo) > 60:
+        lines += ["Suggested split for subagents: " + ", ".join(f"{k} ({v})" for k, v in groups.items()), ""]
     for n in sorted(todo, key=lambda x: (x["parent"] is not None, x["id"])):
         st = n.get("stats", {})
         kids = [nodes[c] for c in children.get(n["id"], [])]
@@ -167,6 +172,9 @@ def write_brief(data: dict, enrichment: dict, out_dir: Path) -> tuple[Path, int,
             lines.append("- " + " · ".join(meta))
         if kid_names:
             lines.append(f"- contains: {kid_names}")
+        tables = sorted(k["id"] for k in kids if k["kind"] == "table")
+        if tables:
+            lines.append("- table ids: " + ", ".join(f"`{t}`" for t in tables[:40]) + (" …" if len(tables) > 40 else ""))
         if n.get("detected_via"):
             lines.append("- detected via: " + "; ".join(n["detected_via"][:5]))
         locs = [f"{l['file']}" + (f":{l['line']}" if l.get("line") else "") for l in n.get("locations", [])[:4]]

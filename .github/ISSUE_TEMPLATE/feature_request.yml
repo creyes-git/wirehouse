@@ -1,0 +1,20 @@
+name: Idea or feature request
+description: Suggest a new stack to detect, a new way to explore, or something for the game layer.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to understand or show?
+      description: Start from the question you had about a codebase, not the feature.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+  - type: textarea
+    id: else
+    attributes:
+      label: Anything else
+      description: Examples, sketches, other tools that do it well.

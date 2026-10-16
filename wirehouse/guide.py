@@ -305,6 +305,31 @@ def apply(data: dict, enrichment: dict) -> dict:
     enrichment = enrichment or {}
     tours, quests, diags = validate(data, enrichment)
     diags += check_added_edges(data, enrichment)
+    nodes, out, _ = _block_graph(data)
+
+    def top(i):
+        while nodes[i]["parent"]:
+            i = nodes[i]["parent"]
+        return i
+
+    for t in tours:
+        if t.get("route"):
+            a, b = top(t["route"][0]), top(t["route"][1])
+            seen, frontier = {a}, [a]
+            while frontier:
+                frontier = [y for x in frontier for y in out[x] if y not in seen and not seen.add(y)]
+            if b not in seen and a != b:
+                diags.append(diag("tour/no-recorded-path", f"tours[{t['id']}]", "no recorded connections lead from the first node to the second",
+                                  "pick two nodes the map connects (trace downstream from the first in the page to check)"))
+    # Descriptions and connection notes Claude wrote get the same credential check as tours.
+    for n in data["nodes"]:
+        if n.get("source") == "claude":
+            for field in ("name", "description", "purpose"):
+                if n.get(field) and SECRET_LIKE.search(str(n[field])):
+                    n[field] = _clean(n[field], 2000, f"nodes[{n['id']}].{field}", diags)
+    for key, note in list((data.get("link_notes") or {}).items()):
+        if note and SECRET_LIKE.search(note):
+            data["link_notes"][key] = _clean(note, 2000, f"links[{key}]", diags)
     data["tours"] = tours or auto_tours(data)
     data["quests"] = quests or auto_quests(data)
     data["diagnostics"] = diags

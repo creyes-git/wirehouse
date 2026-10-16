@@ -93,6 +93,9 @@ def test_trace_follows_recorded_connections_at_file_precision(browser, html):
     route = js(page, "__wirehouse.startRoute('actor:users', 'res:postgres'); __wirehouse.trace()")
     assert route["stops"] == ["actor:users", "unit:js:web", "unit:python:api", "res:postgres"] and not route["loose"]
     assert "file:web/lib/api.ts" in route["path"] and "file:api/db.py" in route["path"]
+    # compose depends_on (start-up order) is not traffic: CI/CD and the db container are not on the way
+    deps = js(page, "__wirehouse.startTrace('down', 'infra:ci'); Object.keys(__wirehouse.trace().marks)")
+    assert deps == ["infra:ci"]
     page.keyboard.press("Escape")
     assert js(page, "__wirehouse.trace()") is None
     assert errors == []

@@ -378,6 +378,18 @@ def test_tours_and_quests_are_checked(repo, archmap):
     assert SECRET not in json.dumps(data) and SECRET not in render_html(data)
 
 
+def test_enrichment_text_is_scanned_for_credentials(archmap):
+    from wirehouse import guide
+
+    web = next(n for n in archmap["nodes"] if n["id"] == "unit:js:web")
+    enrichment = {"nodes": {"unit:js:web": {"description": f"Pays with {SECRET}.", "hash": web["hash"]}},
+                  "links": {"unit:js:web->unit:python:api": {"description": "token=abcd1234efgh in the header"}}}
+    data = guide.apply(merge(json.loads(json.dumps(archmap)), enrichment), enrichment)
+    blob = json.dumps(data)
+    assert SECRET not in blob and "abcd1234efgh" not in blob
+    assert {d["code"] for d in data["diagnostics"]} == {"guide/secret-like-text"}
+
+
 def test_wirehouse_makes_tours_and_quests_when_none_are_written(archmap):
     from wirehouse import guide
 
@@ -545,3 +557,13 @@ def test_template_style_repo(tmp_path):
     item = {c["name"]: c for c in nodes["table:postgres:item"]["columns"]}
     assert item["owner_id"]["fk"] == {"table": "user", "column": "id"}
     assert ("table:postgres:item", "table:postgres:user", "references") in {(e["source"], e["target"], e["kind"]) for e in data["edges"]}
+
+
+def test_share_leaves_out_local_paths(repo, tmp_path):
+    from wirehouse.cli import main
+
+    out = tmp_path / "out"
+    assert main(["build", str(repo), "-o", str(out), "--share"]) == 0
+    html = (out / "wirehouse.html").read_text(encoding="utf-8")
+    assert str(repo) not in html and str(repo).replace("\\", "/") not in html
+    assert json.dumps(str(repo))[1:-1] not in html

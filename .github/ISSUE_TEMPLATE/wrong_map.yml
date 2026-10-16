@@ -1,0 +1,41 @@
+name: The map is wrong
+description: Wirehouse missed something, drew a connection that is not real, or put a block in the wrong place.
+labels: ["detection"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! These reports make the scanner better for everyone. Please do not paste secrets or private code you cannot share.
+  - type: input
+    id: stack
+    attributes:
+      label: Stack
+      description: Languages, frameworks, ORM, and how it runs (docker-compose, Kubernetes, serverless...).
+      placeholder: Next.js 15 + FastAPI + SQLModel + Postgres, docker-compose
+    validations:
+      required: true
+  - type: textarea
+    id: drawn
+    attributes:
+      label: What Wirehouse drew
+      description: The block or connection, as shown in the warehouse (a screenshot helps).
+    validations:
+      required: true
+  - type: textarea
+    id: real
+    attributes:
+      label: What is really there
+      description: Point at the file and line that proves it.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Smallest way to reproduce
+      description: A public repo + commit, or a few small files that show the problem.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Wirehouse version
+      description: Output of `wirehouse --version`.
