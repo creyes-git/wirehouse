@@ -1636,6 +1636,7 @@
       const api = eps.filter((e) => e.method !== 'PAGE').length;
       h += `<section class="sec"><h3>Endpoints and pages</h3><p class="note">${api} API endpoints, ${eps.length - api} pages</p><ul class="rows">${listWithMore(rows, 10, 'ep')}</ul>${moreBtn(rows.length, 10, 'ep')}</section>`;
     }
+    h += schemaSection(n);
     const conns = connectionsOf(id);
     if (conns.length) {
       const row = (g) => {
@@ -2259,6 +2260,157 @@
   }
   clipCount();
 
+  // ── schema: columns in the panel, a table diagram for each database ──────
+  // Columns and foreign keys come from the code that defines the tables (SQL,
+  // Prisma, SQLAlchemy, Django, Drizzle, TypeORM). Tables found some other way show
+  // their name only.
+  const tablesOf = (dbId) => kidsOf(dbId).map((k) => N.get(k)).filter((n) => n.kind === 'table');
+  const fkTarget = (table, fk) => { const prefix = table.id.slice(0, table.id.lastIndexOf(':') + 1); const id = prefix + String(fk.table).toLowerCase(); return N.has(id) ? id : null; };
+  function schemaSection(n) {
+    if (n.kind === 'table') {
+      const cols = n.columns || [];
+      const rows = cols.map((c) => {
+        const t = c.fk ? fkTarget(n, c.fk) : null;
+        const keys = (c.pk ? '<span class="key pk" title="Primary key">PK</span>' : '') + (c.fk ? '<span class="key fk" title="Foreign key">FK</span>' : '');
+        const ref = c.fk ? `<span class="sub">→ ${t ? `<button class="link" data-goto="${esc(t)}">${esc(N.get(t).name)}</button>` : esc(c.fk.table)}.${esc(c.fk.column)}</span>` : '';
+        return `<li><span class="main"><b>${esc(c.name)}</b> ${keys}${ref}</span><span class="side">${esc(c.type || '')}${c.required ? ' · required' : ''}</span></li>`;
+      });
+      return `<section class="sec"><h3>Columns</h3>${cols.length ? `<ul class="rows">${listWithMore(rows, 12, 'col')}</ul>${moreBtn(rows.length, 12, 'col')}`
+        : '<p class="note">The columns could not be read from the code that defines this table.</p>'}
+        <div class="actions"><button data-act="erd">Open schema diagram</button></div></section>`;
+    }
+    const tables = tablesOf(n.id);
+    if (!tables.length) return '';
+    const fks = tables.reduce((s, t) => s + (t.columns || []).filter((c) => c.fk && fkTarget(t, c.fk)).length, 0);
+    return `<section class="sec"><h3>Schema</h3><p class="note">${plural(tables.length, 'table')}, ${plural(fks, 'foreign key')} found in the code.</p>
+      <div class="actions"><button class="go" data-act="erd">Open schema diagram</button></div></section>`;
+  }
+  PANEL_ACTS.erd = (n) => openErd(n.kind === 'table' ? n.parent : n.id, n.kind === 'table' ? n.id : null);
+
+  const erd = $('#erd'), erdSvg = $('#erdSvg');
+  let erdView = null, erdFocus = null;
+  function openErd(dbId, focusTable) {
+    const db = N.get(dbId);
+    const tables = tablesOf(dbId);
+    if (!db || !tables.length) return;
+    erdFocus = focusTable;
+    const BW = 240, HEAD = 30, ROW = 20, MAXROWS = 14, GAPX = 110, GAPY = 46;
+    // most connected first, then walk the foreign keys so related tables land near each other
+    const links = [];
+    tables.forEach((t) => (t.columns || []).forEach((c, ci) => { const to = c.fk && fkTarget(t, c.fk); if (to && tables.some((x) => x.id === to)) links.push({ from: t.id, ci, to }); }));
+    const deg = new Map(tables.map((t) => [t.id, 0]));
+    links.forEach((l) => { deg.set(l.from, deg.get(l.from) + 1); deg.set(l.to, deg.get(l.to) + 1); });
+    const order = [], seen = new Set();
+    const byDeg = [...tables].sort((a, b) => deg.get(b.id) - deg.get(a.id) || a.name.localeCompare(b.name));
+    byDeg.forEach((t) => {
+      if (seen.has(t.id)) return;
+      const q = [t.id];
+      seen.add(t.id);
+      while (q.length) {
+        const id = q.shift();
+        order.push(id);
+        links.filter((l) => l.from === id || l.to === id).map((l) => (l.from === id ? l.to : l.from))
+          .filter((x) => !seen.has(x)).forEach((x) => { seen.add(x); q.push(x); });
+      }
+    });
+    const cols = clamp(Math.ceil(Math.sqrt(tables.length * 1.3)), 1, 6);
+    const heights = new Array(cols).fill(20), box = new Map();
+    order.forEach((id) => {
+      const t = N.get(id), n = (t.columns || []).length;
+      const rows = Math.min(n, MAXROWS) + (n > MAXROWS ? 1 : 0) || 1;
+      const h = HEAD + rows * ROW + 8;
+      let c = 0;
+      for (let k = 1; k < cols; k++) if (heights[k] < heights[c] - 1) c = k;
+      box.set(id, { x: 20 + c * (BW + GAPX), y: heights[c], w: BW, h, t });
+      heights[c] += h + GAPY;
+    });
+    const W = 40 + cols * BW + (cols - 1) * GAPX, H = Math.max(...heights) + 20;
+    const P = [`<defs><marker id="erdArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" class="erd-arrowhead"/></marker></defs>`];
+    links.forEach((l) => {
+      const a = box.get(l.from), b = box.get(l.to);
+      const ri = Math.min(l.ci, MAXROWS);
+      const ya = a.y + HEAD + ri * ROW + ROW / 2, yb = b.y + HEAD / 2;
+      let d;
+      if (l.from === l.to) d = `M${a.x + a.w},${ya} C${a.x + a.w + 50},${ya} ${a.x + a.w + 50},${yb} ${a.x + a.w},${yb}`;
+      else if (Math.abs(a.x - b.x) < 1) d = `M${a.x + a.w},${ya} C${a.x + a.w + 60},${ya} ${b.x + b.w + 60},${yb} ${b.x + b.w},${yb}`;
+      else {
+        const right = b.x > a.x, xa = right ? a.x + a.w : a.x, xb = right ? b.x : b.x + b.w, k = (right ? 1 : -1) * Math.max(40, Math.abs(xb - xa) / 2);
+        d = `M${xa},${ya} C${xa + k},${ya} ${xb - k},${yb} ${xb},${yb}`;
+      }
+      P.push(`<path class="erd-link" data-from="${esc(l.from)}" data-to="${esc(l.to)}" d="${d}" marker-end="url(#erdArrow)"/>`);
+    });
+    box.forEach((b, id) => {
+      const t = b.t, cs = t.columns || [];
+      P.push(`<g class="erd-table${id === focusTable ? ' focus' : ''}" data-id="${esc(id)}" tabindex="0" role="button" aria-label="${esc(t.name + ', ' + plural(cs.length, 'column'))}">` +
+        `<rect class="erd-box" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="6"/>` +
+        `<rect class="erd-head" x="${b.x}" y="${b.y}" width="${b.w}" height="${HEAD}" rx="6"/><rect class="erd-head" x="${b.x}" y="${b.y + HEAD - 6}" width="${b.w}" height="6"/>` +
+        `<text class="erd-name" x="${b.x + 12}" y="${b.y + 20}">${esc(shortName(t.name, 26))}${t.subkind === 'view' ? ' (view)' : ''}</text>` +
+        (cs.length ? cs.slice(0, MAXROWS).map((c, i) => {
+          const y = b.y + HEAD + i * ROW + 14;
+          return `<text class="erd-col${c.pk ? ' pk' : ''}" x="${b.x + 12}" y="${y}">${c.pk ? '<tspan class="erd-key">PK </tspan>' : c.fk ? '<tspan class="erd-key">FK </tspan>' : ''}${esc(shortName(c.name, 22))}</text>` +
+            `<text class="erd-type" x="${b.x + b.w - 10}" y="${y}" text-anchor="end">${esc(shortName(c.type || '', 14))}</text>`;
+        }).join('') + (cs.length > MAXROWS ? `<text class="erd-type" x="${b.x + 12}" y="${b.y + HEAD + MAXROWS * ROW + 14}">and ${cs.length - MAXROWS} more…</text>` : '')
+          : `<text class="erd-type" x="${b.x + 12}" y="${b.y + HEAD + 14}">columns not read</text>`) + `</g>`);
+    });
+    erdSvg.innerHTML = P.join('');
+    erdView = { x: 0, y: 0, w: W, h: H, W, H };
+    fitErd();
+    $('#erdTitle').textContent = `${db.name}: schema`;
+    $('#erdNote').textContent = `${plural(tables.length, 'table')}, ${plural(links.length, 'foreign key')}. Arrows point from a foreign key to the table it references. Click a table to walk to it.`;
+    erd.hidden = false;
+    erdSvg.querySelectorAll('.erd-table').forEach((g) => {
+      const go = () => { closeErd(); focusNode(g.dataset.id); };
+      g.addEventListener('click', () => { if (!erdSvg._dragged) go(); });
+      g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      g.addEventListener('mouseenter', () => erdHighlight(g.dataset.id));
+      g.addEventListener('mouseleave', () => erdHighlight(erdFocus));
+      g.addEventListener('focus', () => erdHighlight(g.dataset.id));
+    });
+    erdHighlight(focusTable);
+    const first = erdSvg.querySelector('.erd-table.focus') || erdSvg.querySelector('.erd-table');
+    if (first) first.focus({ preventScroll: true });
+  }
+  function erdHighlight(id) {
+    erdSvg.querySelectorAll('.erd-link').forEach((p) => p.classList.toggle('on', !!id && (p.dataset.from === id || p.dataset.to === id)));
+    erdSvg.querySelectorAll('.erd-link').forEach((p) => p.classList.toggle('dim', !!id && !(p.dataset.from === id || p.dataset.to === id)));
+  }
+  function fitErd() {
+    const r = erdSvg.getBoundingClientRect(), ar = (r.width || 800) / Math.max(1, r.height || 500);
+    let w = erdView.W + 40, h = erdView.H + 40;
+    if (w / h < ar) w = h * ar; else h = w / ar;
+    Object.assign(erdView, { x: (erdView.W - w) / 2, y: (erdView.H - h) / 2, w, h });
+    erdSvg.setAttribute('viewBox', `${erdView.x} ${erdView.y} ${erdView.w} ${erdView.h}`);
+  }
+  function closeErd() { erd.hidden = true; erdSvg.innerHTML = ''; }
+  $('#erdClose').addEventListener('click', closeErd);
+  erd.addEventListener('click', (e) => { if (e.target === erd) closeErd(); });
+  (function erdPanZoom() {
+    let down = null;
+    const setVB = () => erdSvg.setAttribute('viewBox', `${erdView.x} ${erdView.y} ${erdView.w} ${erdView.h}`);
+    erdSvg.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, vx: erdView.x, vy: erdView.y }; erdSvg._dragged = false; });
+    erdSvg.addEventListener('pointermove', (e) => {
+      if (!down) return;
+      const dx = e.clientX - down.x, dy = e.clientY - down.y;
+      if (!erdSvg._dragged && Math.hypot(dx, dy) > 4) erdSvg._dragged = true;
+      if (!erdSvg._dragged) return;
+      const k = erdView.w / erdSvg.clientWidth;
+      erdView.x = down.vx - dx * k; erdView.y = down.vy - dy * k;
+      setVB();
+    });
+    const up = () => { down = null; setTimeout(() => { erdSvg._dragged = false; }, 0); };
+    erdSvg.addEventListener('pointerup', up);
+    erdSvg.addEventListener('pointerleave', up);
+    erdSvg.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const f = Math.exp(e.deltaY * 0.0012), r = erdSvg.getBoundingClientRect();
+      const mx = erdView.x + ((e.clientX - r.left) / r.width) * erdView.w, my = erdView.y + ((e.clientY - r.top) / r.height) * erdView.h;
+      const nw = clamp(erdView.w * f, 120, 8000), k = nw / erdView.w;
+      erdView.x = mx - (mx - erdView.x) * k; erdView.y = my - (my - erdView.y) * k; erdView.w = nw; erdView.h *= k;
+      setVB();
+    }, { passive: false });
+  })();
+  onEscape(12, () => !erd.hidden, () => closeErd());
+
   // ── breadcrumbs ──────────────────────────────────────────────────────────
   function drawCrumbs() {
     const nav = $('#crumbs');
@@ -2672,6 +2824,7 @@
     goRoom, focusNode, select, selectLink, setPlan, setTheme, exitRoom, enterBlock, travelTo,
     startTrace, startPick, startRoute, startJourney, clearTrace, goStop, setPlaying, startTour, toggleClip,
     progress: () => JSON.parse(JSON.stringify(PROG)),
+    openErd,
     trace: () => trace && (trace.mode === 'route'
       ? { mode: 'route', loose: trace.loose, stops: trace.stops.map((s) => s.id), path: trace.path && trace.path.map((p) => p.id) }
       : { mode: trace.mode, id: trace.id, marks: MARK.hop && Object.fromEntries(MARK.hop) }),

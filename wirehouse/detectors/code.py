@@ -11,6 +11,7 @@ import bisect
 import re
 from dataclasses import dataclass, field
 
+from wirehouse.detectors import schema
 from wirehouse.scan import SourceFile
 from wirehouse.signatures import SIGNATURES
 
@@ -354,3 +355,4 @@ def _tables(sf: SourceFile, f: FileFacts, L: _Lines) -> None:
     for m in SQL_TABLE.finditer(text):
         add(m.group(2), L.line(m.start()), "SQL DDL", "view" if m.group(1).upper() == "VIEW" else "table")
     f.tables = list(found.values())[:80]
+    schema.attach(sf.lang, text, f.tables, L.starts)

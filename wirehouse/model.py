@@ -60,6 +60,7 @@ EDGE_KINDS = {
     "depends_on": "Starts after / depends on",
     "provisions": "Provisions",
     "uses": "Uses",
+    "references": "References (foreign key)",
 }
 
 

@@ -389,3 +389,84 @@ def test_wirehouse_makes_tours_and_quests_when_none_are_written(archmap):
     assert quests["find-endpoint"]["answer"] == ["file:api/routers/orders.py"]
     assert set(quests["find-data"]["answer"]) == {"res:postgres", "res:redis"}
     assert all(t["auto"] for t in data["tours"]) and data["diagnostics"] == []
+
+
+SCHEMA_FILES = {
+    "docker-compose.yml": """
+        services:
+          api:
+            build: ./api
+            environment:
+              DATABASE_URL: postgresql://app:pw@db:5432/app
+          db:
+            image: postgres:16
+    """,
+    "api/requirements.txt": "sqlalchemy>=2\npsycopg2-binary\n",
+    "api/db.py": "import os\nfrom sqlalchemy import create_engine\nengine = create_engine(os.environ['DATABASE_URL'])\n",
+    "api/migrations/001_init.sql": """
+        CREATE TABLE customers (
+          id SERIAL PRIMARY KEY,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL DEFAULT 'hunter2_default'
+        );
+        CREATE TABLE invoices (
+          id BIGINT,
+          customer_id INTEGER NOT NULL,
+          total NUMERIC(10, 2),
+          CONSTRAINT invoices_pk PRIMARY KEY (id),
+          CONSTRAINT fk_cust FOREIGN KEY (customer_id) REFERENCES customers (id)
+        );
+    """,
+    "api/models.py": """
+        from sqlalchemy import ForeignKey, String
+        from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+        class Base(DeclarativeBase):
+            pass
+
+        class Shipment(Base):
+            __tablename__ = "shipments"
+            id: Mapped[int] = mapped_column(primary_key=True)
+            invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), nullable=False)
+            carrier: Mapped[str] = mapped_column(String(40))
+    """,
+}
+
+
+def test_schema_columns_and_foreign_keys(tmp_path):
+    for rel, body in SCHEMA_FILES.items():
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    nodes = {n["id"]: n for n in data["nodes"]}
+    cols = {c["name"]: c for c in nodes["table:postgres:invoices"]["columns"]}
+    assert cols["id"].get("pk") and cols["customer_id"]["fk"] == {"table": "customers", "column": "id"}
+    assert cols["total"]["type"] == "NUMERIC(10, 2)" and cols["customer_id"].get("required")
+    ship = {c["name"]: c for c in nodes["table:postgres:shipments"]["columns"]}
+    assert ship["id"].get("pk") and ship["invoice_id"]["fk"] == {"table": "invoices", "column": "id"}
+    refs = {(e["source"], e["target"]) for e in data["edges"] if e["kind"] == "references"}
+    assert refs == {("table:postgres:invoices", "table:postgres:customers"), ("table:postgres:shipments", "table:postgres:invoices")}
+    assert "hunter2_default" not in json.dumps(data)   # column defaults are never kept
+
+
+def test_schema_dialects():
+    from wirehouse.detectors import schema
+
+    prisma = 'model User {\n  id Int @id @default(autoincrement())\n  posts Post[]\n}\nmodel Post {\n  id Int @id\n  authorId Int\n  author User @relation(fields: [authorId], references: [id])\n  title String?\n}\n'
+    post = schema.prisma_columns(prisma, prisma.index("model Post"), {"User", "Post"})
+    assert [c["name"] for c in post] == ["id", "authorId", "title"]
+    assert post[1]["fk"] == {"table": "User", "column": "id"} and "required" not in post[2]
+
+    django = "class Order(models.Model):\n    customer = models.ForeignKey('shop.Customer', on_delete=models.CASCADE)\n    total = models.DecimalField(max_digits=8)\n"
+    dj = schema.django_columns(django, 0)
+    assert [c["name"] for c in dj] == ["id", "customer_id", "total"] and dj[1]["fk"]["table"] == "Customer"
+
+    drizzle = 'export const users = pgTable("users", { id: serial("id").primaryKey() });\nexport const posts = pgTable("posts", {\n  id: serial("id").primaryKey(),\n  authorId: integer("author_id").notNull().references(() => users.id),\n});\n'
+    dz = schema.drizzle_columns(drizzle, drizzle.index("export const posts"), {"users": "users", "posts": "posts"})
+    assert dz[1] == {"name": "author_id", "type": "integer", "fk": {"table": "users", "column": "id"}, "required": True}
+
+    typeorm = "@Entity()\nexport class Photo {\n  @PrimaryGeneratedColumn()\n  id: number;\n  @Column()\n  url: string;\n  @ManyToOne(() => User)\n  owner: User;\n}\n"
+    to = schema.typeorm_columns(typeorm, 0)
+    assert [(c["name"], c.get("pk", False)) for c in to] == [("id", True), ("url", False), ("ownerId", False)]
+    assert to[2]["fk"]["table"] == "User"

@@ -51,6 +51,14 @@
 <div id="announce" class="sr" aria-live="polite"></div>
 <div id="fade"></div>
 
+<div id="erd" hidden role="dialog" aria-modal="true" aria-labelledby="erdTitle">
+  <div class="erd-card">
+    <header><div><h2 id="erdTitle"></h2><p id="erdNote" class="note"></p></div>
+      <button id="erdClose" class="ghost round" type="button" aria-label="Close schema">×</button></header>
+    <svg id="erdSvg" aria-label="Schema diagram"></svg>
+  </div>
+</div>
+
 <div id="welcome" hidden role="dialog" aria-modal="true" aria-labelledby="welcomeTitle">
   <div class="card">
     <h1 id="welcomeTitle"></h1>

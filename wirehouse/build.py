@@ -663,6 +663,7 @@ class Builder:
                     if prov:
                         prisma_provider[rel] = self.res_for(BY_ID[prov])
                         self.add_edge(f"file:{rel}", prisma_provider[rel], "data", description="Prisma datasource", via="Prisma")
+        fks = []
         for rel, ff in self.facts.items():
             if not ff.tables or f"file:{rel}" not in self.nodes:
                 continue
@@ -677,7 +678,18 @@ class Builder:
                                        description=f"{'View' if t['kind'] == 'view' else 'Table'} defined by {t['via']} in `{rel}` (line {t['line']})."))
                 else:
                     self.nodes[tid]["locations"].append(loc(rel, t["line"]))
+                if t.get("columns") and not self.nodes[tid].get("columns"):
+                    self.nodes[tid]["columns"] = t["columns"]
+                    fks.append((tid, db, rel, t))
                 self.add_edge(f"file:{rel}", tid, "data", evidence=[loc(rel, t["line"])], description=f"defines {t['name']} ({t['via']})")
+        # foreign keys become table -> table edges, once every table of the database is known
+        for tid, db, rel, t in fks:
+            for c in t["columns"]:
+                fk = c.get("fk")
+                target = f"table:{db[4:]}:{fk['table'].lower()}" if fk else None
+                if target in self.nodes and target != tid:
+                    self.add_edge(tid, target, "references", evidence=[loc(rel, t["line"])],
+                                  description=f"{t['name']}.{c['name']} -> {self.nodes[target]['name']}.{fk['column']}")
 
     def _compose_edges(self):
         for cs in self.infra.compose:
