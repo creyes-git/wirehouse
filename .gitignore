@@ -9,3 +9,6 @@ wirehouse-out/
 archify/
 .DS_Store
 Thumbs.db
+.env
+.env.*
+!.env.example

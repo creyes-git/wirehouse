@@ -15,6 +15,11 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: Wirehouse is built for any agent, not one vendor's; installing only for one left everyone
     else to copy files by hand.
 
+### Security
+- **Ignore local `.env` files** (2026-10-16)
+  - Summary: `.gitignore` now excludes `.env` and `.env.*` (keeping `.env.example`).
+  - Why: contributors who keep keys in a local `.env` while testing should never commit it by accident.
+
 ### Changed
 - **Agent-neutral wording** (2026-10-16)
   - Summary: The README, docs, banner tagline ("Built for your agents"), skill and brief no longer
