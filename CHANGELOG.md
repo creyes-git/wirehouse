@@ -7,6 +7,9 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **TODO.md** (2026-10-17)
+  - Summary: Lists deferred work, starting with creating the GitHub repository and the first push.
+  - Why: the repository is not created yet, so the published links do not resolve until then.
 - **`wirehouse install` reaches any coding agent** (2026-10-16)
   - Summary: The skill is written to the shared `~/.agents/skills` folder and to the skills folder of
     every agent found in the home folder (Claude Code, Codex, Cursor, OpenCode, Gemini CLI,
