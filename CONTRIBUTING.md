@@ -19,7 +19,7 @@ Fixes for these come with a test that builds a tiny repo in a temp folder (see
 ## Setup
 
 ```bash
-git clone https://github.com/__OWNER__/wirehouse
+git clone https://github.com/creyes-git/wirehouse
 cd wirehouse
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"

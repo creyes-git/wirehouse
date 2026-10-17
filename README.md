@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/__OWNER__/wirehouse/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/__OWNER__/wirehouse/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/creyes-git/wirehouse/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/creyes-git/wirehouse/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
   <img alt="One offline HTML file" src="https://img.shields.io/badge/output-one%20offline%20HTML%20file-F2C230">
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://__OWNER__.github.io/wirehouse/demo/"><b>Try the live demo</b></a> ·
+  <a href="https://creyes-git.github.io/wirehouse/demo/"><b>Try the live demo</b></a> ·
   <a href="#quick-start"><b>Quick start</b></a> ·
   <a href="#how-to-use"><b>How to use</b></a> ·
   <a href="#how-it-works"><b>How it works</b></a> ·
@@ -31,7 +31,7 @@
 <p align="center">
   <img src="docs/assets/demo.webp" alt="Walking through the warehouse of fastapi/full-stack-fastapi-template: tracing what the backend reaches, walking a request from the user to PostgreSQL, entering the backend, the schema diagram, the floor plan and the Clipboard of tours and quests" width="900">
   <br>
-  <sub>The warehouse of <a href="https://github.com/fastapi/full-stack-fastapi-template">fastapi/full-stack-fastapi-template</a>, described by a coding agent. <a href="https://__OWNER__.github.io/wirehouse/demo/">Open it yourself</a> (one 1 MB HTML file) · <a href="docs/assets/demo.mp4">MP4 with full-speed walking</a>.</sub>
+  <sub>The warehouse of <a href="https://github.com/fastapi/full-stack-fastapi-template">fastapi/full-stack-fastapi-template</a>, described by a coding agent. <a href="https://creyes-git.github.io/wirehouse/demo/">Open it yourself</a> (one 1 MB HTML file) · <a href="docs/assets/demo.mp4">MP4 with full-speed walking</a>.</sub>
 </p>
 
 <img src="docs/brand/readme/readme-divider-hazard.svg" alt="" width="100%">
@@ -76,7 +76,7 @@ view, commit-pinned links to GitHub, GitLab, Bitbucket and Azure DevOps, and pic
 Requires Python 3.11+.
 
 ```bash
-pip install "git+https://github.com/__OWNER__/wirehouse"
+pip install "git+https://github.com/creyes-git/wirehouse"
 wirehouse install          # adds the wirehouse skill to the coding agents on this machine
 ```
 
@@ -287,7 +287,7 @@ flowchart LR
 - **Third parties**: Stripe, Clerk, Auth0, Supabase, Firebase, OpenAI, Anthropic, Sentry and about
   a hundred more.
 
-Missing your stack? [Tell us where the map is wrong](https://github.com/__OWNER__/wirehouse/issues/new?template=wrong_map.yml).
+Missing your stack? [Tell us where the map is wrong](https://github.com/creyes-git/wirehouse/issues/new?template=wrong_map.yml).
 
 ## Privacy and safety
 
@@ -315,7 +315,7 @@ See [SECURITY.md](SECURITY.md) to report a problem.
 - More stacks: Go, Java/Kotlin (Spring), Ruby on Rails, PHP (Laravel).
 - Bigger repos: instanced rendering for rooms with thousands of files.
 
-Ideas welcome in [Discussions](https://github.com/__OWNER__/wirehouse/discussions).
+Ideas welcome in [Discussions](https://github.com/creyes-git/wirehouse/discussions).
 
 ## Contributing
 
@@ -338,4 +338,4 @@ pip install -e ".[dev]" && python -m pytest
 
 ## License
 
-[MIT](LICENSE) © __AUTHOR__
+[MIT](LICENSE) © Carlos Reyes

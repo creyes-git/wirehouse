@@ -25,7 +25,7 @@ the description step.
 wirehouse --version || python -m wirehouse --version
 ```
 
-If neither works, install it: `pip install "git+https://github.com/__OWNER__/wirehouse"` (or, from a
+If neither works, install it: `pip install "git+https://github.com/creyes-git/wirehouse"` (or, from a
 source checkout, `pip install -e "{{WIREHOUSE_HOME}}"`).
 Use `python -m wirehouse` in later steps if the `wirehouse` command is not on PATH.
 

@@ -16,7 +16,7 @@
 ## Reporting a vulnerability
 
 Please report security issues privately, not in a public issue:
-[open a private security advisory](https://github.com/__OWNER__/wirehouse/security/advisories/new),
+[open a private security advisory](https://github.com/creyes-git/wirehouse/security/advisories/new),
 or email [github-.boaster602@passmail.com](mailto:github-.boaster602@passmail.com) if you cannot use GitHub.
 
 Especially welcome:

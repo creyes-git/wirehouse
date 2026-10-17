@@ -15,6 +15,13 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: Wirehouse is built for any agent, not one vendor's; installing only for one left everyone
     else to copy files by hand.
 
+### Changed
+- **Repository links and author filled in** (2026-10-17)
+  - Summary: Links now point at `github.com/creyes-git/wirehouse` and its GitHub Pages demo; the
+    license and package name Carlos Reyes as the author.
+  - Why: the placeholders were kept until the GitHub account was known, so the README, badges,
+    install command and issue links work once the repository is published.
+
 ### Security
 - **Ignore local `.env` files** (2026-10-16)
   - Summary: `.gitignore` now excludes `.env` and `.env.*` (keeping `.env.example`).
@@ -72,5 +79,5 @@ The first public release.
 
 - First working version: scan, agent enrichment, the 3D warehouse and the floor plan.
 
-[Unreleased]: https://github.com/__OWNER__/wirehouse/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/__OWNER__/wirehouse/releases/tag/v0.2.0
+[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/creyes-git/wirehouse/releases/tag/v0.2.0
