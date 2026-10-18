@@ -47,7 +47,7 @@ scan or render. Tests were 19 end-to-end checks with almost no edge cases.
   C3: Go modules, imports, routes, env reads, ~30 drivers/SDKs. C5: `--against <archmap.json>` with a
   Changes panel (`V`), floor badges and an export section.
 - Also: viewer tests close their pages (suite went from ~140 s with random timeouts to ~15 s).
-- Tests: 19 to 64 (plus the hostile-repo test), all passing.
+- Tests: 19 to 64 (the hostile-repo test included), all passing.
 
 **Deferred:**
 - C4 GitHub Action (user chose to skip this pass).
