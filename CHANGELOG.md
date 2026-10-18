@@ -115,6 +115,12 @@ All notable changes to Wirehouse are listed here. The format follows
     suite now runs in about 15 seconds instead of over two minutes.
 
 ### Added
+- **`wirehouse export`: the map as Markdown and Mermaid** (2026-10-18)
+  - Summary: Writes `architecture.md` next to the page: a Mermaid flowchart of the top-level blocks by
+    zone, a list of blocks, and a table of every connection with its file and line (commit-pinned links
+    when the repository has a known code host). `--format mermaid` writes only the diagram.
+  - Why: text can go into a README or a pull request and shows up in diffs, which a 1 MB HTML file
+    cannot; it follows the same "recorded connections only" rule as the page.
 - **Checks in the page and `--strict`** (2026-10-18)
   - Summary: When the checks left something out (an unknown node in a tour, an added connection with no
     evidence, a wrongly shaped entry), a **Checks** button in the top bar lists each problem with its fix.

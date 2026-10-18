@@ -885,3 +885,38 @@ def test_strict_render_fails_when_parts_were_left_out(repo, tmp_path):
     assert (out / "wirehouse.html").is_file()   # the page is still written
     (out / "enrichment.json").write_text("{}", encoding="utf-8")
     assert main(["render", str(repo), "-o", str(out), "--strict"]) == 0
+
+
+def test_export_writes_markdown_and_mermaid(repo, tmp_path):
+    from wirehouse.cli import main
+
+    out = tmp_path / "out"
+    assert main(["build", str(repo), "-o", str(out), "--share"]) == 0
+    assert main(["export", str(repo), "-o", str(out)]) == 0
+    md = (out / "architecture.md").read_text(encoding="utf-8")
+    data = json.loads((out / "archmap.json").read_text(encoding="utf-8"))
+    tops = [n for n in data["nodes"] if n["parent"] is None]
+    assert md.startswith("# ") and "```mermaid\nflowchart LR" in md
+    for n in tops:
+        assert n["name"] in md
+    assert "| shop-web |" in md or "web" in md
+    assert "`web/lib/api.ts:" in md                       # connections cite file and line
+    assert SECRET not in md and str(repo) not in md
+    assert main(["export", str(repo), "-o", str(out), "--format", "mermaid"]) == 0
+    mmd = (out / "architecture.mmd").read_text(encoding="utf-8")
+    assert mmd.startswith("flowchart LR") and "-->" in mmd
+
+
+def test_mermaid_labels_cannot_break_the_diagram():
+    from wirehouse.export import mermaid, web_link
+
+    data = {"nodes": [{"id": "a", "name": 'Evil"] --> x["', "kind": "service", "layer": "services", "parent": None},
+                      {"id": "b", "name": "DB <script>", "kind": "database", "layer": "data", "parent": None}],
+            "edges": [{"source": "a", "target": "b", "kind": "data", "confidence": "EXTRACTED"},
+                      {"source": "b", "target": "a", "kind": "depends_on", "confidence": "EXTRACTED"}]}
+    text = mermaid(data)
+    assert 'n1 -.->|"starts after"| n0' in text            # start-up order is drawn as not traffic
+    assert '"]' not in text.split("n0", 1)[1].split("\n", 1)[0][:-2] and "#quot;" in text and "<script>" not in text
+    assert 'n0 -->|"reads and writes"| n1' in text
+    repo = {"provider": "github", "web": "https://github.com/o/r", "revision": "abc", "prefix": ""}
+    assert web_link(repo, "a b.py", 3) == "https://github.com/o/r/blob/abc/a%20b.py#L3"

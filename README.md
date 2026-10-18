@@ -129,6 +129,7 @@ wirehouse build path/to/project --open
 | `--share` | (build, render) Leave out local paths before you publish the page. |
 | `--strict` | (build, render) Exit with an error when the checks left parts of the enrichment out, for CI. |
 | `-o <folder>` | Write somewhere other than `<path>/wirehouse-out/`. |
+| `wirehouse export <path>` | Write `architecture.md`: a Mermaid diagram, the blocks and every connection with its file and line. `--format mermaid` writes only the diagram (`architecture.mmd`). |
 | `wirehouse install` | Add the skill to your agents (`--agent`, `--dir`, `--print`; see above). |
 
 Descriptions are cached by a hash of the code they describe, so re-running `/wirehouse` after a
@@ -274,6 +275,7 @@ flowchart LR
 | `enrichment.json` | Descriptions, corrections, tours and quests, kept between runs |
 | `archmap.json` | The merged data behind the page |
 | `wirehouse.html` | The warehouse |
+| `architecture.md` / `.mmd` | The map as text, from `wirehouse export` |
 
 ## What it detects
 

@@ -3,6 +3,7 @@
   wirehouse scan   <path>   detect structure -> archmap.raw.json + enrich-brief.md
   wirehouse render <path>   merge enrichment.json -> archmap.json + wirehouse.html
   wirehouse build  <path>   scan + render in one go (uses any cached enrichment)
+  wirehouse export <path>   the map as Markdown with a Mermaid diagram (or --format mermaid)
   wirehouse install         add the /wirehouse skill to your coding agents (see AGENT_SKILL_DIRS)
 """
 
@@ -103,6 +104,28 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False,
     return html_path
 
 
+EXPORTS = {"markdown": "architecture.md", "mermaid": "architecture.mmd"}
+
+
+def cmd_export(project: Path, out_dir: Path, fmt: str = "markdown") -> Path:
+    from wirehouse.export import markdown, mermaid
+
+    src = out_dir / MAP_NAME
+    if not src.is_file():
+        src = out_dir / RAW_NAME
+        if not src.is_file():
+            raise SystemExit(f"error: no map in {out_dir}. Run `wirehouse build {project}` first.")
+        _log(f"  {MAP_NAME} not found: exporting the scan without descriptions (run `wirehouse render` first for them)")
+    try:
+        data = json.loads(src.read_text(encoding="utf-8-sig"))
+    except ValueError as exc:
+        raise SystemExit(f"error: {src} is not valid JSON ({exc}). Run `wirehouse build {project}` again.")
+    dest = out_dir / EXPORTS[fmt]
+    dest.write_text(markdown(data) if fmt == "markdown" else mermaid(data), encoding="utf-8")
+    _log(f"  wrote {dest}")
+    return dest
+
+
 # Where each agent looks for personal skills (the open SKILL.md format), relative to the home
 # folder, and the folder whose presence means the agent is installed. `~/.agents/skills` is the
 # shared location several agents read, so it is always written.
@@ -163,6 +186,12 @@ def main(argv: list[str] | None = None) -> int:
                             help="leave out local paths (this machine's folders, uncommitted files) before publishing the page")
             sp.add_argument("--strict", action="store_true",
                             help="exit with an error when the checks left parts of the enrichment out")
+    sp = sub.add_parser("export", help="write the map as Markdown with a Mermaid diagram",
+                        description="Reads wirehouse-out/archmap.json (or the raw scan) and writes architecture.md "
+                                    "or architecture.mmd next to it.")
+    sp.add_argument("path", nargs="?", default=".", help="project root (default: current folder)")
+    sp.add_argument("-o", "--out", help="output folder (default: <path>/wirehouse-out)")
+    sp.add_argument("--format", choices=sorted(EXPORTS), default="markdown", help="markdown (default) or mermaid")
     sp = sub.add_parser("install", help="add the /wirehouse skill to your coding agents",
                         description="Writes SKILL.md to ~/.agents/skills plus the skills folder of every agent found "
                                     "in your home folder, unless --agent or --dir is given.")
@@ -185,6 +214,8 @@ def main(argv: list[str] | None = None) -> int:
         cmd_scan(project, out_dir)
     if args.cmd in ("render", "build"):
         cmd_render(project, out_dir, args.open, args.share, args.strict)
+    if args.cmd == "export":
+        cmd_export(project, out_dir, args.format)
     return 0
 
 
