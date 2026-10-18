@@ -80,6 +80,16 @@ that a test-only import does not create a block.
 `node --check wirehouse/render/app.js` and the browser tests after a change, and attach a
 screenshot or short clip to the pull request.
 
+## Regenerating the demo
+
+`docs/demo/` maps [fastapi/full-stack-fastapi-template](https://github.com/fastapi/full-stack-fastapi-template)
+at commit `b1125d8`, with the descriptions, tours and quests in `docs/demo/enrichment.json`. Rebuild it
+after viewer changes, always with `--share` so no local paths are published:
+
+```bash
+git clone -q https://github.com/fastapi/full-stack-fastapi-template /tmp/fsft && git -C /tmp/fsft checkout -q b1125d8 && mkdir -p /tmp/fsft/wirehouse-out && cp docs/demo/enrichment.json /tmp/fsft/wirehouse-out/ && wirehouse build /tmp/fsft --share && cp /tmp/fsft/wirehouse-out/wirehouse.html docs/demo/index.html
+```
+
 ## Pull requests
 
 - One topic per pull request, with a test for behaviour changes.

@@ -6,6 +6,14 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **The live demo shows the current viewer** (2026-10-18)
+  - Summary: `docs/demo/index.html` is rendered again by 0.3.0 with `--share`, from the same project and
+    commit (fastapi/full-stack-fastapi-template at `b1125d8`) and the same descriptions, tours and quests,
+    now kept in `docs/demo/enrichment.json`. CONTRIBUTING.md has the one-line command to rebuild it.
+  - Why: the published demo was drawn by the 0.2.0 viewer, without the Checks panel, change review or
+    any of the Pass 1 and Pass 2 fixes, and its enrichment could not be reproduced.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added
