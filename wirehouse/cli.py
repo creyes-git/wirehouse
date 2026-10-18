@@ -167,7 +167,8 @@ def cmd_export(project: Path, out_dir: Path, fmt: str = "markdown") -> Path:
 
 # Where each agent looks for personal skills (the open SKILL.md format), relative to the home
 # folder, and the folder whose presence means the agent is installed. `~/.agents/skills` is the
-# shared location several agents read, so it is always written.
+# shared location several agents read, so a plain `install` always writes it; `--agent` and `--dir`
+# write only what they name.
 SHARED_SKILL_DIR = ".agents/skills"
 AGENT_SKILL_DIRS = {
     "claude": (".claude", ".claude/skills"),

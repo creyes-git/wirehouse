@@ -1371,3 +1371,17 @@ def test_go_files_are_described_as_go(tmp_path):
     nodes = {n["id"]: n for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
     assert nodes["file:svc/main.go"]["description"].startswith("Go file")
     assert "Go" in nodes["unit:go:svc"]["description"]
+
+
+def test_long_generated_export_lists_still_import(tmp_path):
+    # Generated API clients re-export hundreds of type names in one statement (3,500+ characters).
+    names = ", ".join(f"Type{i}Response" for i in range(300))
+    _write(tmp_path, {
+        "web/package.json": json.dumps({"name": "web", "dependencies": {"react": "19.0.0"}}),
+        "web/src/client/index.ts": f"export {{ ItemsService }} from './sdk.gen';\nexport type {{ {names} }} from './types.gen';\n",
+        "web/src/client/sdk.gen.ts": "export class ItemsService {}\n",
+        "web/src/client/types.gen.ts": "export type Type0Response = {};\n",
+    })
+    imports = {(e["source"], e["target"]) for e in build_archmap(tmp_path, log=lambda *_: None)["edges"] if e["kind"] == "imports"}
+    assert ("file:web/src/client/index.ts", "file:web/src/client/types.gen.ts") in imports
+    assert ("file:web/src/client/index.ts", "file:web/src/client/sdk.gen.ts") in imports

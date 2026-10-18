@@ -6,6 +6,20 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **The improvement log records Pass 2** (2026-10-18)
+  - Summary: IMPROVEMENT_LOG.md has a Pass 2 entry: areas covered, findings by severity, the menu, what
+    was done with its measured effect, what was deferred and the next pass's focus.
+  - Why: the next pass starts from this log, so it should not repeat this audit.
+- **The live demo shows the current viewer** (2026-10-18)
+  - Summary: `docs/demo/index.html` is rendered again by 0.3.0 with `--share`, from the same project and
+    commit (fastapi/full-stack-fastapi-template at `b1125d8`) and the same descriptions, tours and quests,
+    now kept in `docs/demo/enrichment.json`. CONTRIBUTING.md has the one-line command to rebuild it.
+  - Why: the published demo was drawn by the 0.2.0 viewer, without the Checks panel, change review or
+    any of the Pass 1 and Pass 2 fixes, and its enrichment could not be reproduced.
+
+## [0.3.0] - 2026-10-18
+
 ### Added
 - **Exploration marks** (2026-10-18)
   - Summary: On the main floor, a block you have inspected carries a small tick on its label, and the
@@ -84,8 +98,8 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: the focused tests guard each bug; this one guards the invariants together, so a new field or
     parser cannot quietly reopen a leak.
 - **TODO.md** (2026-10-17)
-  - Summary: Lists deferred work, starting with creating the GitHub repository and the first push.
-  - Why: the repository is not created yet, so the published links do not resolve until then.
+  - Summary: Lists known gaps and deferred work, each with a date, where it is and a suggested fix.
+  - Why: work that is put off should be written down where contributors look for it.
 - **`wirehouse install` reaches any coding agent** (2026-10-16)
   - Summary: The skill is written to the shared `~/.agents/skills` folder and to the skills folder of
     every agent found in the home folder (Claude Code, Codex, Cursor, OpenCode, Gemini CLI,
@@ -95,6 +109,16 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **IMPROVEMENT_LOG.md is written for public readers** (2026-10-18)
+  - Summary: The log explains what a pass is and what the severities mean, and the Pass 1 entry is
+    reworded without internal shorthand.
+  - Why: the repository is public, and the log read like private notes ("not pushed: no remote yet").
+- **TODO.md is written for a public repository** (2026-10-18)
+  - Summary: The first-push and history-rewrite steps are gone; TODO.md now lists the remaining
+    repository settings, deferred features and precision work, and the Low findings of the Pass 2 audit,
+    each with a date, location and suggested fix.
+  - Why: the repository is public now, and the old steps (creating it, deleting backup branches) no
+    longer applied.
 - **Traces ripple out hop by hop** (2026-10-18)
   - Summary: When a trace, route or tour lights the floor, its rings and badges appear in the order the
     recorded hops reach them, a quarter second per hop, and the lit pipes pulse. With reduced motion they
@@ -243,6 +267,21 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Long generated export lists connect again** (2026-10-18)
+  - Summary: An `import` or `export` whose `{ ... }` name list is long (a generated API client that
+    re-exports hundreds of types from `./types.gen`) links to the module again; the name list has its
+    own bound and stops at the next brace, so the scan stays linear.
+  - Why: the 2,000-character bound added in Pass 1 against slow scans cut such statements off, and the
+    demo map lost its `index.ts` to `types.gen.ts` import.
+- **The README says when the shared skills folder is written** (2026-10-18)
+  - Summary: `~/.agents/skills` is written by a plain `wirehouse install`, not when `--agent` or `--dir`
+    picks the targets; the README table and the code comment now say so.
+  - Why: both said "always written", which was not true and could leave a reader looking for a file
+    that was never created.
+- **Building needs setuptools 77 or newer** (2026-10-18)
+  - Summary: `pyproject.toml` requires `setuptools>=77` to build.
+  - Why: the `license = "MIT"` and `license-files` fields follow PEP 639, which older setuptools rejects
+    or ignores, so a build with setuptools 68 to 76 could fail or ship wrong license metadata.
 - **A release is created only after PyPI publishing works** (2026-10-18)
   - Summary: The release workflow's GitHub release job now waits for the PyPI job as well as the build.
   - Why: the workflow's own comment says nothing ships until PyPI publishing is set up, but the GitHub
@@ -457,5 +496,7 @@ The first public release.
 
 - First working version: scan, agent enrichment, the 3D warehouse and the floor plan.
 
-[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/creyes-git/wirehouse/releases/tag/v0.2.0
+[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/creyes-git/wirehouse/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/creyes-git/wirehouse/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/creyes-git/wirehouse/releases/tag/v0.1.0

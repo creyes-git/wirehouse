@@ -1,0 +1,615 @@
+{
+ "version": 1,
+ "nodes": {
+  "res:traefik": {
+   "description": "Traefik v3 reverse proxy that reads Docker labels: it routes the main domain to the backend (port 8000) and adminer.<domain> to Adminer (port 8080). Locally it listens on port 80 and shows its dashboard on 8090.",
+   "purpose": "Single public entry point in front of the containers.",
+   "hash": "38b526d93b6b"
+  },
+  "res:postgres": {
+   "description": "PostgreSQL 18 container `db` with database `app` and two tables: `user` and `item`. Each item has an owner_id foreign key to user that is deleted with its owner; the schema is managed by Alembic migrations.",
+   "purpose": "The only persistent store; the backend reaches it through SQLModel/SQLAlchemy with the psycopg driver.",
+   "hash": "88bb34f3fb5f"
+  },
+  "svc:adminer": {
+   "description": "Adminer web UI for browsing and editing the PostgreSQL database, published by Traefik at adminer.<domain> and on port 8080 locally.",
+   "purpose": "Operator tool for inspecting tables by hand; the app itself never calls it.",
+   "name": "Adminer (database UI)",
+   "hash": "7131f37f2f62"
+  },
+  "svc:mailpit": {
+   "description": "Mailpit fake SMTP server for local development: the backend sends mail to it on port 1025 (compose.override.yml sets SMTP_HOST to mailpit), and its web UI and API on port 8025 show every captured email.",
+   "purpose": "Lets password-recovery and new-account emails be tested without a real mail provider; Playwright tests read reset links from it.",
+   "name": "Mailpit (dev mail catcher)",
+   "hash": "e7ea4d3862d4"
+  },
+  "unit:python:.": {
+   "description": "Small Python helpers at the repo root: hooks/post_gen_project.py converts .sh files to LF line endings after a project is generated, scripts/prepare_release.py bumps the version and extracts release notes, and scripts/add_latest_release_date.py dates the newest release header.",
+   "purpose": "Maintenance tooling used by the release workflows and pre-commit, not part of the running app.",
+   "name": "Repo tooling scripts",
+   "kind": "ci",
+   "hash": "857ee0a7aa42"
+  },
+  "unit:python:backend": {
+   "description": "FastAPI app (Python 3.14, SQLModel, pydantic-settings) with 23 endpoints under /api/v1 for login, password recovery, users, items and utils; it also serves the built frontend at /. Runs as compose service `backend` on port 8000, and scripts/prestart.sh runs Alembic migrations and creates the first superuser before it starts.",
+   "purpose": "Holds all business rules and is the only part that talks to PostgreSQL, signs tokens and sends email.",
+   "hash": "fe62bd9f3bf1"
+  },
+  "unit:js:frontend": {
+   "description": "React 19 + TypeScript single-page app (Vite, TanStack Router and Query, Tailwind with shadcn/Radix UI) with login, signup, password recovery, dashboard, items, settings and admin pages. Vite builds it into backend/app/frontend and the backend serves it at /; the compose `playwright` service is only the end-to-end test runner.",
+   "purpose": "The user-facing UI; every action goes through the generated API client to /api/v1 on the backend.",
+   "hash": "fa06a90a444a"
+  },
+  "unit:js:packages/react-email": {
+   "description": "React Email sources for the three transactional emails (new account, password reset, test email) plus shared layout pieces. `bun run email:export` renders them to HTML with Jinja placeholders into backend/app/email-templates.",
+   "purpose": "Design-time source of the emails the backend sends; it is not deployed on its own.",
+   "name": "Email templates (React Email)",
+   "hash": "f39f20405714"
+  },
+  "dir:scripts": {
+   "description": "Release tooling: prepare_release.py bumps the version and updates release-notes.md (used by the prepare-release and create-draft-release workflows), and add_latest_release_date.py runs as a pre-commit hook.",
+   "purpose": "Automates the template's own release process.",
+   "hash": "99c5dd4f89c2"
+  },
+  "dir:backend/app": {
+   "description": "The backend's Python package: main.py builds the FastAPI app, models.py defines the User and Item tables plus API schemas, crud.py has user and item database helpers, utils.py sends email and makes reset tokens, and initial_data.py seeds the first superuser.",
+   "purpose": "Everything that runs inside the backend container.",
+   "hash": "8f3a95f54ffe"
+  },
+  "dir:backend/app/alembic": {
+   "description": "Alembic migration environment: env.py points Alembic at SQLModel.metadata from app.models and at settings.DATABASE_URL.",
+   "purpose": "Evolves the PostgreSQL schema; scripts/prestart.sh runs `alembic upgrade head` before the app starts.",
+   "hash": "e79f4eda92e9"
+  },
+  "dir:backend/app/alembic/versions": {
+   "description": "Migration scripts, starting with e2412789c190 which creates the `user` and `item` tables, followed by ones that switch ids to UUIDs, add string length limits, cascade deletes and created_at columns.",
+   "purpose": "The recorded history of the database schema.",
+   "hash": "7b80d8a653fd"
+  },
+  "dir:backend/app/api": {
+   "description": "HTTP layer: main.py mounts the login, users, utils and items routers (plus the private router only in development), and deps.py defines the shared dependencies SessionDep, CurrentUser and get_current_active_superuser.",
+   "purpose": "Turns each request into an authenticated, database-backed handler call.",
+   "hash": "a159c2ec4449"
+  },
+  "dir:backend/app/api/routes": {
+   "description": "One router per area: login.py (access token, password recovery and reset), users.py (signup, /users/me, admin user management), items.py (item CRUD scoped to the owner), utils.py (health check, test email) and private.py (dev-only user creation for end-to-end tests).",
+   "purpose": "Where all 23 /api/v1 endpoints are defined.",
+   "hash": "e3a874917b9b"
+  },
+  "dir:backend/app/core": {
+   "description": "config.py loads settings from the environment and ../.env (secret key, DATABASE_URL, SMTP, first superuser) and rejects default secrets outside development; db.py creates the SQLAlchemy engine and init_db; security.py hashes passwords (Argon2 with bcrypt fallback) and signs JWTs.",
+   "purpose": "Shared foundations every route depends on.",
+   "hash": "bb0f31327a6a"
+  },
+  "dir:backend/tests": {
+   "description": "Pytest suite that runs against a real PostgreSQL: conftest.py seeds the superuser, provides a TestClient and auth headers, and deletes all items and users at the end.",
+   "purpose": "Covers the API routes and CRUD helpers; CI fails below 90% coverage.",
+   "hash": "bd7a688a33d3"
+  },
+  "dir:backend/tests/api": {
+   "description": "API tests, grouped one module per router under routes/.",
+   "purpose": "Exercises the HTTP endpoints through FastAPI's TestClient.",
+   "hash": "b2ecf5da1482"
+  },
+  "dir:backend/tests/api/routes": {
+   "description": "test_login.py, test_users.py, test_items.py and test_private.py, one per router, including token login, password reset and the bcrypt-to-Argon2 hash upgrade on login.",
+   "purpose": "Checks each endpoint's success and permission cases.",
+   "hash": "e9e7d2f4451c"
+  },
+  "dir:backend/tests/crud": {
+   "description": "test_user.py: tests for the user helpers in crud.py, called directly against the database.",
+   "purpose": "Checks user creation and authentication below the HTTP layer.",
+   "hash": "8492271cd156"
+  },
+  "dir:backend/tests/utils": {
+   "description": "Test helpers that create random users and items and fetch auth headers (get_superuser_token_headers, authentication_token_from_email).",
+   "purpose": "Shared setup for the backend tests.",
+   "hash": "11d456431a4b"
+  },
+  "dir:frontend/src": {
+   "description": "App source: main.tsx configures the API client (base URL from VITE_API_URL, token from localStorage) and sends the user back to /login on any 401 or 403; routes/ holds the pages, components/ the UI, client/ the generated API SDK and hooks/ shared logic.",
+   "purpose": "All code that ends up in the browser bundle.",
+   "hash": "27cfaa86b9ed"
+  },
+  "dir:frontend/src/client": {
+   "description": "Generated by @hey-api/openapi-ts from the backend's openapi.json: sdk.gen.ts exposes LoginService, UsersService, ItemsService, UtilsService and PrivateService with one method per endpoint, and types.gen.ts holds the request and response types.",
+   "purpose": "The frontend's only way to call the backend; regenerate it with scripts/generate-client.sh instead of editing it.",
+   "name": "Generated API client",
+   "hash": "a4058283f7e3"
+  },
+  "dir:frontend/src/client/client": {
+   "description": "Generated Axios wrapper that creates the axios instance, builds request URLs and attaches the auth token.",
+   "purpose": "Transport layer under the generated services.",
+   "hash": "8fcd0801c078"
+  },
+  "dir:frontend/src/client/core": {
+   "description": "Generated helpers for auth headers, body, path and query serialization, and server-sent events.",
+   "purpose": "Low-level plumbing shared by the generated client.",
+   "hash": "bfe97fdabcc8"
+  },
+  "dir:frontend/src/components": {
+   "description": "UI building blocks grouped by feature: Admin (user management dialogs), Items (item dialogs and table columns), UserSettings, Sidebar, Common (layouts, data table, error pages), Pending (loading skeletons) and ui (shadcn/Radix primitives).",
+   "purpose": "Everything the pages in routes/ are assembled from.",
+   "hash": "903a5095874b"
+  },
+  "dir:frontend/src/components/Admin": {
+   "description": "Dialogs for superusers to add, edit and delete users (UsersService.createUser, updateUser, deleteUser), plus the column setup and row menu for the admin user table.",
+   "purpose": "The UI behind the Admin page.",
+   "hash": "0373f5bc45ee"
+  },
+  "dir:frontend/src/components/Common": {
+   "description": "Shared layout pieces: AuthLayout for the login and signup screens, DataTable, NotFound and error pages, Footer, Logo and the light/dark switch.",
+   "purpose": "Reused across many pages.",
+   "hash": "348506a7b3eb"
+  },
+  "dir:frontend/src/components/Items": {
+   "description": "AddItem, EditItem and DeleteItem dialogs that call ItemsService and then refresh the `items` query, plus the item table columns and row action menu.",
+   "purpose": "The UI behind the Items page.",
+   "hash": "dd5acc0c8c45"
+  },
+  "dir:frontend/src/components/Pending": {
+   "description": "Skeleton placeholders shown while the items and users tables are loading.",
+   "purpose": "Loading states for the two data tables.",
+   "hash": "64bb6709485f"
+  },
+  "dir:frontend/src/components/Sidebar": {
+   "description": "App sidebar with Dashboard and Items links, an Admin link that appears only for superusers, and the current-user menu.",
+   "purpose": "Main navigation for signed-in pages.",
+   "hash": "a48bf878ea01"
+  },
+  "dir:frontend/src/components/UserSettings": {
+   "description": "Settings panels for editing your name and email (updateUserMe), changing your password (updatePasswordMe) and deleting your own account (deleteUserMe).",
+   "purpose": "The UI behind the Settings page.",
+   "hash": "c90fcd0d354a"
+  },
+  "dir:frontend/src/components/ui": {
+   "description": "24 shadcn-style primitives built on Radix: button, dialog, form, input, table, sidebar, tabs, toast and more, including PasswordInput and LoadingButton.",
+   "purpose": "The design-system layer every feature component uses.",
+   "hash": "49d95ade193a"
+  },
+  "dir:frontend/src/hooks": {
+   "description": "useAuth (current-user query, login, signup and logout, with the token kept in localStorage), useCustomToast, useCopyToClipboard and useIsMobile.",
+   "purpose": "Shared logic, mainly the client side of authentication.",
+   "hash": "12cd72885642"
+  },
+  "dir:frontend/src/routes": {
+   "description": "TanStack Router file routes: public pages login, signup, recover-password and reset-password, and _layout.tsx, which guards every other page and redirects to /login when there is no token.",
+   "purpose": "Defines the app's URLs and which ones need a login.",
+   "hash": "88e64685ad04"
+  },
+  "dir:frontend/src/routes/_layout": {
+   "description": "Signed-in pages: the dashboard (index), the items table, user settings, and admin, which loads the full user list for superusers.",
+   "purpose": "The pages a user sees after logging in.",
+   "hash": "4a14b3c604c3"
+  },
+  "dir:frontend/tests": {
+   "description": "Playwright end-to-end tests: auth.setup.ts logs in as the first superuser and saves the session, then specs cover login, sign-up, password reset, items, admin and user settings.",
+   "purpose": "Checks the whole stack through a real browser; CI runs them inside Docker Compose.",
+   "hash": "ea8a2c22183a"
+  },
+  "dir:frontend/tests/utils": {
+   "description": "Test helpers: mailpit.ts polls Mailpit's search API for emails, privateApi.ts creates users through the dev-only /private/users endpoint, plus random-data and login helpers.",
+   "purpose": "Lets end-to-end tests set up users and read emails.",
+   "hash": "40232ce4d5a7"
+  },
+  "dir:packages/react-email/emails": {
+   "description": "The three email templates, new_account, reset_password and test_email, whose default props are Jinja placeholders such as {{ project_name }} so the exported HTML can be filled in by the backend.",
+   "purpose": "Source for backend/app/email-templates.",
+   "hash": "f60b27da0356"
+  },
+  "dir:packages/react-email/ui": {
+   "description": "Shared email building blocks: Layout, Heading, Button, Callout and Link.",
+   "purpose": "Keeps the three emails visually consistent.",
+   "hash": "51fcc37bc734"
+  },
+  "res:sentry": {
+   "description": "Sentry error and performance tracking, initialised in backend/app/main.py only when SENTRY_DSN is set and FASTAPI_ENV is not development. The frontend does not report to Sentry.",
+   "purpose": "Collects production exceptions and traces from the FastAPI backend.",
+   "hash": "83904105aa06"
+  },
+  "res:jwt": {
+   "description": "PyJWT tokens signed with HS256 and the backend's SECRET_KEY: 8-day access tokens (core/security.py) and 48-hour password-reset tokens (utils.py).",
+   "purpose": "Stateless login: the backend keeps no session table and just checks the token signature on every request.",
+   "hash": "dc790e8d129c"
+  },
+  "res:fastapi_security": {
+   "description": "FastAPI's built-in OAuth2 password-flow helpers: OAuth2PasswordBearer reads the bearer token from each request (api/deps.py), and OAuth2PasswordRequestForm parses the email/password login form (routes/login.py).",
+   "purpose": "Gives every protected endpoint its token and the login endpoint its form; there is no external identity provider.",
+   "hash": "d7a5d1f40f6c"
+  },
+  "infra:ci": {
+   "description": "15 GitHub Actions workflows: backend tests with a 90% coverage gate (test-backend.yml), Playwright end-to-end tests inside Docker Compose (playwright.yml), pre-commit and zizmor checks, release preparation, and two deploy paths: Docker Compose on your own server (deploy-docker-compose.yml) and FastAPI Cloud (deploy.yml).",
+   "purpose": "Runs migrations through scripts/prestart.sh before tests and deploys, and keeps the repo checked, released and shipped.",
+   "hash": "0db8bfceefe2"
+  },
+  "actor:users": {
+   "description": "People using the web dashboard in a browser. Regular users manage their own items and profile; superusers also manage every account from the Admin page.",
+   "purpose": "Starting point of every request; they reach both the page and the API through Traefik.",
+   "hash": "60d37167b6be"
+  }
+ },
+ "links": {
+  "actor:users->res:traefik": {
+   "description": "Browsers send every request, for the page and the API alike, to Traefik on port 80, which picks a container by host name."
+  },
+  "actor:users->unit:js:frontend": {
+   "description": "People use the React dashboard in their browser; the page itself is downloaded from the backend through Traefik."
+  },
+  "res:traefik->svc:adminer": {
+   "description": "Requests for adminer.<domain> are forwarded to Adminer on port 8080, based on its Docker labels."
+  },
+  "res:traefik->unit:python:backend": {
+   "description": "Requests for the main domain go to the backend on port 8000: /api/v1/* reaches the API and every other path gets the built frontend."
+  },
+  "svc:adminer->res:postgres": {
+   "description": "Compose starts Adminer after `db`; an operator logs into PostgreSQL through it to browse and edit tables."
+  },
+  "unit:js:frontend->svc:mailpit": {
+   "description": "Only in tests: the Playwright container waits for Mailpit and reads password-reset emails from its API."
+  },
+  "unit:js:frontend->unit:python:backend": {
+   "description": "Every screen calls /api/v1 through the generated Axios SDK with the access token as a bearer header: login, /users/me, item CRUD and admin user management."
+  },
+  "unit:python:backend->res:fastapi_security": {
+   "description": "OAuth2PasswordBearer pulls the bearer token out of each protected request, and the login route reads the email/password form."
+  },
+  "unit:python:backend->res:jwt": {
+   "description": "On login the backend signs an HS256 access token; on every protected request get_current_user decodes and checks it. Password-reset links carry a separate signed token."
+  },
+  "unit:python:backend->res:postgres": {
+   "description": "Each request opens a SQLModel session to read and write the user and item tables; at startup prestart.sh runs the Alembic migrations and seeds the first superuser."
+  },
+  "unit:python:backend->res:sentry": {
+   "description": "When SENTRY_DSN is set outside development, uncaught exceptions and performance traces are sent to Sentry."
+  },
+  "unit:python:backend->svc:mailpit": {
+   "description": "In local development the backend sends password-recovery, new-account and test emails over SMTP to Mailpit on port 1025."
+  }
+ },
+ "add_edges": [
+  {
+   "source": "file:backend/app/utils.py",
+   "target": "svc:mailpit",
+   "kind": "calls",
+   "description": "send_email delivers mail over SMTP to SMTP_HOST, which compose.override.yml sets to the mailpit service in development.",
+   "evidence": [
+    {
+     "file": "backend/app/utils.py",
+     "line": 56
+    },
+    {
+     "file": "compose.override.yml",
+     "line": 67
+    }
+   ]
+  }
+ ],
+ "tours": [
+  {
+   "id": "login",
+   "title": "What happens when you log in",
+   "intro": "Follow an email and password from the login form to a signed token and back.",
+   "stops": [
+    {
+     "node": "file:frontend/src/routes/login.tsx",
+     "title": "",
+     "text": "The login page checks the email format and an 8-character minimum password with zod, then hands the form to loginMutation from useAuth.",
+     "evidence": [
+      {
+       "file": "frontend/src/routes/login.tsx",
+       "line": 25
+      },
+      {
+       "file": "frontend/src/routes/login.tsx",
+       "line": 65
+      }
+     ]
+    },
+    {
+     "node": "file:frontend/src/hooks/useAuth.ts",
+     "title": "",
+     "text": "useAuth posts the form to /api/v1/login/access-token through the generated LoginService and saves the returned access_token in localStorage.",
+     "evidence": [
+      {
+       "file": "frontend/src/hooks/useAuth.ts",
+       "line": 42
+      },
+      {
+       "file": "frontend/src/hooks/useAuth.ts",
+       "line": 45
+      }
+     ]
+    },
+    {
+     "node": "file:backend/app/api/routes/login.py",
+     "title": "",
+     "text": "The backend route reads the OAuth2 password form and calls crud.authenticate. Wrong credentials get a 400 'Incorrect email or password', inactive accounts a 400 'Inactive user'.",
+     "evidence": [
+      {
+       "file": "backend/app/api/routes/login.py",
+       "line": 23
+      },
+      {
+       "file": "backend/app/api/routes/login.py",
+       "line": 30
+      }
+     ]
+    },
+    {
+     "node": "file:backend/app/crud.py",
+     "title": "",
+     "text": "authenticate looks the user up by email and verifies the password hash. If the email is unknown it still checks a dummy hash, so the response time does not reveal which emails exist.",
+     "evidence": [
+      {
+       "file": "backend/app/crud.py",
+       "line": 45
+      },
+      {
+       "file": "backend/app/crud.py",
+       "line": 50
+      }
+     ]
+    },
+    {
+     "node": "table:postgres:user",
+     "title": "",
+     "text": "The lookup reads the `user` table, where email is unique and indexed and only a hashed_password is stored, never the password itself.",
+     "evidence": [
+      {
+       "file": "backend/app/models.py",
+       "line": 14
+      },
+      {
+       "file": "backend/app/models.py",
+       "line": 53
+      }
+     ]
+    },
+    {
+     "node": "file:backend/app/core/security.py",
+     "title": "",
+     "text": "create_access_token signs the user's id and an expiry with SECRET_KEY using HS256. By default the token is valid for 8 days.",
+     "evidence": [
+      {
+       "file": "backend/app/core/security.py",
+       "line": 22
+      },
+      {
+       "file": "backend/app/core/config.py",
+       "line": 25
+      }
+     ]
+    },
+    {
+     "node": "file:backend/app/api/deps.py",
+     "title": "",
+     "text": "On every later request get_current_user decodes the bearer token, loads that user from the database and rejects inactive users.",
+     "evidence": [
+      {
+       "file": "backend/app/api/deps.py",
+       "line": 30
+      },
+      {
+       "file": "backend/app/api/deps.py",
+       "line": 41
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "create-item",
+   "title": "How an item is created",
+   "intro": "From the Add Item dialog to a new row owned by the signed-in user.",
+   "stops": [
+    {
+     "node": "file:frontend/src/components/Items/AddItem.tsx",
+     "title": "",
+     "text": "The Add Item dialog requires a title, allows an optional description, and calls ItemsService.createItem when submitted.",
+     "evidence": [
+      {
+       "file": "frontend/src/components/Items/AddItem.tsx",
+       "line": 33
+      },
+      {
+       "file": "frontend/src/components/Items/AddItem.tsx",
+       "line": 56
+      }
+     ]
+    },
+    {
+     "node": "file:frontend/src/client/sdk.gen.ts",
+     "title": "",
+     "text": "The generated SDK sends POST /api/v1/items/ through Axios. main.tsx configured the client to attach the stored access token to every call.",
+     "evidence": [
+      {
+       "file": "frontend/src/client/sdk.gen.ts",
+       "line": 311
+      },
+      {
+       "file": "frontend/src/main.tsx",
+       "line": 19
+      }
+     ]
+    },
+    {
+     "node": "file:backend/app/api/deps.py",
+     "title": "",
+     "text": "Before the handler runs, the CurrentUser dependency turns the token into a User; an invalid token stops the request with 403.",
+     "evidence": [
+      {
+       "file": "backend/app/api/deps.py",
+       "line": 30
+      },
+      {
+       "file": "backend/app/api/deps.py",
+       "line": 49
+      }
+     ]
+    },
+    {
+     "node": "file:backend/app/api/routes/items.py",
+     "title": "",
+     "text": "create_item copies the request body into an Item and sets owner_id to the current user, so nobody can create items for someone else.",
+     "evidence": [
+      {
+       "file": "backend/app/api/routes/items.py",
+       "line": 61
+      },
+      {
+       "file": "backend/app/api/routes/items.py",
+       "line": 68
+      }
+     ]
+    },
+    {
+     "node": "table:postgres:item",
+     "title": "",
+     "text": "The row lands in the `item` table: a UUID id, title, description, created_at, and owner_id pointing at user.id with ON DELETE CASCADE.",
+     "evidence": [
+      {
+       "file": "backend/app/models.py",
+       "line": 87
+      },
+      {
+       "file": "backend/app/models.py",
+       "line": 90
+      }
+     ]
+    },
+    {
+     "node": "file:frontend/src/routes/_layout/items.tsx",
+     "title": "",
+     "text": "The dialog invalidates the `items` query, so the Items page fetches the list again. The backend returns only your own items unless you are a superuser.",
+     "evidence": [
+      {
+       "file": "frontend/src/components/Items/AddItem.tsx",
+       "line": 64
+      },
+      {
+       "file": "frontend/src/routes/_layout/items.tsx",
+       "line": 15
+      },
+      {
+       "file": "backend/app/api/routes/items.py",
+       "line": 32
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "request-path",
+   "title": "From a browser to PostgreSQL",
+   "intro": "The path every API request takes through the running containers.",
+   "route": [
+    "actor:users",
+    "res:postgres"
+   ]
+  }
+ ],
+ "quests": [
+  {
+   "id": "password-hashing",
+   "question": "Where are passwords hashed?",
+   "answer": [
+    "file:backend/app/core/security.py",
+    "dir:backend/app/core"
+   ],
+   "hint": "crud.py and the users routes both import get_password_hash from the same place.",
+   "explain": "core/security.py builds a pwdlib PasswordHash with Argon2 first and bcrypt as a fallback. When someone logs in with an old bcrypt hash, verify_and_update returns a new Argon2 hash and crud.authenticate saves it.",
+   "evidence": [
+    {
+     "file": "backend/app/core/security.py",
+     "line": 11
+    },
+    {
+     "file": "backend/app/crud.py",
+     "line": 55
+    }
+   ]
+  },
+  {
+   "id": "access-token",
+   "question": "Which file issues the access token?",
+   "answer": [
+    "file:backend/app/core/security.py",
+    "file:backend/app/api/routes/login.py"
+   ],
+   "hint": "Start at the POST /login/access-token handler and follow the function it returns.",
+   "explain": "routes/login.py checks the credentials and calls security.create_access_token, which signs the user's id with SECRET_KEY (HS256) and an expiry of ACCESS_TOKEN_EXPIRE_MINUTES.",
+   "evidence": [
+    {
+     "file": "backend/app/api/routes/login.py",
+     "line": 39
+    },
+    {
+     "file": "backend/app/core/security.py",
+     "line": 25
+    }
+   ]
+  },
+  {
+   "id": "first-superuser",
+   "question": "Where is the first superuser created?",
+   "answer": [
+    "file:backend/app/core/db.py",
+    "file:backend/app/initial_data.py"
+   ],
+   "hint": "Something runs right after the migrations, before the backend starts serving.",
+   "explain": "scripts/prestart.sh runs the migrations and then app/initial_data.py, which calls init_db. init_db creates the FIRST_SUPERUSER account from settings, with is_superuser set, if no user with that email exists yet.",
+   "evidence": [
+    {
+     "file": "backend/scripts/prestart.sh",
+     "line": 10
+    },
+    {
+     "file": "backend/app/initial_data.py",
+     "line": 13
+    },
+    {
+     "file": "backend/app/core/db.py",
+     "line": 27
+    }
+   ]
+  },
+  {
+   "id": "item-owner",
+   "question": "Which table stores items, and how does it know who owns them?",
+   "answer": [
+    "table:postgres:item"
+   ],
+   "hint": "Look for the SQLModel class with table=True that has a foreign key.",
+   "explain": "Items live in the `item` table. owner_id is a foreign key to user.id with ON DELETE CASCADE, and items.py filters every non-superuser query by owner_id.",
+   "evidence": [
+    {
+     "file": "backend/app/models.py",
+     "line": 90
+    },
+    {
+     "file": "backend/app/api/routes/items.py",
+     "line": 32
+    }
+   ]
+  },
+  {
+   "id": "admin-check",
+   "question": "Where does the backend decide who counts as an admin?",
+   "answer": [
+    "file:backend/app/api/deps.py"
+   ],
+   "hint": "All admin-only routes share one dependency.",
+   "explain": "get_current_active_superuser in api/deps.py returns 403 unless user.is_superuser is true. Routes such as GET /users/ list it in their dependencies; the frontend's own checks (the Admin link, the admin page guard) only shape navigation.",
+   "evidence": [
+    {
+     "file": "backend/app/api/deps.py",
+     "line": 52
+    },
+    {
+     "file": "backend/app/api/routes/users.py",
+     "line": 34
+    }
+   ]
+  }
+ ]
+}

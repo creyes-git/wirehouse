@@ -98,7 +98,7 @@ folder:
 
 | Agent | Skill folder |
 |-------|--------------|
-| Codex and other agents that read the shared folder | `~/.agents/skills` (always written) |
+| Codex and other agents that read the shared folder | `~/.agents/skills` (written unless you pick `--agent` or `--dir`) |
 | Claude Code | `~/.claude/skills` |
 | Cursor | `~/.cursor/skills` |
 | OpenCode | `~/.config/opencode/skills` |
