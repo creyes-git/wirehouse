@@ -139,3 +139,50 @@ def test_schema_diagram_and_share_card(browser, html):
         page.click("#exportMenu [data-x=png]")
     assert dl.value.suggested_filename == "shop-warehouse.png" or dl.value.suggested_filename.endswith("-warehouse.png")
     assert errors == []
+
+
+def test_a_floor_plan_link_opens_on_a_fresh_page(browser, html):
+    page, errors = open_view(browser, html, "#nowelcome&plan=1")
+    assert js(page, "!document.querySelector('#plan').hasAttribute('hidden')")
+    assert js(page, "document.querySelectorAll('#plan .blk').length") > 0
+    assert errors == []
+    page.close()
+
+
+def test_traces_and_routes_claim_only_recorded_reach(browser, html):
+    page, errors = open_view(browser, html)
+    # upstream: the web block leads to Stripe as a whole, which says nothing about each file inside it
+    marks = js(page, "__wirehouse.startTrace('up', 'res:stripe'); Object.keys(__wirehouse.trace().marks)")
+    assert "unit:js:web" in marks and not [m for m in marks if m.startswith("file:web/")]
+    # a block and a file inside it need no connection, so there is no route between them
+    assert js(page, "__wirehouse.startRoute('unit:python:api', 'file:api/db.py')") is False
+    page.evaluate("location.hash = '#route=unit%3Apython%3Aapi~file%3Aapi%2Fdb.py'")
+    page.wait_for_function("__wirehouse.trace() === null")
+    assert errors == []
+    page.close()
+
+
+def test_the_schema_diagram_is_modal(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    js(page, "__wirehouse.openErd('res:postgres')")
+    page.focus("#erd")
+    for key in ("q", "p", "t"):
+        page.keyboard.press(key)
+    assert js(page, "__wirehouse.state().room") == "unit:python:api"
+    assert "plan=1" not in js(page, "location.hash")
+    assert errors == []
+    page.close()
+
+
+def test_corrupt_saved_progress_starts_fresh(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "__wirehouse.focusNode('file:api/routers/orders.py')")
+    page.wait_for_function("Object.keys(localStorage).some((k) => k.startsWith('wirehouse:progress:'))")
+    js(page, "Object.keys(localStorage).filter((k) => k.startsWith('wirehouse:progress:')).forEach((k) => localStorage.setItem(k, '{\"found\":5,\"seen\":null}'))")
+    page.evaluate("location.hash = '#nowelcome'")   # reopen without re-inspecting the answer
+    page.reload()
+    page.wait_for_function("window.__wirehouse && __wirehouse.state().items > 0")
+    assert js(page, "__wirehouse.progress().found") == []
+    assert errors == []
+    page.close()

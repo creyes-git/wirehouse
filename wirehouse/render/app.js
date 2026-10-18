@@ -147,7 +147,6 @@
   const css = (hex) => '#' + hex.toString(16).padStart(6, '0');
 
   // ── layout ───────────────────────────────────────────────────────────────
-  const UNIT_KINDS = new Set(['service', 'worker', 'function', 'library', 'tests']);
   const SHAPE = {
     user: 'people', frontend: 'kiosk', mobile: 'kiosk', desktop: 'kiosk', gateway: 'arch', auth: 'gate',
     service: 'container', worker: 'machine', function: 'container', library: 'stack', tests: 'container',
@@ -381,8 +380,11 @@
   }
 
   // text → canvas textures
+  // Cached by text so walking back into a room is instant, but only for the last few rooms:
+  // each texture can be a 1400px canvas on the GPU, and a big repo has many rooms.
   const TEX = new Map();
-  let fontReady = false;
+  const TEX_ROOMS = 3;
+  let texRoom = 0;
   function textCanvas(lines, o) {
     o = o || {};
     const big = o.big || 46;
@@ -418,12 +420,12 @@
   }
   function textTexture(lines, o) {
     const key = JSON.stringify([lines, o, themeId]);
-    if (TEX.has(key)) return TEX.get(key);
+    if (TEX.has(key)) { const hit = TEX.get(key); hit.userData.used = texRoom; return hit; }
     const c = textCanvas(lines, o);
     const t = new THREE.CanvasTexture(c);
     t.encoding = THREE.sRGBEncoding;
     t.anisotropy = 4;
-    t.userData = { aspect: c.width / c.height };
+    t.userData = { aspect: c.width / c.height, used: texRoom };
     TEX.set(key, t);
     return t;
   }
@@ -771,12 +773,12 @@
   }
 
   function linkKind(kinds) {
-    const order = ['auth', 'data', 'publishes', 'calls', 'provisions', 'uses', 'imports', 'depends_on'];
+    const order = ['auth', 'data', 'publishes', 'calls', 'provisions', 'uses', 'imports', 'references', 'depends_on'];
     for (const k of order) if (kinds.has(k)) return k;
     return [...kinds][0] || 'uses';
   }
 
-  function makePipe(L, A, B, info, lift) {
+  function makePipe(A, B, info, lift) {
     const curve = pipeCurve(A, B, lift);
     const k = linkKind(info.kinds);
     const radius = clamp(0.05 + Math.log2(info.count + 1) * 0.025, 0.05, 0.2) * (k === 'imports' ? 0.75 : 1);
@@ -857,8 +859,14 @@
   let worker = null;
   const W8 = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), vy: 0, yaw: 0, phase: 0, moving: 0 };
 
+  function disposeTree(root) {
+    root.traverse((o) => {
+      if (o.geometry && !o.isSprite) o.geometry.dispose();   // sprites share one geometry inside three.js
+      if (o.material) o.material.dispose();
+    });
+  }
   function buildWorker() {
-    if (worker) scene.remove(worker.root);
+    if (worker) { scene.remove(worker.root); disposeTree(worker.root); }
     const root = new THREE.Group();
     const skin = new THREE.MeshStandardMaterial({ color: 0xd9a77e, roughness: 0.8 });
     const pants = new THREE.MeshStandardMaterial({ color: 0x2c3e66, roughness: 0.85 });
@@ -936,11 +944,15 @@
   let selBox = null, hovBox = null;
 
   function clearWorld() {
-    const shared = new Set(MATS.values());
+    const shared = new Set([...MATS.values(), ...lineMats.values()]);
     world.traverse((o) => {
-      // Textures are cached by text, so only the per-object materials go.
-      if ((o.isSprite || o.isMesh) && o.material && !shared.has(o.material)) o.material.dispose();
+      // Textures are cached by text (see TEX), so only the per-object materials go here.
+      if ((o.isSprite || o.isMesh || o.isLine) && o.material && !shared.has(o.material)) o.material.dispose();
+      if (o.isLine && o.geometry) o.geometry.dispose();          // grid and selection boxes
+      if (o.isLight && o.dispose) o.dispose();                   // frees the 2048px shadow map
     });
+    texRoom++;
+    TEX.forEach((t, k) => { if (t.userData.used < texRoom - TEX_ROOMS) { t.dispose(); TEX.delete(k); } });
     GEOS.forEach((g) => g.dispose());
     GEOS = [];
     markObjs.forEach((o) => o.geometry && o.geometry.dispose());   // trace rings own their geometry
@@ -973,19 +985,18 @@
       const pk = [Lk.a, Lk.b].sort().join('|');
       const n = pairCount.get(pk) || 0;
       pairCount.set(pk, n + 1);
-      makePipe(room, A, B, Lk, n * 1.1);
+      makePipe(A, B, Lk, n * 1.1);
     });
     room.ports = placePorts(room, ports.sort((a, b) => b.count - a.count).slice(0, 40));
     room.ports.forEach((p) => {
       const P = makePortMesh(p);
-      p.anchor = P;
       p.inners.forEach((info) => {
         const it = itemsById.get(info.id);
         const B = anchorOf(it);
         if (!B) return;
         const A = p.dir === 'out' ? B : P;
         const Bv = p.dir === 'out' ? P : B;
-        makePipe(room, A, Bv, Object.assign({ a: p.dir === 'out' ? info.id : p.rep, b: p.dir === 'out' ? p.rep : info.id, port: p }, info), 0.6);
+        makePipe(A, Bv, Object.assign({ a: p.dir === 'out' ? info.id : p.rep, b: p.dir === 'out' ? p.rep : info.id, port: p }, info), 0.6);
       });
     });
     buildParticles();
@@ -1017,7 +1028,7 @@
   }
   function setBox(which, id, color) {
     const old = which === 'sel' ? selBox : hovBox;
-    if (old) { world.remove(old); old.geometry.dispose(); }
+    if (old) { world.remove(old); old.geometry.dispose(); old.material.dispose(); }
     let b = null;
     const bounds = id ? boundsOf(id) : null;
     if (bounds) {
@@ -1150,10 +1161,16 @@
     if (typing(e) || e.altKey || ((e.ctrlKey || e.metaKey) && !findKey)) return;
     if (!$('#welcome').hidden) {
       if (k === 'escape' || (k === 'enter' && !onControl(e))) { e.preventDefault(); closeWelcome(); }
-      else if (k === 'tab') { e.preventDefault(); $('#welcomeGo').focus(); }   // keep focus inside the card
+      else if (k === 'tab') {   // keep focus inside the card, moving through its buttons
+        e.preventDefault();
+        const f = [...$('#welcome').querySelectorAll('button, a[href]')].filter((b) => !b.hidden);
+        const i = f.indexOf(document.activeElement);
+        (f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length] || $('#welcomeGo')).focus();
+      }
       return;
     }
     if (k === 'escape') { if (escapeOnce()) e.preventDefault(); return; }
+    if (!$('#erd').hidden) return;   // the schema diagram is modal: nothing behind it moves
     const ctl = onControl(e);
     if (ctl && [' ', 'enter', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'backspace', 'home', 'end'].includes(k)) return;
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'].includes(k)) {
@@ -1165,7 +1182,7 @@
     if (k === ' ') { e.preventDefault(); if (keySpace()) return; if (W8.pos.y <= 0.001) W8.vy = 6.5; return; }
     if (k === '/' || findKey) { e.preventDefault(); $('#search').focus(); $('#search').select(); return; }
     if (k === 'p') { setPlan(!planOn); return; }
-    if (k === 'e' || k === 'enter') { interact(); return; }
+    if (k === 'e' || k === 'enter') { if (!planOn) interact(); return; }   // the worker is hidden on the floor plan
     if (k === 'q' || k === 'backspace') { e.preventDefault(); exitRoom(); return; }
     if (k === 't') { setTheme(themeId === 'night' ? 'day' : 'night'); return; }
     if (k === 'h' || k === '?') { openWelcome(); return; }
@@ -1375,10 +1392,12 @@
     cam.target.set(W8.pos.x, 1.55, W8.pos.z);
     if (worker) worker.root.rotation.y = W8.yaw;
   }
-  let pendingRoom = null;   // a room change asked for during the fade runs right after it
+  // Room changes asked for during the fade run right after it, in order: each may carry a `then`
+  // (applyHash unfreezes the address bar in one), so none may be dropped. All but the last run instantly.
+  const pendingRooms = [];
   function goRoom(R, opts) {
     opts = opts || {};
-    if (transitioning) { pendingRoom = [R, opts]; return; }
+    if (transitioning) { pendingRooms.push([R, opts]); return; }
     const doIt = () => {
       hovered = null;
       if (selected && selected.type === 'link') { selected = null; closePanel(true); }
@@ -1397,7 +1416,8 @@
         $('#fade').classList.remove('on');
         setTimeout(() => {
           transitioning = false;
-          if (pendingRoom) { const [r, o] = pendingRoom; pendingRoom = null; goRoom(r, o); }
+          while (pendingRooms.length > 1) { const [r, o] = pendingRooms.shift(); goRoom(r, Object.assign({}, o, { instant: true })); }
+          if (pendingRooms.length) { const [r, o] = pendingRooms.shift(); goRoom(r, o); }
         }, 250);
       }, 260);
     } else doIt();
@@ -1581,8 +1601,8 @@
   }
 
   function locRow(l) {
-    const where = l.file + (l.line ? ':' + l.line : '');
-    return `<li><span class="main"><button class="link" data-copy="${esc(where)}" title="Copy path">${esc(where)}</button>${l.label ? `<span class="sub">${esc(l.label)}</span>` : ''}</span>${srcLinks(l.file, l.line)}</li>`;
+    const spot = l.file + (l.line ? ':' + l.line : '');
+    return `<li><span class="main"><button class="link" data-copy="${esc(spot)}" title="Copy path">${esc(spot)}</button>${l.label ? `<span class="sub">${esc(l.label)}</span>` : ''}</span>${srcLinks(l.file, l.line)}</li>`;
   }
   function listWithMore(rows, show, id) {
     if (rows.length <= show) return rows.join('');
@@ -1667,7 +1687,7 @@
     body.innerHTML = h;
     body.scrollTop = 0;
     panel.hidden = false;
-    bindPanel(n, opts);
+    bindPanel(n);
     $('#announce').textContent = `${n.name}, ${kindTxt}${isOutside ? ', outside this room' : ''}`;
     SELECT_HOOKS.forEach((f) => f(id));
     syncHash();
@@ -1697,7 +1717,7 @@
     body.innerHTML = h;
     body.scrollTop = 0;
     panel.hidden = false;
-    bindPanel(null, {});
+    bindPanel(null);
   }
 
   const PANEL_ACTS = {};   // later sections: data-act name -> (node) => void
@@ -1789,7 +1809,9 @@
         const id = B[i];
         if (dist.get(id) !== d) continue;
         if (opts.stop && id !== start && opts.stop(id)) { found = id; break; }
-        for (const c of kidsOf(id)) relax(c, d, id, null);   // a whole block reaches what is inside it
+        // A whole block reaches what is inside it. Upstream, only the start's own contents count:
+        // reaching a block as the source of one edge says nothing about the other files in it.
+        if (down || chain(id).includes(start)) for (const c of kidsOf(id)) relax(c, d, id, null);
         if (opts.loose) { const t = topOf(id); if (t !== id) relax(t, d, id, null); }
         if (down) (OUT_E.get(id) || []).forEach((e) => step(id, d, e, e.target));
         else {
@@ -1844,7 +1866,12 @@
   }
   function endPick(quiet) { if (!pick) return; pick = null; if (!quiet) { refreshMarks(); drawBar(); } }
   function startRoute(a, b) {
-    if (!N.has(a) || !N.has(b) || a === b) return;
+    if (!N.has(a) || !N.has(b) || a === b) return false;
+    if (chain(a).includes(b) || chain(b).includes(a)) {
+      // one holds the other: getting there takes no recorded connection, so there is no route to show
+      toast(`${N.get(a).name} and ${N.get(b).name} are one inside the other: pick a place outside it`, 3200);
+      return false;
+    }
     endPick(true); stopPlayer(true);
     const reaches = (id) => chain(id).includes(b);
     let res = walk(a, 'down', { stop: reaches }), loose = false;
@@ -1853,15 +1880,20 @@
     const used = new Set(path ? path.filter((p) => p.e).map((p) => p.e.i) : []);
     trace = { mode: 'route', a, b, path, loose, used, stops: path ? routeStops(path, a, b) : [] };
     refreshMarks(); drawBar(); syncHash();
+    return true;
   }
   function routeStops(path, a, b) {
     const R0 = lcaRoom(a, b), rep = projector(R0), stops = [];
     path.forEach((p) => {
       const r = rep(p.id);
+      p.stop = Math.max(0, stops.length - (r ? 0 : 1));   // which bar stop this step belongs to, for the floor badges
       if (!r) return;
       const last = stops[stops.length - 1];
-      if (!last || last.id !== r) stops.push({ id: r, room: R0, edge: p.e, inside: [] });
-      else if (p.id !== r && p.e) last.inside.push(p.id);
+      if (!last || last.id !== r) { p.stop = stops.length; stops.push({ id: r, room: R0, edge: p.e, inside: [] }); }
+      else {
+        p.stop = stops.length - 1;
+        if (p.id !== r && p.e) last.inside.push(p.id);
+      }
     });
     return stops;
   }
@@ -1895,11 +1927,12 @@
     } else if (pick) byHop(pick.res, TC.route, 'From');
     else if (trace && trace.mode === 'route') {
       if (!trace.path) return;
-      const order = [];
-      trace.path.forEach((p) => { const r = rep(p.id); if (r && !order.includes(r)) order.push(r); });
-      const end = rep(trace.b);
-      order.forEach((r, k) => MARK.badges.set(r, { text: k === 0 ? 'Start' : r === end ? 'End' : String(k + 1), color: TC.route, strong: k === 0 || r === end }));
-      MARK.ids = new Set(order);
+      // numbered like the bar's stops, so badge 2 and stop 2 are the same place in any room
+      const order = new Map();
+      trace.path.forEach((p) => { const r = rep(p.id); if (r && !order.has(r)) order.set(r, p.stop); });
+      const end = rep(trace.b), first = order.keys().next().value;
+      order.forEach((s, r) => MARK.badges.set(r, { text: r === first ? 'Start' : r === end ? 'End' : String(s + 1), color: TC.route, strong: r === first || r === end }));
+      MARK.ids = new Set(order.keys());
       MARK.lit = (info) => { for (const i of info.ids) if (trace.used.has(i)) return true; return false; };
     } else if (trace) byHop(trace.res, TC[trace.mode], 'Start');
   }
@@ -1907,7 +1940,7 @@
   function drawMarks() {
     markObjs.forEach((o) => {
       world.remove(o);
-      if (o.geometry) o.geometry.dispose();
+      if (o.geometry && !o.isSprite) o.geometry.dispose();
       if (o.material) o.material.dispose();
     });
     markObjs = [];
@@ -2129,7 +2162,7 @@
   });
   HASH_APPLY.push((h) => {
     if (h.route && h.route.length === 2 && N.has(h.route[0]) && N.has(h.route[1])) {
-      startRoute(h.route[0], h.route[1]);
+      if (!startRoute(h.route[0], h.route[1])) { clearTrace(); return; }
       if (h.stop && trace && trace.path) startJourney(clamp((+h.stop || 1) - 1, 0, trace.stops.length - 1), false);
     } else if (h.trace && h.trace.length === 2 && N.has(h.trace[1])) startTrace(h.trace[0], h.trace[1]);
     else if (trace || pick || (player && player.kind === 'route')) clearTrace();
@@ -2141,9 +2174,16 @@
   // (quests found, tours walked, blocks inspected) lives in this browser only.
   const TOURS = D.tours || [];
   const QUESTS = D.quests || [];
-  const progKey = 'progress:' + D.project.name;
+  // Keyed by name and top-level blocks, so two projects that share a name do not share progress.
+  const progSig = [...N.values()].filter((n) => !n.parent).map((n) => n.id).sort().join('|');
+  let progHash = 0;
+  for (let i = 0; i < progSig.length; i++) progHash = (progHash * 31 + progSig.charCodeAt(i)) | 0;
+  const progKey = `progress:${D.project.name}:${(progHash >>> 0).toString(36)}`;
   const PROG = { found: [], walked: [], seen: [] };
-  try { Object.assign(PROG, JSON.parse(store.get(progKey, '{}'))); } catch (e) { /* start fresh */ }
+  try {
+    const saved = JSON.parse(store.get(progKey, '{}'));
+    for (const k of Object.keys(PROG)) if (saved && Array.isArray(saved[k])) PROG[k] = saved[k].filter((x) => typeof x === 'string');
+  } catch (e) { /* unreadable progress: start fresh */ }
   const saveProg = () => store.set(progKey, JSON.stringify(PROG));
   const clip = $('#clip'), clipBtn = $('#clipBtn');
   const hintsShown = new Set();
@@ -2377,8 +2417,11 @@
     if (first) first.focus({ preventScroll: true });
   }
   function erdHighlight(id) {
-    erdSvg.querySelectorAll('.erd-link').forEach((p) => p.classList.toggle('on', !!id && (p.dataset.from === id || p.dataset.to === id)));
-    erdSvg.querySelectorAll('.erd-link').forEach((p) => p.classList.toggle('dim', !!id && !(p.dataset.from === id || p.dataset.to === id)));
+    erdSvg.querySelectorAll('.erd-link').forEach((p) => {
+      const touches = p.dataset.from === id || p.dataset.to === id;
+      p.classList.toggle('on', !!id && touches);
+      p.classList.toggle('dim', !!id && !touches);
+    });
   }
   function fitErd() {
     const r = erdSvg.getBoundingClientRect(), ar = (r.width || 800) / Math.max(1, r.height || 500);
@@ -2439,6 +2482,10 @@
       c.width = src.width; c.height = src.height;
       c.getContext('2d').drawImage(src, 0, 0);
       return c;
+    }
+    if (!planOn && !fit) {   // no WebGL and the plan is hidden: picture the floor plan at window size
+      fit = { width: window.innerWidth, height: Math.max(1, window.innerHeight - 70) };
+      drawPlan();
     }
     const r = fit || plan.getBoundingClientRect(), k = Math.min(2, window.devicePixelRatio || 1);
     const clone = plan.cloneNode(true);
@@ -2558,12 +2605,13 @@
       y += 4;
     }
     ctx.fillStyle = muted; ctx.font = '500 15px "Barlow", "Segoe UI", sans-serif';
-    const where = room && room.R ? chain(room.R).reverse().map((id) => N.get(id).name).join(' / ') : 'main floor';
-    ctx.fillText(`Recorded connections only · ${where}${REPO && REPO.short ? ` · commit ${REPO.short}` : ''}`, 40, H - 30);
+    const place = room && room.R ? chain(room.R).reverse().map((id) => N.get(id).name).join(' / ') : 'main floor';
+    ctx.fillText(`Recorded connections only · ${place}${REPO && REPO.short ? ` · commit ${REPO.short}` : ''}`, 40, H - 30);
     return { canvas: c, name: `${slug(D.project.name)}-${slug(f.kicker + '-' + f.title)}.png` };
   }
   async function download(canvas, name) {
     const blob = await canvasToBlob(canvas);
+    if (!blob) { toast('This view could not be turned into a picture', 2600); return; }
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = name;
@@ -2641,8 +2689,8 @@
     sSel = 0;
     sOut.innerHTML = sHits.length ? sHits.map((h, i) => {
       const n = h.r.n;
-      const where = n.parent ? chain(n.parent).reverse().map((x) => N.get(x).name).join(' / ') : 'the main floor';
-      return `<li role="option" data-i="${i}" aria-selected="${i === 0}"><span class="dot" style="background:${css(kindHex(n.kind))}"></span><span class="nm">${esc(n.name)}</span><span class="where">${esc(KIND_LABEL[n.kind] || n.kind)} in ${esc(where)}</span></li>`;
+      const place = n.parent ? chain(n.parent).reverse().map((x) => N.get(x).name).join(' / ') : 'the main floor';
+      return `<li role="option" data-i="${i}" aria-selected="${i === 0}"><span class="dot" style="background:${css(kindHex(n.kind))}"></span><span class="nm">${esc(n.name)}</span><span class="where">${esc(KIND_LABEL[n.kind] || n.kind)} in ${esc(place)}</span></li>`;
     }).join('') : `<li class="empty">Nothing matches "${esc(sIn.value)}". Try a folder, file or service name.</li>`;
     sOut.hidden = false;
     sOut.querySelectorAll('li[data-i]').forEach((li) => li.addEventListener('mousedown', (e) => { e.preventDefault(); pickResult(+li.dataset.i); }));
@@ -2793,7 +2841,7 @@
       const off = Math.min(len * 0.18, 6);
       const cx = mx - (dz / len) * off, cz = mz + (dx / len) * off;
       const w = clamp(0.1 + Math.log2(L.count + 1) * 0.06, 0.1, 0.45);
-      return `<path class="lnk" data-l="${i}" d="M${A.x},${A.z} Q${cx},${cz} ${B.x},${B.z}" stroke="${css(edgeHex(k))}" stroke-width="${w}" marker-end="url(#ar-${k})" opacity="0.85"/>`;
+      return `<path class="lnk" data-l="${i}" d="M${A.x},${A.z} Q${cx},${cz} ${B.x},${B.z}" stroke="${css(edgeHex(k))}" stroke-width="${w}" marker-end="url(#ar-${esc(k)})" opacity="0.85"/>`;
     };
     const planLinks = [];
     (room.links || []).forEach((L) => { const A = pos.get(L.a), B = pos.get(L.b); if (A && B) { planLinks.push(L); P.push(linkSvg(L, A, B, planLinks.length - 1)); } });
@@ -2881,7 +2929,7 @@
     $('#prompt').hidden = true;
     $('#tooltip').hidden = true;
     keys.clear();
-    if (on) { planView = null; drawPlan(); }
+    if (on) { planView = null; if (room) drawPlan(); }   // before the first room, goRoom draws it
     else if (canvas) canvas.focus({ preventScroll: true });
     syncHash();
   }
@@ -2940,6 +2988,7 @@
       const port = room.ports.find((p) => p.rep === selected.id);
       select(selected.id, port && !itemsById.has(selected.id) ? { port } : {});
     } else if (selected) closePanel();
+    drawBar();   // its kind colours come from the theme
   }
   $('#theme').addEventListener('click', () => setTheme(themeId === 'night' ? 'day' : 'night'));
 

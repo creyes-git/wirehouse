@@ -7,6 +7,35 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **A floor plan link opens on a fresh page** (2026-10-18)
+  - Summary: Opening a link with `plan=1` in a new tab shows the floor plan instead of a blank page.
+  - Why: the plan was drawn before the first room existed, which stopped the viewer from starting.
+- **Upstream traces and routes claim only what the map records** (2026-10-18)
+  - Summary: An upstream trace no longer counts every file inside a block that reaches the target as a
+    whole, and a route between a block and something inside it is refused (it needs no connection)
+    instead of being shown as "the shortest path through recorded connections". A link to such a route
+    clears the old trace. Floor badges on a route are numbered like the bar's stops.
+  - Why: upstream reach was larger than downstream reach for the same connections, and badge 2 could
+    point at a different block than stop 2, against truth before spectacle.
+- **The viewer frees GPU memory as you walk** (2026-10-18)
+  - Summary: Day-shift shadow maps, the night grid, selection boxes and the old worker figure are freed
+    when a room or theme changes, and label textures are kept for the last three rooms only.
+  - Why: walking in and out of rooms kept adding GPU memory (each shadow map is 2048 x 2048), which can
+    end in a lost WebGL context on large repositories.
+- **Smaller viewer fixes** (2026-10-18)
+  - Summary: Room changes asked for during the fade are queued instead of dropped (which could freeze the
+    address bar); Tab moves through every button of the welcome card; nothing behind the schema diagram
+    reacts to keys; `E` does nothing on the floor plan; exporting without WebGL pictures the floor plan
+    and an empty picture is reported instead of failing; the trace bar follows the theme; corrupt saved
+    progress starts fresh, and progress is kept per project (name and blocks), not per name.
+  - Why: each one left a control dead, acted on something hidden, or threw an error.
+
+### Removed
+- **Unused viewer code** (2026-10-18)
+  - Summary: Dropped `UNIT_KINDS`, `fontReady`, the unused port anchor, `makePipe`'s unused room argument
+    and `bindPanel`'s ignored options; renamed locals that hid the `where()` helper; foreign keys get their
+    own place in the pipe colour order.
+  - Why: found in the same audit; dead code hides the real flow.
 - **Text that looks like a page placeholder stays text** (2026-10-18)
   - Summary: The page is assembled in one pass over the template, so a description or project name that
     contains `/*__APP__*/` or `__FAVICON__` is shown as written.
