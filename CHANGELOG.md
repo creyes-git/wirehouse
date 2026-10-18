@@ -61,6 +61,12 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **The 3D view adapts its resolution to the device** (2026-10-18)
+  - Summary: The pixel ratio is capped at 1.5. A frame-time governor drops it to 1 when the slowest
+    quarter of frames take over 18 ms for 2 seconds and steps back up when they stay under 12 ms.
+    Moving the window to a screen with another pixel density re-applies it.
+  - Why: most of a frame's cost is filling pixels; at a ratio of 2 with antialiasing, integrated laptop
+    GPUs on hi-dpi screens could not hold 60 frames per second.
 - **CI uses the current major versions of its actions** (2026-10-18)
   - Summary: `actions/checkout`, `setup-python`, `setup-node` and `upload-artifact` move to v7 and
     `download-artifact` to v8 in the CI and release workflows.

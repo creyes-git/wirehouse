@@ -320,12 +320,41 @@
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 700);
   const world = new THREE.Group();
   scene.add(world);
+  // GPU budget: most of a frame is pixel fill, so the resolution is capped and steps down on slow
+  // devices (integrated GPUs on hi-dpi screens). Shadows are drawn once per room, not every frame.
+  const MAX_DPR = 1.5, LOW_DPR = 1;
+  const dprCap = () => Math.min(window.devicePixelRatio || 1, MAX_DPR);
+  const GOV = { ratio: 1, frames: [], over: 0, under: 0 };
   if (renderer) {
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    GOV.ratio = dprCap();
+    renderer.setPixelRatio(GOV.ratio);
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     stage.appendChild(renderer.domElement);
     renderer.domElement.tabIndex = 0;
+  }
+  // Frame-time governor: when the 75th percentile of the last 2 s of frames stays over 18 ms for 2 s,
+  // drop to 1x; when it stays under 12 ms for 2 s, step back up towards the cap.
+  function governFrame(ms, now) {
+    if (!renderer) return;
+    const F = GOV.frames;
+    F.push([now, ms]);
+    while (F.length && F[0][0] < now - 2000) F.shift();
+    if (F.length < 20) return;
+    const sorted = F.map((f) => f[1]).sort((a, b) => a - b);
+    const p75 = sorted[Math.floor(sorted.length * 0.75)];
+    GOV.over = p75 > 18 ? (GOV.over || now) : 0;
+    GOV.under = p75 < 12 ? (GOV.under || now) : 0;
+    let next = GOV.ratio;
+    if (GOV.over && now - GOV.over >= 2000) next = LOW_DPR;
+    else if (GOV.under && now - GOV.under >= 2000) next = Math.min(dprCap(), GOV.ratio + 0.25);
+    if (next !== GOV.ratio) {
+      GOV.ratio = next;
+      GOV.over = GOV.under = 0;
+      F.length = 0;   // judge the new resolution on its own frames
+      renderer.setPixelRatio(next);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
   }
 
   // material + geometry caches (cleared on theme change / room rebuild)
@@ -3131,18 +3160,34 @@
   let frameNo = 0;
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    if (renderer) { renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); renderer.setSize(w, h); }
+    if (renderer) {
+      GOV.ratio = dprCap();
+      GOV.frames.length = 0;
+      renderer.setPixelRatio(GOV.ratio);
+      renderer.setSize(w, h);
+    }
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     if (planOn && room) { fitPlan(); setViewBox(); }
   }
   window.addEventListener('resize', resize);
+  // Moving the window to a screen with another pixel density fires no resize event in every browser.
+  (function watchDensity() {
+    if (!window.matchMedia) return;
+    const q = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    const on = () => { resize(); watchDensity(); };
+    if (q.addEventListener) q.addEventListener('change', on, { once: true });
+  })();
 
-  function frame() {
+  let lastFrame = 0;
+  function frame(now) {
     requestAnimationFrame(frame);
+    now = now || performance.now();
+    frameNo++;
     const dt = Math.min(clock.getDelta(), 0.05);
     const time = clock.elapsedTime;
-    frameNo++;
+    if (lastFrame && !document.hidden) governFrame(now - lastFrame, now);
+    lastFrame = now;
     if (!room) return;
     if (planOn) {
       if (frameNo % 10 === 0) { const me = plan.querySelector('#planMe'); if (me) me.setAttribute('transform', `translate(${W8.pos.x},${W8.pos.z})`); }
@@ -3201,6 +3246,14 @@
       ? { mode: 'route', loose: trace.loose, stops: trace.stops.map((s) => s.id), path: trace.path && trace.path.map((p) => p.id) }
       : { mode: trace.mode, id: trace.id, marks: MARK.hop && Object.fromEntries(MARK.hop) }),
     player: () => player && { kind: player.kind, i: player.i, n: player.stops.length, playing: player.playing, arrived: player.arrived, stops: player.stops.map((s) => s.id) },
+    // feeds the resolution governor `seconds` of frames that each took `ms`, as a slow or fast device would
+    frames(ms, seconds) {
+      const t0 = performance.now() + 1e6, reset = () => { GOV.frames.length = 0; GOV.over = GOV.under = 0; };
+      reset();
+      for (let t = 0; t < seconds * 1000; t += ms) governFrame(ms, t0 + t);
+      reset();
+      return renderer && renderer.getPixelRatio();
+    },
     tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
