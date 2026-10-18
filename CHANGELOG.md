@@ -95,6 +95,10 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **IMPROVEMENT_LOG.md is written for public readers** (2026-10-18)
+  - Summary: The log explains what a pass is and what the severities mean, and the Pass 1 entry is
+    reworded without internal shorthand.
+  - Why: the repository is public, and the log read like private notes ("not pushed: no remote yet").
 - **TODO.md is written for a public repository** (2026-10-18)
   - Summary: The first-push and history-rewrite steps are gone; TODO.md now lists the remaining
     repository settings, deferred features and precision work, and the Low findings of the Pass 2 audit,
