@@ -348,3 +348,43 @@ def test_repeated_parts_are_instanced_within_the_draw_call_budget(browser, html)
     assert js(page, "__wirehouse.gpu().instanced") >= 3           # rack posts, shelves and beams
     js(page, "__wirehouse.setTheme('night')")
     assert errors == []
+
+
+def test_file_labels_are_readable_on_entering_a_room(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    page.wait_for_function("__wirehouse.labels().slots > 0")          # seen from the door, before walking up
+    labels = js(page, "__wirehouse.labels()")
+    assert labels["slots"] <= 24
+    assert labels["racks"] and " to " in labels["racks"][0]           # an aisle sign names the first and last file
+    assert errors == []
+
+
+def test_blocks_and_racks_stand_on_contact_shadows(browser, html):
+    page, errors = open_view(browser, html)
+    for theme in ("night", "day"):
+        js(page, f"__wirehouse.setTheme('{theme}')")
+        assert js(page, "__wirehouse.contactShadows()") == js(page, "__wirehouse.state().items")   # one blob per block
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert js(page, "__wirehouse.contactShadows()") >= 4      # three folder crates and a rack
+    js(page, "__wirehouse.setTheme('night')")
+    assert errors == []
+
+
+def test_pipe_particles_are_streaks_along_the_flow(browser, html):
+    page, errors = open_view(browser, html)
+    night = js(page, "__wirehouse.setTheme('night'); __wirehouse.tick(1); __wirehouse.streak()")
+    assert night["align"] > 0.99 and night["additive"]          # glows at night
+    day = js(page, "__wirehouse.setTheme('day'); __wirehouse.tick(1); __wirehouse.streak()")
+    assert day["align"] > 0.99 and not day["additive"]
+    js(page, "__wirehouse.setTheme('night')")
+    assert errors == []
+
+
+def test_day_floor_is_concrete(browser, html):
+    page, errors = open_view(browser, html)
+    assert js(page, "__wirehouse.setTheme('day'); __wirehouse.floorTexture()") is True
+    assert js(page, "__wirehouse.setTheme('night'); __wirehouse.floorTexture()") is False   # the night floor keeps its grid
+    assert errors == []

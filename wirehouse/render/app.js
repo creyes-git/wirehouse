@@ -283,6 +283,7 @@
     }
     leaves.forEach((n, i) => {
       const rk = racks[Math.floor(i / PER_RACK)];
+      (rk.names = rk.names || []).push(n.name);
       const j = i % PER_RACK;
       const level = Math.floor(j / SLOT_COLS), col = j % SLOT_COLS;
       items.push({ id: n.id, x: rk.x - rackW / 2 + 0.25 + SLOT_W * (col + 0.5), z: rk.z, y: 0.32 + level * 1.2, w: SLOT_W - 0.25, d: 1.1, h: 0.82, shape: 'slot', rack: rk });
@@ -378,7 +379,7 @@
       });
     } else {
       m = new THREE.MeshStandardMaterial({
-        color: hex, roughness: o.rough != null ? o.rough : 0.72, metalness: o.metal != null ? o.metal : 0.08,
+        color: hex, roughness: o.rough != null ? o.rough : 0.72, metalness: o.metal != null ? o.metal : 0.08, map: o.concrete ? concreteTexture() : null,
         emissive: o.emissive ? hex : 0x000000, emissiveIntensity: o.emissive || 0,
         transparent: !!o.opacity, opacity: o.opacity == null ? 1 : o.opacity, side: o.double ? THREE.DoubleSide : THREE.FrontSide,
       });
@@ -387,6 +388,47 @@
     return m;
   }
   function geo(g) { GEOS.push(g); return g; }
+
+  // Day-shift floor: concrete with saw-cut joints, drawn once on a 256 px canvas and tiled by world
+  // size (one tile = one 6-unit slab), so every floor and zone shares one texture.
+  const SLAB = 6;
+  let CONCRETE = null;
+  function concreteTexture() {
+    if (CONCRETE) return CONCRETE;
+    const n = 256, c = document.createElement('canvas');
+    c.width = c.height = n;
+    const g = c.getContext('2d');
+    g.fillStyle = '#f2f2f2';
+    g.fillRect(0, 0, n, n);
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };   // the same floor every time
+    for (let i = 0; i < 40; i++) {   // soft blotches
+      const x = rnd() * n, y = rnd() * n, r = 14 + rnd() * 40;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      const v = rnd() < 0.5 ? '0,0,0' : '255,255,255';
+      gr.addColorStop(0, `rgba(${v},${0.015 + rnd() * 0.02})`); gr.addColorStop(1, `rgba(${v},0)`);
+      g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    for (let i = 0; i < 2600; i++) {   // aggregate speckle
+      g.fillStyle = `rgba(0,0,0,${0.03 + rnd() * 0.07})`;
+      g.fillRect(rnd() * n, rnd() * n, 1 + rnd(), 1 + rnd());
+    }
+    g.fillStyle = 'rgba(0,0,0,0.22)';   // joints on two edges, so tiles meet in a grid
+    g.fillRect(0, 0, n, 2); g.fillRect(0, 0, 2, n);
+    g.fillStyle = 'rgba(255,255,255,0.35)';
+    g.fillRect(0, 2, n, 1); g.fillRect(2, 0, 1, n);
+    CONCRETE = new THREE.CanvasTexture(c);
+    CONCRETE.wrapS = CONCRETE.wrapT = THREE.RepeatWrapping;
+    CONCRETE.encoding = THREE.sRGBEncoding;
+    CONCRETE.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 1;
+    return CONCRETE;
+  }
+  // UVs in slabs instead of 0..1, so the shared texture repeats at the same size on any plane.
+  function slabUV(g, w, d, x0, z0) {
+    const uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (x0 + uv.getX(i) * w) / SLAB, (z0 + uv.getY(i) * d) / SLAB);
+    return g;
+  }
   const lineMats = new Map();
   function lineMat(hex, opacity) {
     const key = hex + '|' + opacity;
@@ -516,6 +558,8 @@
   function shortName(s, n) { s = String(s); return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
   // ── blocks ───────────────────────────────────────────────────────────────
+  // 24 units: from where the camera starts in a room (17 behind the worker) the first rack is about 23 away
+  const SLOT_LABEL_FAR = 24, SLOT_LABELS_SHOWN = 24;
   const ANIM = [];   // per-frame animations for the current room
   let PICK = [];     // meshes that can be clicked
   let SPRITES = [];  // labels that fade with distance
@@ -652,7 +696,8 @@
     const lb = label([shortName(n.name, 28), sub], S === 'crate' ? 0.95 : 1.25, { stripe: css(col), align: 'left' });
     lb.position.set(it.x, h + (S === 'machine' || n.kind === 'ai' || S === 'gate' ? 2.3 : 0.6), it.z);
     world.add(lb);
-    SPRITES.push({ sp: lb, far: 70 });
+    // on the main floor a far block's name never shrinks below about 14 px of text
+    SPRITES.push({ sp: lb, far: 70, h: lb.scale.y, minPx: room && !room.R ? 30 : 0 });
     return g;
   }
 
@@ -667,6 +712,17 @@
     for (let l = 0; l < SLOT_LEVELS; l++) {
       instBox(rk.w, 0.07, rk.d, shelfM, 0, 0.25 + l * 1.2, 0, g, { cast: true });
       instBox(rk.w, 0.1, 0.08, beamM, 0, 0.25 + l * 1.2, rk.d / 2, g);
+    }
+    // An aisle sign, like a library shelf: readable from the door, where the file labels are too small.
+    const names = rk.names || [];
+    if (names.length) {
+      const span = names.length > 1 ? `${shortName(names[0], 18)}  to  ${shortName(names[names.length - 1], 18)}` : shortName(names[0], 30);
+      const sign = decal([span, `${names.length} file${names.length > 1 ? 's' : ''}`], Math.min(rk.w, 6), {
+        bg: T.glow ? 'rgba(10,16,32,0.92)' : 'rgba(255,255,255,0.96)', stripe: T.glow ? '#ffb23f' : '#f28c28', align: 'left', big: 56,
+      });
+      sign.position.set(rk.x, rk.h + 0.15 + sign.geometry.parameters.height / 2, rk.z + rk.d / 2);
+      sign.userData.rackSign = span;
+      world.add(sign);
     }
   }
 
@@ -687,8 +743,53 @@
     const lb = label([shortName(n.name, 26)], 0.34, { big: 40, pad: 10 });
     lb.position.set(it.x, it.y + h + 0.05, it.z + 0.45);
     world.add(lb);
-    SPRITES.push({ sp: lb, far: 13 });
+    SPRITES.push({ sp: lb, far: SLOT_LABEL_FAR, h: lb.scale.y, slot: true });
     it.h = h;
+  }
+
+  // Labels fade in and out instead of popping. Only the nearest file labels show, so a room of racks
+  // stays readable; far block names on the main floor keep a minimum size on screen.
+  function updateLabels(dt, full) {
+    const cp = camera.position;
+    if (full) {
+      const slots = [];
+      SPRITES.forEach((s) => {
+        s.dist = s.sp.position.distanceTo(cp);
+        s.want = s.dist < s.far ? 1 : 0;
+        if (s.slot && s.want) slots.push(s);
+      });
+      if (slots.length > SLOT_LABELS_SHOWN) slots.sort((a, b) => a.dist - b.dist).slice(SLOT_LABELS_SHOWN).forEach((s) => { s.want = 0; });
+      const pxPerUnit = window.innerHeight / (2 * Math.tan((camera.fov * Math.PI) / 360));
+      SPRITES.forEach((s) => {
+        if (!s.minPx) return;
+        const k = Math.max(1, s.minPx / ((s.h * pxPerUnit) / Math.max(s.dist, 0.1)));
+        s.sp.scale.set((s.sp.scale.x / s.sp.scale.y) * s.h * k, s.h * k, 1);
+      });
+    }
+    const a = reduceMotion ? 1 : Math.min(1, dt * 8);
+    SPRITES.forEach((s) => {
+      const m = s.sp.material, want = s.want == null ? 1 : s.want;
+      m.opacity += (want - m.opacity) * a;
+      if (Math.abs(want - m.opacity) < 0.01) m.opacity = want;
+      s.sp.visible = m.opacity > 0.01;
+    });
+  }
+
+  // Contact shadows: a soft dark blob under every block and rack, in one draw call. They ground the
+  // blocks at night (no shadow map) and soften the hard shadow-map edge by day.
+  function makeContactShadows(L) {
+    const feet = L.items.filter((it) => it.shape !== 'slot').map((it) => [it.x, it.z, it.w * 1.35 + 0.8, it.d * 1.35 + 0.8])
+      .concat(L.racks.map((r) => [r.x, r.z, r.w * 1.15 + 0.6, r.d * 1.8 + 0.6]));
+    if (!feet.length) return;
+    const g = geo(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+    const m = new THREE.MeshBasicMaterial({ map: blobTexture(), color: 0x000000, transparent: true, opacity: T.glow ? 0.6 : 0.32,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const im = new THREE.InstancedMesh(g, m, feet.length);
+    feet.forEach(([x, z, w, d], i) => im.setMatrixAt(i, tmpM.compose(tmpV.set(x, 0.012, z), tmpQ.identity(), tmpS.set(w, 1, d))));
+    im.frustumCulled = false;
+    im.renderOrder = 1;
+    im.userData.contact = true;
+    world.add(im);
   }
 
   // ── room shell: floor, walls, zones, signage, lights ────────────────────
@@ -708,7 +809,7 @@
     scene.background = new THREE.Color(T.bg);
     scene.fog = new THREE.Fog(T.bg, T.fogNear + Math.max(W, Dp) * 0.3, T.fogFar + Math.max(W, Dp));
     // floor
-    const floor = mesh(new THREE.PlaneGeometry(W, Dp), mat(T.floor, { rough: 0.95 }), 0, 0, 0, world);
+    const floor = mesh(slabUV(new THREE.PlaneGeometry(W, Dp), W, Dp, -W / 2, -Dp / 2), mat(T.floor, { rough: 0.95, concrete: !T.glow }), 0, 0, 0, world);
     floor.rotation.x = -Math.PI / 2;
     floor.castShadow = false;   // flat things only receive: each caster costs a draw call in the shadow pass
     floor.receiveShadow = true;
@@ -726,7 +827,8 @@
     // zones
     L.zones.forEach((Z, i) => {
       const zw = Z.x1 - Z.x0, zd = Z.z1 - Z.z0;
-      const pl = mesh(new THREE.PlaneGeometry(zw - 1, zd - 1), mat(i % 2 ? T.floorAlt : T.floor, { rough: 0.95 }), (Z.x0 + Z.x1) / 2, 0.005, (Z.z0 + Z.z1) / 2, world);
+      const pl = mesh(slabUV(new THREE.PlaneGeometry(zw - 1, zd - 1), zw - 1, zd - 1, Z.x0 + 0.5, Z.z0 + 0.5), mat(i % 2 ? T.floorAlt : T.floor, { rough: 0.95, concrete: !T.glow }),
+        (Z.x0 + Z.x1) / 2, 0.005, (Z.z0 + Z.z1) / 2, world);
       pl.rotation.x = -Math.PI / 2;
       pl.castShadow = false;
       pl.receiveShadow = true;
@@ -832,6 +934,9 @@
   const tmpV = new THREE.Vector3();
   const tmpQ = new THREE.Quaternion();
   const tmpS = new THREE.Vector3();
+  const tmpDir = new THREE.Vector3();
+  const tmpQs = new THREE.Quaternion();
+  const UP = new THREE.Vector3(0, 1, 0);
 
   function anchorOf(it) {
     if (!it) return null;
@@ -871,8 +976,10 @@
 
   function buildParticles() {
     if (!PART.length) return;
-    const g = geo(new THREE.SphereGeometry(0.11, 8, 6));
-    const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 * T.particle, depthWrite: false });
+    // A short streak, wide at the head: it shows which way the connection runs at a glance.
+    const g = geo(new THREE.CylinderGeometry(0.1, 0.025, 0.8, 6));
+    const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 * T.particle, depthWrite: false,
+      blending: T.glow ? THREE.AdditiveBlending : THREE.NormalBlending });
     particles = new THREE.InstancedMesh(g, m, PART.length);
     particles.frustumCulled = false;
     particles.renderOrder = 3;
@@ -896,10 +1003,12 @@
         const x = f * 64, k = Math.floor(x), r = x - k;
         const a = L.samples[k], b = L.samples[Math.min(k + 1, 64)];
         tmpV.set(a.x + (b.x - a.x) * r, a.y + (b.y - a.y) * r, a.z + (b.z - a.z) * r);
+        tmpDir.subVectors(b, a);
+        if (tmpDir.lengthSq() > 1e-10) tmpQs.setFromUnitVectors(UP, tmpDir.normalize());
         const s = L.focus ? 1.5 : 1;
         tmpS.set(s, s, s);
       }
-      tmpM.compose(tmpV, tmpQ, tmpS);
+      tmpM.compose(tmpV, tmpQs, tmpS);
       particles.setMatrixAt(i, tmpM);
     });
     particles.instanceMatrix.needsUpdate = true;
@@ -1072,6 +1181,7 @@
     room.racks.forEach(makeRack);
     room.items.forEach((it) => (it.shape === 'slot' ? makeSlot(it) : makeBlock(it)));
     flushInstances();
+    makeContactShadows(room);
     OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2 }))
       .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2 })));
     const { inner, ports } = roomLinks(R);
@@ -3282,10 +3392,7 @@
     if (!reduceMotion) ANIM.forEach((f) => f(time));
     updateParticles(reduceMotion ? 0 : time);
     updateHover();
-    if (frameNo % 4 === 0) {
-      const cp = camera.position;
-      SPRITES.forEach((s) => { s.sp.visible = s.sp.position.distanceTo(cp) < s.far; });
-    }
+    updateLabels(dt, frameNo % 4 === 0);
     if (frameNo % 6 === 0) updatePrompt();
     if (frameNo % 3 === 0) drawMinimap();
     renderer.render(scene, camera);
@@ -3339,6 +3446,25 @@
     tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
+    // how well the first moving particle lines up with its pipe (1 = along the flow)
+    streak: () => {
+      const i = PART.findIndex((p) => p.link.active);
+      if (i < 0 || !particles) return null;
+      particles.getMatrixAt(i, tmpM);
+      tmpM.decompose(tmpV, tmpQ, tmpS);
+      const axis = UP.clone().applyQuaternion(tmpQ);
+      tmpQ.identity();
+      const L = PART[i].link;
+      let best = -1;
+      for (let k = 0; k < 64; k++) best = Math.max(best, axis.dot(tmpDir.subVectors(L.samples[k + 1], L.samples[k]).normalize()));
+      return { align: best, additive: particles.material.blending === THREE.AdditiveBlending };
+    },
+    floorTexture: () => { const f = world.children.find((c) => c.userData.floor); return !!(f && f.material.map); },
+    contactShadows: () => { const o = world.children.find((c) => c.userData.contact); return o ? o.count : 0; },
+    labels: () => ({
+      slots: SPRITES.filter((s) => s.slot && s.sp.visible).length, blocks: SPRITES.filter((s) => !s.slot && s.sp.visible).length,
+      racks: world.children.filter((o) => o.userData.rackSign).map((o) => o.userData.rackSign),
+    }),
     marks: () => Object.fromEntries([...(MARK.badges || new Map())].map(([id, b]) => [id, b.text])),
     // What one frame costs the GPU, for the performance budget.
     gpu: () => {

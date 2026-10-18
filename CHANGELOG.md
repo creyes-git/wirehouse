@@ -7,6 +7,16 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **A concrete floor for the day shift** (2026-10-18)
+  - Summary: The day floor and zones are concrete slabs with saw-cut joints: one 256 px texture drawn in
+    the page and tiled by world size, so every floor shares it. The night floor keeps its grid.
+  - Why: the flat grey floor gave no sense of scale or movement when walking; joints every 6 units do,
+    with no image file and one small texture.
+- **Contact shadows** (2026-10-18)
+  - Summary: Every block and rack stands on a soft dark blob, drawn as one instanced mesh with the same
+    64 px gradient as the worker's shadow, in both themes.
+  - Why: at night there is no shadow map, so blocks seemed to float; by day the blobs soften the hard
+    edge of the shadow map, for one draw call per room.
 - **A GPU cost hook for the viewer** (2026-10-18)
   - Summary: `window.__wirehouse.gpu()` draws one frame and reports its draw calls (shadow pass
     included), triangles, textures, geometries, shader programs, visible meshes, shadow casters and
@@ -61,6 +71,17 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **Pipe particles show the direction of flow** (2026-10-18)
+  - Summary: The dots moving along pipes are short streaks, wide at the head, aligned with the pipe;
+    at night they glow with additive blending.
+  - Why: a round dot only shows direction while it moves, and with reduced motion or a still picture it
+    did not show it at all.
+- **Room labels are readable from the door** (2026-10-18)
+  - Summary: Each rack carries an aisle sign naming its first and last file and how many it holds. File
+    labels show from 24 units away instead of 13, only the nearest 24 at a time, and fade in and out
+    instead of popping. Block names on the main floor keep a minimum on-screen size of about 14 px.
+  - Why: entering a room the camera starts about 17 units away, so every file label was hidden until the
+    reader walked up to a rack, and far block names shrank to a few pixels.
 - **Repeated parts are drawn in one go** (2026-10-18)
   - Summary: Container ribs, rack posts, shelves and beams and cabinet lights are one instanced mesh per
     material; the lights blink by dimming their instance colour. They are decorative and never picked,
