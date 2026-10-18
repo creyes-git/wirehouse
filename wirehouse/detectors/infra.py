@@ -252,7 +252,7 @@ def _parse_k8s(scan: ScanResult, rel: str, infra: Infra) -> None:
         if not isinstance(d, dict) or "kind" not in d:
             continue
         kind = _scalar(d.get("kind")) or "Unknown"
-        name = _scalar((d.get("metadata") or {}).get("name")) or kind
+        name = _scalar(as_dict(d.get("metadata")).get("name")) or kind
         image = ""
         try:
             tpl = d["spec"].get("template", {}).get("spec", {}) if kind != "CronJob" else d["spec"]["jobTemplate"]["spec"]["template"]["spec"]

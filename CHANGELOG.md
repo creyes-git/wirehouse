@@ -147,6 +147,10 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Kubernetes files with odd `metadata` are read** (2026-10-18)
+  - Summary: A manifest whose `metadata` is not a mapping (`metadata: [1, 2]`) is named after its kind
+    instead of stopping the scan.
+  - Why: one such file anywhere in a repository crashed the whole build with an `AttributeError`.
 - **Hostile files no longer stall the scan** (2026-10-18)
   - Summary: The C# and Go doc-comment readers go line by line, and the Go import block, FastAPI and
     Flask router prefix, TypeORM entity and column, SQL `CREATE TABLE` body, `go.mod` require and URL

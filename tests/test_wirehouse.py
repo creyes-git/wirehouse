@@ -1285,3 +1285,9 @@ def test_control_characters_never_reach_the_output(repo, tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "\x1b" not in printed and "\x07" not in printed and "\x9b" not in printed
     assert "\\u001b" not in (out / "archmap.json").read_text(encoding="utf-8")
+
+
+def test_k8s_metadata_of_the_wrong_shape_does_not_stop_the_scan(tmp_path):
+    _write(tmp_path, {"k8s/svc.yaml": "apiVersion: v1\nkind: Service\nmetadata: [1, 2]\n"})
+    nodes = {n["name"] for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
+    assert "Service (Service)" in nodes
