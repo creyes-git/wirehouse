@@ -1680,6 +1680,7 @@
     const a = arrival;
     arrival = null;
     if (a && a.face) W8.yaw = Math.atan2(a.face.x - W8.pos.x, a.face.z - W8.pos.z);
+    if (a) shiftDone('walk');
     if (a && a.then) a.then();
   }
   function travelToPoint(x, z, then, face) {
@@ -1754,7 +1755,7 @@
       }, 260);
     } else doIt();
   }
-  function enterBlock(id) { if (enterable(id)) goRoom(id); }
+  function enterBlock(id) { if (enterable(id)) { goRoom(id); shiftDone('enter'); } }
   function exitRoom() { if (room && room.R) goRoom(parentOf(room.R), { from: room.R }); }
   function interact() {
     const near = nearest();
@@ -2208,6 +2209,7 @@
     endPick(true); stopPlayer(true);
     trace = { mode: dir === 'up' ? 'up' : 'down', id, res: walk(id, dir) };
     refreshMarks(); drawBar(); syncHash();
+    if (trace.mode === 'down') shiftDone('trace');
   }
   function startPick(from) {
     if (!N.has(from)) return;
@@ -2567,7 +2569,22 @@
   let progHash = 0;
   for (let i = 0; i < progSig.length; i++) progHash = (progHash * 31 + progSig.charCodeAt(i)) | 0;
   const progKey = `progress:${D.project.name}:${(progHash >>> 0).toString(36)}`;
-  const PROG = { found: [], walked: [], seen: [] };
+  const PROG = { found: [], walked: [], seen: [], shift: [] };
+  // First shift: the four moves that open up the rest of the page. A checklist, never a score.
+  const SHIFT = [
+    { id: 'walk', text: 'Walk to a block', how: 'click a block twice, or click the floor' },
+    { id: 'enter', text: 'Step inside a block', how: 'stand at a glowing door and press E' },
+    { id: 'trace', text: 'Trace downstream', how: 'inspect a block, then choose Downstream' },
+    { id: 'tour', text: 'Start a tour', how: 'open the Clipboard and press Start' },
+  ].filter((st) => st.id !== 'tour' || TOURS.length);
+  function shiftDone(step) {
+    if (!SHIFT.some((st) => st.id === step) || PROG.shift.includes(step)) return;
+    PROG.shift.push(step);
+    saveProg();
+    const st = SHIFT.find((x) => x.id === step);
+    toast(PROG.shift.length >= SHIFT.length ? 'First shift done: the floor is yours' : `Checked off: ${st.text}`, 2600);
+    drawClip();
+  }
   try {
     const saved = JSON.parse(store.get(progKey, '{}'));
     for (const k of Object.keys(PROG)) if (saved && Array.isArray(saved[k])) PROG[k] = saved[k].filter((x) => typeof x === 'string');
@@ -2593,6 +2610,13 @@
     const foundN = QUESTS.filter((q) => PROG.found.includes(q.id)).length;
     let h = `<div class="clip-head"><h2>Clipboard</h2><button class="ghost round close" data-c="close" aria-label="Close clipboard">×</button></div>
       <p class="note">Tours walk you through the system. Quests send you looking for something. Progress stays in this browser.</p>`;
+    if (PROG.shift.length < SHIFT.length) {
+      h += `<section class="sec"><h3>First shift</h3><ul class="quests shift">${SHIFT.map((st) => {
+        const done = PROG.shift.includes(st.id);
+        return `<li class="${done ? 'found' : ''}"><div class="q"><span class="box" aria-hidden="true">${done ? '✓' : ''}</span>
+          <span>${esc(st.text)}<span class="sub">${esc(st.how)}</span></span><span class="sr">${done ? ' (done)' : ' (not done yet)'}</span></div></li>`;
+      }).join('')}</ul></section>`;
+    }
     if (TOURS.length) {
       h += `<section class="sec"><h3>Tours</h3><ul class="rows">${TOURS.map((t) => `<li><span class="main"><b>${esc(t.title)}</b>${PROG.walked.includes(t.id) ? ' <span class="chip">walked</span>' : ''}
         <span class="sub">${t.route ? 'A route, walked hop by hop' : plural(t.stops.length, 'stop')}${t.intro ? ` · ${esc(t.intro)}` : ''}</span></span>
@@ -2628,7 +2652,7 @@
     clip.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => focusNode(b.dataset.goto)));
     clip.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.c === 'close') toggleClip(false);
-      if (b.dataset.c === 'reset') { PROG.found = []; PROG.walked = []; PROG.seen = []; hintsShown.clear(); saveProg(); drawClip(); }
+      if (b.dataset.c === 'reset') { PROG.found = []; PROG.walked = []; PROG.seen = []; PROG.shift = []; hintsShown.clear(); saveProg(); drawClip(); }
     }));
   }
   function toggleClip(on) {
@@ -2646,6 +2670,7 @@
     const t = TOURS.find((x) => x.id === id);
     if (!t) return;
     toggleClip(false);
+    shiftDone('tour');
     if (t.route) {
       if (!startRoute(t.route[0], t.route[1])) return;
       if (!trace || !trace.path) { toast('This tour has no recorded path to walk with the current pipe filter', 3000); return; }

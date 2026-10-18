@@ -7,6 +7,12 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **A first-shift checklist** (2026-10-18)
+  - Summary: The Clipboard opens with four moves to try: walk to a block, step inside one, trace
+    downstream and start a tour (when the page has tours). Each ticks off when done, is kept with the
+    rest of the progress in this browser, and the list steps aside once all are done. No points or scores.
+  - Why: new readers found the warehouse but not what it can do; these four moves open up the rest of
+    the page.
 - **Optional sound effects** (2026-10-18)
   - Summary: Footsteps, a click when a block is selected and a chime on arrival, synthesised in the page
     with WebAudio (no audio files). Off by default; `M` or the button on the controls card turns them on,

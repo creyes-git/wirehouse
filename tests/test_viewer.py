@@ -467,3 +467,19 @@ def test_trace_marks_hold_still_with_reduced_motion(browser, html):
     marks = js(page, "__wirehouse.startTrace('down', 'unit:js:web'); __wirehouse.ripple()")
     assert marks and all(m["shown"] and m["opacity"] == 1 for m in marks)
     assert errors == []
+
+
+def test_first_shift_checklist_ticks_off_the_four_moves(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "localStorage.clear(); __wirehouse.toggleClip(true)")
+    assert page.locator("#clip .shift li").count() == 4 and page.locator("#clip .shift li.found").count() == 0
+    js(page, "__wirehouse.travelTo('unit:python:api'); for (let i = 0; i < 20 && __wirehouse.state().walking; i++) __wirehouse.tick(60, false)")
+    js(page, "__wirehouse.startTrace('down', 'unit:js:web')")
+    js(page, "__wirehouse.startTour('main-floor', 0, false)")
+    js(page, "__wirehouse.enterBlock('unit:python:api')")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert sorted(js(page, "__wirehouse.progress().shift")) == ["enter", "tour", "trace", "walk"]
+    js(page, "__wirehouse.toggleClip(true)")
+    assert page.locator("#clip .shift").count() == 0                 # done: the list steps aside
+    assert "score" not in page.inner_text("#clip").lower()
+    assert errors == []

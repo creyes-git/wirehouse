@@ -318,6 +318,8 @@ button.primary {
 }
 .quests .found .box { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .quests .found .q > span:nth-child(2) { color: var(--muted); }
+.quests.shift .q { cursor: default; }
+.quests.shift .sub { display: block; color: var(--muted); font-size: 13px; }
 .q-body { padding: 2px 0 8px 28px; font-size: 14px; }
 .q-body p { margin: 0 0 6px; }
 .q-body .hint { color: var(--ink); font-style: italic; }
