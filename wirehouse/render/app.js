@@ -2265,7 +2265,7 @@
       const best = new Map();
       res.dist.forEach((d, id) => { const r = rep(id); if (r && (!best.has(r) || best.get(r) > d)) best.set(r, d); });
       const s = rep(res.start);
-      best.forEach((d, r) => MARK.badges.set(r, { text: r === s ? startText : hops(d), color, strong: r === s }));
+      best.forEach((d, r) => MARK.badges.set(r, { text: r === s ? startText : hops(d), color, strong: r === s, hop: d }));
       MARK.ids = new Set(best.keys());
       MARK.lit = (info) => { for (const i of info.ids) if (res.used.has(i)) return true; return false; };
       MARK.hop = best;
@@ -2273,7 +2273,7 @@
     if (player) {
       const order = new Map();
       player.stops.forEach((st, k) => { const r = rep(st.id); if (r && !order.has(r)) order.set(r, k); });
-      order.forEach((k, r) => MARK.badges.set(r, { text: String(k + 1), color: TC.route, strong: k === player.i }));
+      order.forEach((k, r) => MARK.badges.set(r, { text: String(k + 1), color: TC.route, strong: k === player.i, hop: k }));
       MARK.ids = new Set(order.keys());
       if (player.used) MARK.lit = (info) => { for (const i of info.ids) if (player.used.has(i)) return true; return false; };
     } else if (pick) byHop(pick.res, TC.route, 'From');
@@ -2283,7 +2283,7 @@
       const order = new Map();
       trace.path.forEach((p) => { const r = rep(p.id); if (r && !order.has(r)) order.set(r, p.stop); });
       const end = rep(trace.b), first = order.keys().next().value;
-      order.forEach((s, r) => MARK.badges.set(r, { text: r === first ? 'Start' : r === end ? 'End' : String(s + 1), color: TC.route, strong: r === first || r === end }));
+      order.forEach((s, r) => MARK.badges.set(r, { text: r === first ? 'Start' : r === end ? 'End' : String(s + 1), color: TC.route, strong: r === first || r === end, hop: s }));
       MARK.ids = new Set(order.keys());
       MARK.lit = (info) => { for (const i of info.ids) if (trace.used.has(i)) return true; return false; };
     } else if (trace) byHop(trace.res, TC[trace.mode], 'Start');
@@ -2308,6 +2308,7 @@
       if (o.material) o.material.dispose();
     });
     markObjs = [];
+    markT = 0;
     if (!room || !MARK.badges || !MARK.badges.size) return;
     MARK.badges.forEach((b, id) => {
       const it = itemsById.get(id);
@@ -2320,6 +2321,7 @@
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(it.x, 0.05, it.z);
         ring.renderOrder = 4;
+        ring.userData.hop = b.hop || 0;
         world.add(ring);
         markObjs.push(ring);
       }
@@ -2328,8 +2330,30 @@
         const tall = it.shape === 'machine' || it.shape === 'gate' || N.get(id).kind === 'ai';
         lb.position.set(it.x, it.shape === 'slot' ? it.y + it.h + 0.5 : it.h + (tall ? 3.9 : 2.2), it.z);
       } else lb.position.set(port.x + Math.sin(port.ry) * 0.7, port.y + 1.0, port.z + Math.cos(port.ry) * 0.7);
+      lb.userData.hop = b.hop || 0;
+      lb.userData.size = lb.scale.clone();
       world.add(lb);
       markObjs.push(lb);
+    });
+    updateMarks(0);
+  }
+  // Ripple: marks appear in the order the recorded hops reach them, a quarter second per hop, and the
+  // lit pipes pulse. With reduced motion everything shows at once and holds still.
+  const HOP_S = 0.25;
+  let markT = 0;
+  function updateMarks(dt) {
+    markT += dt;
+    const still = reduceMotion;
+    markObjs.forEach((o) => {
+      const local = still ? 1 : markT - o.userData.hop * HOP_S;
+      const k = clamp(local / 0.2, 0, 1), s = 1 - Math.pow(1 - k, 3);   // ease out
+      o.visible = local >= 0;
+      if (o.isSprite) { o.material.opacity = k; o.scale.copy(o.userData.size).multiplyScalar(0.6 + 0.4 * s); }
+      else o.scale.setScalar(Math.max(0.001, s));
+    });
+    if (!MARK.lit) return;
+    LINKS.forEach((L) => {
+      if (L.focus) L.mat.opacity = still ? 0.98 : 0.8 + 0.18 * Math.sin(markT * 5);
     });
   }
   BUILD_HOOKS.push(() => { computeMarks(); drawMarks(); });
@@ -3558,6 +3582,7 @@
     updateCamera(dt);
     updateShell();
     updateFx(dt);
+    updateMarks(dt);
     if (!reduceMotion) ANIM.forEach((f) => f(time));
     updateParticles(reduceMotion ? 0 : time);
     updateHover();
@@ -3612,7 +3637,7 @@
       return renderer && renderer.getPixelRatio();
     },
     idle: () => idle(performance.now()),
-    tick(n, draw) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); updateFx(1 / 60); } if (renderer && draw !== false) renderer.render(scene, camera); },
+    tick(n, draw) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); updateFx(1 / 60); updateMarks(1 / 60); } if (renderer && draw !== false) renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
     // how well the first moving particle lines up with its pipe (1 = along the flow)
@@ -3633,6 +3658,7 @@
       ring: FX.ring ? +FX.ring.mesh.scale.x.toFixed(2) : null, bounce: !!FX.bounce,
       hover: hovBox ? +hovBox.material.opacity.toFixed(2) : null,
     }),
+    ripple: () => markObjs.filter((o) => o.isSprite).map((o) => ({ hop: o.userData.hop, shown: o.visible, opacity: +o.material.opacity.toFixed(2) })),
     sound: () => ({ on: SND.on, played: SND.played, stored: store.get('sound', '0') }),
     worker: () => ({ lean: W8.lean, tilt: W8.tilt, squash: W8.squash, head: W8.look }),
     jump() { W8.vy = 6.5; },

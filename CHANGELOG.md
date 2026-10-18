@@ -83,6 +83,12 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **Traces ripple out hop by hop** (2026-10-18)
+  - Summary: When a trace, route or tour lights the floor, its rings and badges appear in the order the
+    recorded hops reach them, a quarter second per hop, and the lit pipes pulse. With reduced motion they
+    all show at once and hold still.
+  - Why: everything lit at once hid the order of the path, which is the point of a trace; the order comes
+    from the same hop counts the badges already show.
 - **The worker moves with more weight** (2026-10-18)
   - Summary: The worker leans into turns and into speeding up or slowing down, squashes a little on
     landing from a jump, and turns its head towards the selected block when it is in the same room.

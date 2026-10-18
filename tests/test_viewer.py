@@ -448,3 +448,22 @@ def test_sound_is_off_until_turned_on_and_remembered(browser, html):
     page.keyboard.press("m")
     assert js(page, "__wirehouse.sound()")["stored"] == "0"
     assert errors == []
+
+
+def test_trace_marks_ripple_out_in_hop_order(browser, html):
+    page, errors = open_view(browser, html)
+    marks = js(page, "__wirehouse.startTrace('down', 'unit:js:web'); __wirehouse.ripple()")
+    assert {m["hop"] for m in marks} == {0, 1, 2}                  # from the recorded hop data
+    assert all(m["shown"] == (m["hop"] == 0) for m in marks)        # only the start at first
+    marks = js(page, "__wirehouse.tick(20, false); __wirehouse.ripple()")   # 0.33 s: one hop out
+    assert all(m["shown"] == (m["hop"] <= 1) for m in marks)
+    marks = js(page, "__wirehouse.tick(30, false); __wirehouse.ripple()")
+    assert all(m["shown"] and m["opacity"] == 1 for m in marks)
+    assert errors == []
+
+
+def test_trace_marks_hold_still_with_reduced_motion(browser, html):
+    page, errors = open_view(browser, html, reduced_motion="reduce")
+    marks = js(page, "__wirehouse.startTrace('down', 'unit:js:web'); __wirehouse.ripple()")
+    assert marks and all(m["shown"] and m["opacity"] == 1 for m in marks)
+    assert errors == []
