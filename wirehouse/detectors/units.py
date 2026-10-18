@@ -41,7 +41,6 @@ class Unit:
     tech: list[str] = field(default_factory=list)
     ports: list[int] = field(default_factory=list)
     compose_services: list[str] = field(default_factory=list)
-    implicit: bool = False
     name: str = ""
 
     @property
@@ -320,7 +319,6 @@ def detect_units(scan: ScanResult) -> list[Unit]:
         fam = lang_family(sf.lang) or "python"
         top = sf.rel.split("/", 1)[0] if "/" in sf.rel else ""
         u = get(top, fam)
-        u.implicit = u.implicit or not u.manifests
         u.files.append(sf)
 
     out = []

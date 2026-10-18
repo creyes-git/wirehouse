@@ -862,3 +862,12 @@ def test_remove_edges_drops_both_directions(archmap):
     assert not {(a, b) for a, b, _ in links} & {("unit:js:web", "unit:python:api"), ("unit:python:api", "unit:js:web")}
     assert "unit:js:web->unit:python:api" not in merged["link_notes"]
     assert merged["enrichment_stats"]["removed_edges"] == 1
+
+
+def test_skill_text_only_points_at_a_real_checkout(tmp_path):
+    from wirehouse.cli import skill_text
+
+    assert "pip install -e" in skill_text()                  # this source checkout
+    installed = skill_text(tmp_path)                          # site-packages: no pyproject.toml
+    assert "pip install -e" not in installed and "{{WIREHOUSE_HOME}}" not in installed
+    assert "pip install \"git+https://github.com/creyes-git/wirehouse\"" in installed

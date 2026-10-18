@@ -20,7 +20,7 @@ from wirehouse.detectors.units import Unit, detect_units
 from wirehouse.model import EDGE_KINDS, LAYERS, SCHEMA_VERSION, edge, loc, node
 from wirehouse.redact import scrub
 from wirehouse.repo import repo_info
-from wirehouse.scan import ScanResult, SourceFile, as_dict, lang_family, scan
+from wirehouse.scan import MAX_FILE_BYTES, ScanResult, SourceFile, as_dict, scan
 from wirehouse.signatures import (
     BY_ID, Signature, match_cs_namespace, match_host, match_image, match_npm, match_nuget, match_py_import,
     match_pypi, match_value,
@@ -172,10 +172,6 @@ class Builder:
         if insts:
             return sorted(insts)[0]
         return self.res_node(sig)
-
-    def unit_node_id(self, rel: str) -> str | None:
-        u = self.file_unit.get(rel)
-        return u.id if u else None
 
     # ── pipeline ──────────────────────────────────────────────────────────
     def run(self) -> dict:
@@ -771,10 +767,6 @@ class Builder:
                     t = self.service_target.get(host.lower())
                     if t:
                         self.add_edge(nid, t, "calls", evidence=[loc(it.file)], description=f"proxies to `{host}`")
-        for cs in self.infra.compose:
-            t = self.service_target.get(cs.name)
-            if t and self.nodes[t]["kind"] == "gateway":
-                pass
 
     def _users(self):
         clients = [n for n in self.nodes.values() if n["parent"] is None and n["kind"] in ("frontend", "mobile", "desktop")]
@@ -931,7 +923,8 @@ class Builder:
 def build_archmap(root: Path, log=print) -> dict:
     t0 = time.time()
     res = scan(root)
-    log(f"  scanned {len(res.sources)} source files in {time.time() - t0:.1f}s")
+    log(f"  scanned {len(res.sources)} source files in {time.time() - t0:.1f}s"
+        + (f" (skipped {res.skipped_large} over {MAX_FILE_BYTES // 1000} KB)" if res.skipped_large else ""))
     facts = {sf.rel: analyze(sf) for sf in res.sources}
     units = detect_units(res)
     infra = detect_infra(res)

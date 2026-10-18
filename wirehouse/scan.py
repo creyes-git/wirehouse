@@ -24,7 +24,7 @@ IGNORE_DIRS = {
 }
 
 SOURCE_EXT = {
-    ".py": "python", ".pyi": None,
+    ".py": "python",
     ".ts": "typescript", ".tsx": "typescript", ".mts": "typescript", ".cts": "typescript",
     ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
     ".vue": "javascript", ".svelte": "javascript", ".astro": "javascript",
@@ -165,8 +165,6 @@ def _config_category(rel: str, name: str) -> str | None:
         return "python_manifest"
     if low.endswith(".csproj") or low.endswith(".fsproj"):
         return "csproj"
-    if low.endswith(".sln"):
-        return "sln"
     if (low.startswith("docker-compose") or low.startswith("compose")) and low.endswith((".yml", ".yaml")):
         return "compose"
     if low == "dockerfile" or low.startswith("dockerfile.") or low.endswith(".dockerfile"):

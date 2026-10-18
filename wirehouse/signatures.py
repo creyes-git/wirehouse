@@ -33,7 +33,7 @@ class Signature:
     images: list[str] = field(default_factory=list)
     schemes: list[str] = field(default_factory=list)
     tech: str = ""
-    role: str = "block"  # block | orm | framework
+    role: str = "block"  # block | orm
     _code_re: list = field(default_factory=list, repr=False)
 
     def __post_init__(self):

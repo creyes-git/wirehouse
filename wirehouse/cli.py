@@ -114,9 +114,14 @@ AGENT_SKILL_DIRS = {
 }
 
 
-def skill_text() -> str:
+def skill_text(home: Path | None = None) -> str:
     src = Path(__file__).parent / "skill" / "SKILL.md"
-    return src.read_text(encoding="utf-8").replace("{{WIREHOUSE_HOME}}", str(Path(__file__).resolve().parent.parent))
+    text = src.read_text(encoding="utf-8")
+    home = home or Path(__file__).resolve().parent.parent
+    if not (home / "pyproject.toml").is_file():
+        # a regular pip install: home is site-packages, so the source checkout line would mislead
+        text = "\n".join(line for line in text.splitlines() if "{{WIREHOUSE_HOME}}" not in line) + "\n"
+    return text.replace("{{WIREHOUSE_HOME}}", str(home))
 
 
 def cmd_install(agents: list[str] | None = None, dirs: list[str] | None = None, home: Path | None = None) -> list[Path]:

@@ -7,6 +7,12 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **The installed skill matches how Wirehouse was installed** (2026-10-18)
+  - Summary: The "install from a source checkout" line is left out of the installed `SKILL.md` unless
+    Wirehouse really runs from one; the skill now mentions `--share` before a page is published, and its
+    JSON check accepts a byte-order mark.
+  - Why: after a normal `pip install` the skill told agents to `pip install -e` the site-packages folder,
+    and nothing reminded them to leave local paths out of shared pages.
 - **A floor plan link opens on a fresh page** (2026-10-18)
   - Summary: Opening a link with `plan=1` in a new tab shows the floor plan instead of a blank page.
   - Why: the plan was drawn before the first room existed, which stopped the viewer from starting.
@@ -31,6 +37,11 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Removed
+- **Unused scanner code** (2026-10-18)
+  - Summary: Dropped `Builder.unit_node_id`, a loop that did nothing, the never-read compose `profiles`,
+    Dockerfile `copies` and `Unit.implicit` fields, the unused `sln` config category and `.pyi` entry. The
+    scan now reports how many files it skipped for size.
+  - Why: found in the audit; fields nothing reads make the data model look richer than it is.
 - **Unused viewer code** (2026-10-18)
   - Summary: Dropped `UNIT_KINDS`, `fontReady`, the unused port anchor, `makePipe`'s unused room argument
     and `bindPanel`'s ignored options; renamed locals that hid the `where()` helper; foreign keys get their

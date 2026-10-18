@@ -25,8 +25,8 @@ the description step.
 wirehouse --version || python -m wirehouse --version
 ```
 
-If neither works, install it: `pip install "git+https://github.com/creyes-git/wirehouse"` (or, from a
-source checkout, `pip install -e "{{WIREHOUSE_HOME}}"`).
+If neither works, install it: `pip install "git+https://github.com/creyes-git/wirehouse"`.
+From the source checkout this skill was installed from, `pip install -e "{{WIREHOUSE_HOME}}"` works too.
 Use `python -m wirehouse` in later steps if the `wirehouse` command is not on PATH.
 
 ### 2. Scan
@@ -92,7 +92,7 @@ Then write the guided layer, in the same file:
 Validate the JSON before moving on:
 
 ```bash
-python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8')); print('ok')" "<path>/wirehouse-out/enrichment.json"
+python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8-sig')); print('ok')" "<path>/wirehouse-out/enrichment.json"
 ```
 
 ### 4. Render
@@ -101,7 +101,8 @@ python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8')); prin
 wirehouse render "<path>"
 ```
 
-Add `--open` if the user wants it opened in their browser. Render prints how many
+Add `--open` if the user wants it opened in their browser, and `--share` if the page will be
+published or sent to someone (it leaves out this machine's folder paths). Render prints how many
 descriptions, connection notes, additions and removals it applied, how many tours and quests
 there are, and one line per problem: `error [code] subject: message -> fix` (for example
 `error [evidence/line-out-of-range] tours[checkout].stops[2]: ...`). Invalid parts are left out

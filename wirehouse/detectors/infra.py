@@ -42,7 +42,6 @@ class ComposeService:
     ports: list[int] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
-    profiles: list[str] = field(default_factory=list)
     routed_by: list[str] = field(default_factory=list)   # "traefik" when its labels enable a router
 
 
@@ -52,7 +51,6 @@ class Dockerfile:
     cmd: str = ""
     expose: list[int] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
-    copies: list[str] = field(default_factory=list)
     base: str = ""
 
 
@@ -135,7 +133,6 @@ def _parse_compose(scan: ScanResult, rel: str, infra: Infra) -> None:
         if isinstance(env, list):
             env = dict(e.split("=", 1) if "=" in e else (e, "") for e in map(str, env))
         cs.env = {str(k): "" if v is None else str(v) for k, v in as_dict(env).items()}
-        cs.profiles = [str(p) for p in as_list(svc.get("profiles"))]
         labels = svc.get("labels") or {}
         labels = labels if isinstance(labels, dict) else as_list(labels)
         keys = [str(k) for k in labels] if isinstance(labels, dict) else [str(x).split("=", 1)[0] for x in labels]
@@ -171,8 +168,6 @@ def _parse_dockerfile(scan: ScanResult, rel: str, infra: Infra) -> None:
         elif up.startswith("ENV "):
             for m in re.finditer(r"(\w+)[= ]([^\s]+)", s[4:]):
                 df.env[m.group(1)] = m.group(2)
-        elif up.startswith("COPY ") and "--from" not in s:
-            df.copies += s.split()[1:-1]
     for k, v in df.env.items():
         infra.env.append(EnvVar(k, v, rel, _line_of(text, k)))
     infra.dockerfiles[rel] = df
@@ -319,7 +314,6 @@ def _merge_compose(services: list[ComposeService]) -> list[ComposeService]:
         m.ports = list(dict.fromkeys(m.ports + cs.ports))
         m.depends_on = list(dict.fromkeys(m.depends_on + cs.depends_on))
         m.env = {**m.env, **cs.env}
-        m.profiles = list(dict.fromkeys(m.profiles + cs.profiles))
         m.routed_by = list(dict.fromkeys(m.routed_by + cs.routed_by))
     return list(merged.values())
 
