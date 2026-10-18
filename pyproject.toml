@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wirehouse"
-version = "0.2.0"
+version = "0.3.0"
 description = "Walk through your codebase's architecture as a 3D warehouse: trace requests, take guided tours and share it all as one offline HTML file. Built for your agents."
 readme = "README.md"
 requires-python = ">=3.11"

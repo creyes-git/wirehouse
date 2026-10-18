@@ -6,6 +6,8 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-18
+
 ### Added
 - **Exploration marks** (2026-10-18)
   - Summary: On the main floor, a block you have inspected carries a small tick on its label, and the
@@ -482,5 +484,7 @@ The first public release.
 
 - First working version: scan, agent enrichment, the 3D warehouse and the floor plan.
 
-[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/creyes-git/wirehouse/releases/tag/v0.2.0
+[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/creyes-git/wirehouse/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/creyes-git/wirehouse/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/creyes-git/wirehouse/releases/tag/v0.1.0
