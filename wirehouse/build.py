@@ -98,6 +98,14 @@ def _dirname(path: str) -> str:
     return path.rsplit("/", 1)[0] if "/" in path else ""
 
 
+def _join_rel(base: str, rel: str) -> str | None:
+    """A path relative to `base`, both inside the project, or None when it leaves the project."""
+    out = os.path.normpath(os.path.join(base, rel)).replace("\\", "/")
+    if out == ".":
+        return ""
+    return None if out.startswith("../") or out == ".." or os.path.isabs(out) else out
+
+
 class Builder:
     def __init__(self, scan_res: ScanResult, facts: dict[str, FileFacts], units: list[Unit], infra: Infra):
         self.scan = scan_res
@@ -358,6 +366,7 @@ class Builder:
     def _internal_imports(self):
         py_index = self._python_module_index()
         alias_maps = self._ts_aliases()
+        self._js_pkgs = self._js_packages()
         go_index = self._go_package_index()
         for rel, ff in self.facts.items():
             sf = self.files[rel]
@@ -431,22 +440,93 @@ class Builder:
             out.append(index[mod])
         return out[:8]
 
-    def _ts_aliases(self) -> list[tuple[str, list[tuple[str, list[str]]], str]]:
-        out = []
-        for rel in self.scan.configs.get("tsconfig", []):
-            try:
-                data = as_dict(json.loads(_strip_jsonc(self.scan.read(rel))))
-            except ValueError:
+    def _ts_options(self, rel: str, depth: int = 0) -> tuple[list | None, str | None, str | None]:
+        """(paths, folder they resolve against, baseUrl folder) of one tsconfig, with `extends` followed.
+
+        Monorepos keep `paths` in a shared root config (`tsconfig.base.json` in Nx) that each project's
+        tsconfig extends, so reading only the nearest file found no aliases at all.
+        """
+        key = (rel, depth)
+        if key in self._ts_cache:
+            return self._ts_cache[key]
+        try:
+            data = as_dict(json.loads(_strip_jsonc(self.scan.read(rel))))
+        except ValueError:
+            data = {}
+        co = as_dict(data.get("compilerOptions"))
+        base = _dirname(rel)
+        paths = None
+        if isinstance(co.get("paths"), dict):
+            paths = [(k, [t for t in v if isinstance(t, str)]) for k, v in co["paths"].items() if isinstance(v, list)]
+        paths_dir = base if paths is not None else None
+        base_url = _join_rel(base, co["baseUrl"]) if isinstance(co.get("baseUrl"), str) else None
+        ext = data.get("extends")
+        parents = [e for e in (ext if isinstance(ext, list) else [ext]) if isinstance(e, str) and e.startswith(".")]
+        for parent in reversed(parents):   # in a list, later configs win; package configs (@tsconfig/...) hold no paths
+            if (paths is not None and base_url is not None) or depth >= 8:
+                break
+            prel = _join_rel(base, parent)
+            if prel is None:
                 continue
-            co = as_dict(data.get("compilerOptions"))
-            base = _dirname(rel)
-            base_url = co.get("baseUrl") if isinstance(co.get("baseUrl"), str) else None
-            root = os.path.normpath(os.path.join(base, base_url)).replace("\\", "/") if base_url else base
-            root = "" if root == "." else root
-            paths = [(k, [t for t in v if isinstance(t, str)]) for k, v in as_dict(co.get("paths")).items() if isinstance(v, list)]
-            out.append((base, paths, root))
+            if not prel.endswith(".json") and not self.scan.read(prel):
+                prel += ".json"
+            p_paths, p_dir, p_base = self._ts_options(prel, depth + 1)
+            if paths is None and p_paths is not None:
+                paths, paths_dir = p_paths, p_dir
+            if base_url is None:
+                base_url = p_base
+        self._ts_cache[key] = (paths, paths_dir, base_url)
+        return self._ts_cache[key]
+
+    def _ts_aliases(self) -> list[tuple[str, list[tuple[str, list[str]]], str]]:
+        self._ts_cache: dict = {}
+        configs = self.scan.configs.get("tsconfig", [])
+        main_dirs = {_dirname(r) for r in configs if not r.lower().endswith("tsconfig.base.json")}
+        out = []
+        for rel in configs:
+            if rel.lower().endswith("tsconfig.base.json") and _dirname(rel) in main_dirs:
+                continue   # the folder's tsconfig.json applies (and usually extends this one)
+            paths, paths_dir, base_url = self._ts_options(rel)
+            root = base_url if base_url is not None else paths_dir
+            out.append((_dirname(rel), paths or [], root or ""))
         out.sort(key=lambda x: -len(x[0]))
         return out
+
+    def _js_packages(self) -> list[tuple[str, str]]:
+        """Workspace package name -> folder, longest names first (`@mono/ui-kit` before `@mono/ui`)."""
+        pk = {u.pkg_name: u.dir for u in self.units if u.family == "js" and u.pkg_name}
+        return sorted(pk.items(), key=lambda kv: -len(kv[0]))
+
+    def _package_entries(self, folder: str) -> list[str]:
+        """Where a workspace package's code starts: its manifest's entry fields, then the usual spots."""
+        try:
+            data = as_dict(json.loads(self.scan.read(f"{folder}/package.json" if folder else "package.json")))
+        except ValueError:
+            data = {}
+        exp = data.get("exports")
+        exp = as_dict(exp).get(".", exp) if isinstance(exp, dict) else exp
+        fields = [data.get(k) for k in ("source", "module", "main", "types")]
+        fields += [exp] if isinstance(exp, str) else [as_dict(exp).get(k) for k in ("source", "import", "default", "types", "require")]
+        out = []
+        for f in fields:
+            if isinstance(f, str):
+                f = f.lstrip("./")
+                # a built entry (dist/index.js) is not in the source tree; its src/ twin usually is
+                out += [f, re.sub(r"^(?:dist|build|lib|out)/", "src/", f)]
+        return out + ["src/index", "index", "lib/index"]
+
+    def _resolve_workspace(self, spec: str) -> str | None:
+        for name, folder in self._js_pkgs:
+            if spec != name and not spec.startswith(name + "/"):
+                continue
+            sub = spec[len(name):].lstrip("/")
+            cands = [sub, f"src/{sub}"] if sub else self._package_entries(folder)
+            for c in cands:
+                hit = self._try_js(os.path.join(folder, c) if folder else c)
+                if hit:
+                    return hit
+            return None
+        return None
 
     def _try_js(self, candidate: str) -> str | None:
         candidate = os.path.normpath(candidate).replace("\\", "/")
@@ -471,6 +551,8 @@ class Builder:
         for base, paths, root in alias_maps:
             if base and not rel.startswith(base + "/"):
                 continue
+            if not paths:
+                continue   # the nearest config sets no aliases: a parent folder's may
             for pattern, targets in paths:
                 pre = pattern.rstrip("*")
                 if (pattern.endswith("*") and spec.startswith(pre)) or spec == pattern:
@@ -481,7 +563,7 @@ class Builder:
                         if hit:
                             return hit
             break
-        return None
+        return self._resolve_workspace(spec)   # `@mono/ui` with "workspace:*": the package's own folder
 
     # env vars + URLs -> services / resources
     def _env_target(self, value: str, var: str) -> tuple[str | None, str]:
@@ -874,7 +956,7 @@ class Builder:
                 talks[cur].add(nodes[tt]["name"])
                 cur = nodes[cur]["parent"]
 
-        lang_names = {"typescript": "TypeScript", "javascript": "JavaScript", "python": "Python", "csharp": "C#", "sql": "SQL", "prisma": "Prisma"}
+        lang_names = {"typescript": "TypeScript", "javascript": "JavaScript", "python": "Python", "csharp": "C#", "sql": "SQL", "prisma": "Prisma", "go": "Go"}
         for n in nodes.values():
             langs = n.pop("_langs", Counter())
             lang_txt = ", ".join(lang_names.get(l, str(l)) for l, _ in langs.most_common(3) if l)

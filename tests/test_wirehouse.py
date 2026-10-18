@@ -1285,3 +1285,89 @@ def test_control_characters_never_reach_the_output(repo, tmp_path, capsys):
     printed = capsys.readouterr().out
     assert "\x1b" not in printed and "\x07" not in printed and "\x9b" not in printed
     assert "\\u001b" not in (out / "archmap.json").read_text(encoding="utf-8")
+
+
+def test_k8s_metadata_of_the_wrong_shape_does_not_stop_the_scan(tmp_path):
+    _write(tmp_path, {"k8s/svc.yaml": "apiVersion: v1\nkind: Service\nmetadata: [1, 2]\n"})
+    nodes = {n["name"] for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
+    assert "Service (Service)" in nodes
+
+
+def test_app_yaml_is_app_engine_only_when_it_says_so(tmp_path):
+    _write(tmp_path, {
+        "k8s/app.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: shop\n",
+        "gae/app.yaml": "runtime: python312\nentrypoint: gunicorn main:app\n",
+        "misc/app.yaml": "title: not a deployment\n",
+    })
+    nodes = {n["name"]: n for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
+    assert "shop (Deployment)" in nodes
+    gae = [n for n in nodes.values() if n["name"] == "Google App Engine"]
+    assert len(gae) == 1 and all("gae/app.yaml" in json.dumps(n) for n in gae)
+    assert "misc/app.yaml" not in json.dumps(list(nodes.values()))
+
+
+def test_client_requests_are_not_served_endpoints(tmp_path):
+    _write(tmp_path, {
+        "web/package.json": json.dumps({"name": "web", "dependencies": {"react": "19.0.0", "axios": "1.0.0"}}),
+        "web/src/users.ts": """
+            import axios from "axios";
+            const api = axios.create({ baseURL: "/api" });
+            export const user = (id: string) => api.get(`/users/${id}`);
+            export const list = () => api.get("/users", { params: { page: 1 } });
+            export const save = (u: object) => api.post("/users", u);
+        """,
+        "server/package.json": json.dumps({"name": "server", "dependencies": {"express": "4.0.0"}}),
+        "server/src/app.ts": """
+            import express from "express";
+            const app = express();
+            app.get("/health", (req, res) => res.send("ok"));
+        """,
+        "server/src/routes/users.ts": """
+            import { listUsers, saveUser } from "../handlers";
+            export function mount(router) {
+              router.get("/users", listUsers);
+              router.post("/users", auth, saveUser);
+              router.delete("/users/:id", async (req, res) => {});
+            }
+        """,
+    })
+    nodes = {n["id"]: n for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
+    assert not nodes["file:web/src/users.ts"].get("endpoints")
+    assert {(e["method"], e["path"]) for e in nodes["file:server/src/app.ts"]["endpoints"]} == {("GET", "/health")}
+    assert {(e["method"], e["path"]) for e in nodes["file:server/src/routes/users.ts"]["endpoints"]} == {
+        ("GET", "/users"), ("POST", "/users"), ("DELETE", "/users/:id")}
+
+
+def test_monorepo_imports_reach_their_packages(tmp_path):
+    _write(tmp_path, {
+        "package.json": json.dumps({"name": "mono", "private": True, "workspaces": ["apps/*", "packages/*"]}),
+        # Nx style: the aliases live in tsconfig.base.json, which project configs extend
+        "tsconfig.base.json": '{\n  // shared\n  "compilerOptions": {"baseUrl": ".", "paths": {"@mono/utils": ["libs/utils/src/index.ts"]}}\n}\n',
+        "libs/utils/src/index.ts": "export const slug = (s: string) => s;\n",
+        "packages/ui/package.json": json.dumps({"name": "@mono/ui", "main": "dist/index.js"}),
+        "packages/ui/src/index.ts": "export * from './Button';\n",
+        "packages/ui/src/Button.tsx": "export const Button = () => null;\n",
+        "apps/web/package.json": json.dumps({"name": "web", "dependencies": {"next": "15.0.0", "@mono/ui": "workspace:*"}}),
+        "apps/web/tsconfig.json": '{"extends": "../../tsconfig.base.json", "compilerOptions": {"jsx": "preserve"}}',
+        "apps/web/app/page.tsx": 'import { Button } from "@mono/ui";\nimport { Button as B } from "@mono/ui/Button";\n'
+                                 'import { slug } from "@mono/utils";\nexport default function Page() { return null }\n',
+        # a project config with no paths and no extends: the root config's aliases still apply
+        "apps/admin/package.json": json.dumps({"name": "admin", "dependencies": {"next": "15.0.0"}}),
+        "apps/admin/tsconfig.json": '{"compilerOptions": {"strict": true}}',
+        "apps/admin/app/page.tsx": 'import { slug } from "@mono/utils";\nexport default function Page() { return null }\n',
+    })
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    imports = {(e["source"], e["target"]) for e in data["edges"] if e["kind"] == "imports"}
+    assert ("file:apps/web/app/page.tsx", "file:packages/ui/src/index.ts") in imports
+    assert ("file:apps/web/app/page.tsx", "file:packages/ui/src/Button.tsx") in imports
+    assert ("file:apps/web/app/page.tsx", "file:libs/utils/src/index.ts") in imports
+    assert ("file:apps/admin/app/page.tsx", "file:libs/utils/src/index.ts") in imports
+    _, links = _index(data)
+    assert ("unit:js:apps/web", "unit:js:packages/ui", "imports") in links
+
+
+def test_go_files_are_described_as_go(tmp_path):
+    _write(tmp_path, {"svc/go.mod": "module example.com/svc\n\ngo 1.22\n", "svc/main.go": "package main\n\nfunc main() {}\n"})
+    nodes = {n["id"]: n for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
+    assert nodes["file:svc/main.go"]["description"].startswith("Go file")
+    assert "Go" in nodes["unit:go:svc"]["description"]

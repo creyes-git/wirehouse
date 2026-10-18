@@ -147,6 +147,33 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Go files say "Go file"** (2026-10-18)
+  - Summary: Go files and Go blocks name their language in the rule-based description.
+  - Why: the language table had no Go entry, so a Go file read " file, 12 lines." and a Go block listed
+    `go` instead of Go.
+- **Monorepo imports connect their packages** (2026-10-18)
+  - Summary: An import of a workspace package by name (`import { Button } from "@mono/ui"`, with
+    `workspace:*`) links to that package's files, through its `source`/`module`/`main`/`exports` entry or
+    `src/index`. tsconfig `extends` is followed (relative configs, lists included), `tsconfig.base.json`
+    (Nx) is read, and a project config without `paths` falls through to the nearest parent config.
+  - Why: in a monorepo none of these imports made an edge, so apps and their shared packages looked
+    unrelated on the map.
+- **Requests from a frontend are not drawn as served endpoints** (2026-10-18)
+  - Summary: `x.get('/path')` counts as a route only in a file that imports a server framework (Express,
+    Fastify, Koa, Hono, ...) or when the call passes a handler (a function, or a named handler on a
+    router-like object). Paths built at run time (`` `/users/${id}` ``) are never routes.
+  - Why: client calls such as `api.get(`/users/${id}`)` in a React app were listed as endpoints the
+    frontend serves, which put a wrong claim in the room and in the auto quests.
+- **A Kubernetes `app.yaml` is not Google App Engine** (2026-10-18)
+  - Summary: `app.yaml` counts as App Engine only when it has a `runtime:` line and no `apiVersion` or
+    `kind`; otherwise it is read as a Kubernetes manifest when it sits in a `k8s`, `deploy`, `helm` or
+    similar folder, and skipped elsewhere.
+  - Why: every `app.yaml` was taken for App Engine before the Kubernetes check, so a Deployment in
+    `k8s/app.yaml` showed up as a hosting platform and its workload was missing.
+- **Kubernetes files with odd `metadata` are read** (2026-10-18)
+  - Summary: A manifest whose `metadata` is not a mapping (`metadata: [1, 2]`) is named after its kind
+    instead of stopping the scan.
+  - Why: one such file anywhere in a repository crashed the whole build with an `AttributeError`.
 - **Hostile files no longer stall the scan** (2026-10-18)
   - Summary: The C# and Go doc-comment readers go line by line, and the Go import block, FastAPI and
     Flask router prefix, TypeORM entity and column, SQL `CREATE TABLE` body, `go.mod` require and URL

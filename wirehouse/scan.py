@@ -12,6 +12,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import re
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -208,16 +209,33 @@ def _config_category(rel: str, name: str) -> str | None:
         return "env_template"
     if low.startswith("appsettings") and low.endswith(".json"):
         return "appsettings"
-    if low in ("tsconfig.json", "jsconfig.json"):
+    if low in ("tsconfig.json", "jsconfig.json", "tsconfig.base.json"):
         return "tsconfig"
     if low in ("nginx.conf", "caddyfile", "traefik.yml", "traefik.yaml") or low.endswith(".nginx.conf"):
         return "gateway_config"
     if low in ("vercel.json", "netlify.toml", "fly.toml", "render.yaml", "railway.json", "railway.toml",
                "app.yaml", "serverless.yml", "serverless.yaml", "firebase.json", "wrangler.toml", "Procfile".lower()):
         return "platform"
+    return _k8s_category(rl, low)
+
+
+def _k8s_category(rl: str, low: str) -> str | None:
     if low.endswith((".yml", ".yaml")) and any(seg in rl for seg in ("k8s", "kube", "helm", "manifests", "deploy")):
         return "k8s"
     return None
+
+
+APP_ENGINE_RUNTIME = re.compile(r"^runtime[ \t]*:", re.M)
+K8S_HEADER = re.compile(r"^(?:apiVersion|kind)[ \t]*:", re.M)
+
+
+def _app_yaml_category(root: Path, rel: str) -> str | None:
+    """`app.yaml` is Google App Engine only when it says so: a common name for a Kubernetes manifest too."""
+    raw = read_inside(root, rel)
+    text = raw.decode("utf-8-sig", errors="replace") if raw is not None else ""
+    if APP_ENGINE_RUNTIME.search(text) and not K8S_HEADER.search(text):
+        return "platform"
+    return _k8s_category(rel.lower(), "app.yaml")
 
 
 def scan(root: Path) -> ScanResult:
@@ -249,6 +267,8 @@ def scan(root: Path) -> ScanResult:
             if _ignored(rel, False, patterns) or not stat.S_ISREG(st.st_mode):
                 continue   # links, pipes and devices: never followed or opened
             cat = _config_category(rel, fn)
+            if cat == "platform" and fn.lower() == "app.yaml":
+                cat = _app_yaml_category(root, rel)
             if cat:
                 result.configs.setdefault(cat, []).append(rel)
             ext = os.path.splitext(fn)[1].lower()
