@@ -7,6 +7,18 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Optional sound effects** (2026-10-18)
+  - Summary: Footsteps, a click when a block is selected and a chime on arrival, synthesised in the page
+    with WebAudio (no audio files). Off by default; `M` or the button on the controls card turns them on,
+    and the choice is remembered in this browser.
+  - Why: a little sound makes walking feel physical for readers who want it, without surprising anyone
+    who opens a shared page in a meeting.
+- **Click feedback** (2026-10-18)
+  - Summary: Clicking the floor or the minimap drops a ring where the worker is heading, which pulses
+    while walking and shrinks away on arrival. A newly selected block gives a 120 ms bounce, and the
+    hover outline fades in. With reduced motion the ring stays still and nothing bounces or fades.
+  - Why: a click on the floor had no visible answer until the worker started moving, and the hover
+    outline flashed on and off as the pointer crossed blocks.
 - **A concrete floor for the day shift** (2026-10-18)
   - Summary: The day floor and zones are concrete slabs with saw-cut joints: one 256 px texture drawn in
     the page and tiled by world size, so every floor shares it. The night floor keeps its grid.
@@ -71,6 +83,17 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **The worker moves with more weight** (2026-10-18)
+  - Summary: The worker leans into turns and into speeding up or slowing down, squashes a little on
+    landing from a jump, and turns its head towards the selected block when it is in the same room.
+    Reduced motion keeps the body upright and the head turn instant.
+  - Why: the worker slid around stiffly, and nothing on it showed which block the reader had picked.
+- **The camera eases and stays out of blocks** (2026-10-18)
+  - Summary: Dragging, scrolling and pinching set a goal that the camera eases towards (instantly with
+    reduced motion). When a container, silo or rack comes between the worker and the camera, the camera
+    pulls in at once and eases back out when the view is clear.
+  - Why: the camera jumped with each input step and could sit inside a container or silo, showing its
+    inside faces instead of the worker.
 - **Pipe particles show the direction of flow** (2026-10-18)
   - Summary: The dots moving along pipes are short streaks, wide at the head, aligned with the pipe;
     at night they glow with additive blending.

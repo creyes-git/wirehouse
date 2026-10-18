@@ -388,3 +388,63 @@ def test_day_floor_is_concrete(browser, html):
     assert js(page, "__wirehouse.setTheme('day'); __wirehouse.floorTexture()") is True
     assert js(page, "__wirehouse.setTheme('night'); __wirehouse.floorTexture()") is False   # the night floor keeps its grid
     assert errors == []
+
+
+def test_camera_eases_and_never_clips_into_blocks(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "__wirehouse.travelTo('unit:python:api'); for (let i = 0; i < 20 && __wirehouse.state().walking; i++) __wirehouse.tick(60)")
+    assert not js(page, "__wirehouse.state().walking")
+    js(page, "__wirehouse.look(Math.PI, 0.3, 17); __wirehouse.tick(1)")
+    one = js(page, "__wirehouse.camera()")
+    assert 0 < one["yaw"] < 3.0                                   # eases towards the goal instead of jumping
+    cam = js(page, "__wirehouse.tick(120); __wirehouse.camera()")
+    assert abs(cam["yaw"] - 3.14159) < 0.05
+    assert cam["pull"] < 17 - 1 and not cam["inside"]            # the api container is behind the worker now
+    cam = js(page, "__wirehouse.look(0, 0.5, 17); __wirehouse.tick(240); __wirehouse.camera()")
+    assert cam["pull"] > 16                                       # clear again: eases back out
+    assert errors == []
+
+
+def test_clicks_answer_with_a_ring_a_bounce_and_a_fading_outline(browser, html):
+    page, errors = open_view(browser, html)
+    page.mouse.click(640, 700)                                   # the floor in front of the worker
+    assert js(page, "__wirehouse.fx().ring") is not None
+    js(page, "for (let i = 0; i < 20 && __wirehouse.state().walking; i++) __wirehouse.tick(30); __wirehouse.tick(30)")
+    assert js(page, "__wirehouse.fx().ring") is None              # shrank away on arrival
+    assert js(page, "__wirehouse.select('unit:python:api'); __wirehouse.fx().bounce") is True
+    assert js(page, "__wirehouse.tick(10); __wirehouse.fx().bounce") is False   # 120 ms
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert errors == []
+
+
+def test_worker_leans_squashes_and_looks_at_the_selection(browser, html):
+    page, errors = open_view(browser, html)
+    head = js(page, "__wirehouse.select('infra:ci'); __wirehouse.tick(60); __wirehouse.worker().head")
+    assert abs(head) > 0.3                                          # CI/CD stands off to one side
+    squash = js(page, """(() => { __wirehouse.jump(); let m = 0;
+        for (let i = 0; i < 90; i++) { __wirehouse.tick(1, false); m = Math.max(m, __wirehouse.worker().squash); } return m; })()""")
+    assert squash > 0.5                                              # landed
+    lean = js(page, """(() => { __wirehouse.travelTo('res:redis'); let m = 0;
+        for (let i = 0; i < 240; i++) { __wirehouse.tick(1, false); const w = __wirehouse.worker(); m = Math.max(m, Math.abs(w.lean) + Math.abs(w.tilt)); } return m; })()""")
+    assert lean > 0.02
+    assert errors == []
+
+
+def test_sound_is_off_until_turned_on_and_remembered(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "localStorage.clear()")
+    js(page, "__wirehouse.select('unit:python:api')")
+    assert js(page, "__wirehouse.sound()") == {"on": False, "played": 0, "stored": "0"}   # silent by default
+    page.click("#helpBtn")
+    page.click("#soundBtn")
+    assert js(page, "document.querySelector('#soundBtn').getAttribute('aria-pressed')") == "true"
+    page.keyboard.press("Escape")
+    played = js(page, "__wirehouse.select('res:postgres'); __wirehouse.sound().played")
+    assert played >= 2                                          # the button's own click, then the selection
+    page.reload()
+    page.wait_for_function("window.__wirehouse && __wirehouse.state().items > 0")
+    assert js(page, "__wirehouse.sound().on") is True           # remembered in this browser
+    page.keyboard.press("m")
+    assert js(page, "__wirehouse.sound()")["stored"] == "0"
+    assert errors == []

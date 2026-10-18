@@ -562,6 +562,7 @@
   const SLOT_LABEL_FAR = 24, SLOT_LABELS_SHOWN = 24;
   const ANIM = [];   // per-frame animations for the current room
   let PICK = [];     // meshes that can be clicked
+  const BLOCK_OBJ = new Map();   // node id -> its group, for the selection bounce
   let SPRITES = [];  // labels that fade with distance
 
   function tagPick(obj, info) { obj.traverse((o) => { if (o.isMesh) { o.userData.pick = info; PICK.push(o); } }); }
@@ -690,6 +691,7 @@
       ANIM.push((t) => { door.material.opacity = 0.55 + Math.sin(t * 2.4) * 0.25; });
     }
     tagPick(g, { type: 'node', id: n.id });
+    BLOCK_OBJ.set(n.id, g);
     world.add(g);
     // floating label
     const sub = n.kind === 'module' ? `${(n.stats && n.stats.files) || 0} files` : (KIND_LABEL[n.kind] || n.kind);
@@ -739,6 +741,7 @@
     box(it.w, h, it.d, col, 0, 0, 0, g, { edgeOpacity: 0.7 });
     if (n.endpoints && n.endpoints.length) noCast(box(it.w * 0.9, 0.08, 0.04, T.glow ? 0x39c0f5 : 0x2f80c0, 0, h * 0.7, it.d / 2 + 0.03, g, { basic: true, noEdges: true }));
     tagPick(g, { type: 'node', id: n.id });
+    BLOCK_OBJ.set(n.id, g);
     world.add(g);
     const lb = label([shortName(n.name, 26)], 0.34, { big: 40, pad: 10 });
     lb.position.set(it.x, it.y + h + 0.05, it.z + 0.45);
@@ -1039,7 +1042,8 @@
 
   // ── avatar: worker in a hard hat ─────────────────────────────────────────
   let worker = null;
-  const W8 = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), vy: 0, yaw: 0, phase: 0, moving: 0 };
+  const W8 = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), vy: 0, yaw: 0, phase: 0, moving: 0,
+    speed: 0, lean: 0, tilt: 0, squash: 0, air: false, look: 0 };
 
   // A soft round shadow, shared by every blob: drawn once on a 64 px canvas.
   let BLOB = null;
@@ -1100,11 +1104,15 @@
     part(new THREE.BoxGeometry(0.03, 0.34, 0.26), new THREE.MeshStandardMaterial({ color: 0x8a6a45 }), 0.07, -0.62, 0.1, arms[0]);
     part(new THREE.BoxGeometry(0.035, 0.28, 0.2), new THREE.MeshStandardMaterial({ color: 0xf4f4f0 }), 0.08, -0.6, 0.1, arms[0]);
     part(new THREE.CylinderGeometry(0.08, 0.09, 0.1, 10), skin, 0, 1.6, 0, body);
-    const head = part(new THREE.SphereGeometry(0.2, 18, 14), skin, 0, 1.82, 0, body);
-    part(new THREE.SphereGeometry(0.235, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), hat, 0, 1.86, 0, body);
-    part(new THREE.CylinderGeometry(0.32, 0.32, 0.03, 20), hat, 0, 1.86, 0.03, body);
-    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), -0.07, 1.84, 0.18, body);
-    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), 0.07, 1.84, 0.18, body);
+    // head, hat and eyes turn together (towards the selected block)
+    const head = new THREE.Group();
+    head.position.set(0, 1.82, 0);
+    body.add(head);
+    part(new THREE.SphereGeometry(0.2, 18, 14), skin, 0, 0, 0, head);
+    part(new THREE.SphereGeometry(0.235, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), hat, 0, 0.04, 0, head);
+    part(new THREE.CylinderGeometry(0.32, 0.32, 0.03, 20), hat, 0, 0.04, 0.03, head);
+    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), -0.07, 0.02, 0.18, head);
+    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), 0.07, 0.02, 0.18, head);
     // a soft spot of light that follows the worker on the night shift
     let lamp = null;
     if (T.glow) {
@@ -1126,11 +1134,37 @@
     W8.moving += ((speed > 0.3 ? 1 : 0) - W8.moving) * Math.min(1, dt * 10);
     W8.phase += dt * (speed * 1.45);
     const swing = Math.sin(W8.phase) * 0.75 * W8.moving;
+    const stepNo = Math.floor(W8.phase / Math.PI);   // one footstep per leg swing, on the ground only
+    if (stepNo !== W8.step && W8.moving > 0.5 && W8.pos.y === 0) sfx.step();
+    W8.step = stepNo;
     w.legs[0].rotation.x = swing;
     w.legs[1].rotation.x = -swing;
     w.arms[0].rotation.x = -swing * 0.8 - 0.25 * (1 - W8.moving);
     w.arms[1].rotation.x = swing * 0.8;
     w.body.position.y = Math.abs(Math.sin(W8.phase)) * 0.06 * W8.moving + (1 - W8.moving) * Math.sin(time * 1.8) * 0.01;
+    // Lean into turns and into speeding up or slowing down; squash a little on landing.
+    let turn = W8.yaw - w.root.rotation.y;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    const accel = dt > 0 ? (speed - W8.speed) / dt : 0;
+    W8.speed = speed;
+    const ease = Math.min(1, dt * 8);
+    W8.lean += ((reduceMotion ? 0 : clamp(-turn * 0.35 * Math.min(1, speed / 6), -0.22, 0.22)) - W8.lean) * ease;
+    W8.tilt += ((reduceMotion ? 0 : clamp(accel * 0.012, -0.16, 0.16)) - W8.tilt) * ease;
+    if (W8.air && W8.pos.y === 0 && !reduceMotion) W8.squash = 1;
+    W8.air = W8.pos.y > 0;
+    W8.squash = Math.max(0, W8.squash - dt * 6);
+    const sq = Math.sin(W8.squash * Math.PI) * 0.16;
+    w.body.rotation.set(W8.tilt, 0, W8.lean);
+    w.body.scale.set(1 + sq * 0.5, 1 - sq, 1 + sq * 0.5);
+    // The head turns towards the selected block when it is in this room, within what a neck allows.
+    const sel = selected && selected.type !== 'link' && itemsById.get(selected.id);
+    let look = 0;
+    if (sel) {
+      look = Math.atan2(sel.x - W8.pos.x, sel.z - W8.pos.z) - w.root.rotation.y;
+      look = clamp(Math.atan2(Math.sin(look), Math.cos(look)), -1.1, 1.1);
+    }
+    W8.look += (look - W8.look) * (reduceMotion ? 1 : Math.min(1, dt * 6));
+    w.head.rotation.y = W8.look;
     w.root.position.copy(W8.pos);
     // the blob stays on the floor and shrinks as the worker jumps
     w.blob.position.y = 0.04 - W8.pos.y;
@@ -1166,6 +1200,8 @@
     while (world.children.length) world.remove(world.children[0]);
     ANIM.length = 0;
     PICK = [];
+    BLOCK_OBJ.clear();
+    FX.ring = FX.bounce = null;
     SPRITES = [];
     LINKS = [];
     PART.length = 0;
@@ -1182,8 +1218,8 @@
     room.items.forEach((it) => (it.shape === 'slot' ? makeSlot(it) : makeBlock(it)));
     flushInstances();
     makeContactShadows(room);
-    OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2 }))
-      .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2 })));
+    OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2, y1: it.h }))
+      .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2, y1: r.h })));
     const { inner, ports } = roomLinks(R);
     room.links = inner;
     const pairCount = new Map();
@@ -1246,6 +1282,7 @@
       world.add(b);
     }
     if (which === 'sel') selBox = b; else hovBox = b;
+    if (b && which === 'hov' && !reduceMotion) { b.material.transparent = true; b.material.opacity = 0; }   // fades in, see updateFx
   }
   function applyFocus() {
     const lit = litLinks();   // a trace, route or tour step lights its own pipes; hovering still peeks
@@ -1270,8 +1307,42 @@
     if (planOn) planFocus();
   }
 
+  // ── click feedback ───────────────────────────────────────────────────────
+  // A ring where a click sends the worker (it shrinks away on arrival), a short bounce on the block
+  // just selected, and a hover outline that fades in rather than flashing.
+  const FX = { ring: null, bounce: null };
+  function walkRing(x, z) {
+    if (FX.ring) { world.remove(FX.ring.mesh); FX.ring.mesh.geometry.dispose(); FX.ring.mesh.material.dispose(); }
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.62, 40).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: T.glow ? 0xffb23f : 0x1f6fd1, transparent: true, opacity: 0.9, depthWrite: false }));
+    m.position.set(x, 0.05, z);
+    m.renderOrder = 4;
+    world.add(m);
+    FX.ring = { mesh: m, t: 0, leaving: 0 };
+  }
+  function updateFx(dt) {
+    const R = FX.ring;
+    if (R) {
+      R.t += dt;
+      if (!W8.path) R.leaving += dt;   // arrived, or the walk was cut short
+      const s = R.leaving ? Math.max(0, 1 - R.leaving / 0.3) : (reduceMotion ? 1 : 1 + Math.sin(R.t * 6) * 0.08);
+      R.mesh.scale.setScalar(Math.max(s, 0.001));
+      if (R.leaving >= 0.3) { world.remove(R.mesh); R.mesh.geometry.dispose(); R.mesh.material.dispose(); FX.ring = null; }
+    }
+    const B = FX.bounce;
+    if (B) {
+      B.t += dt;
+      const k = B.t < 0.12 ? Math.sin((Math.PI * B.t) / 0.12) : 0;
+      B.g.scale.set(1 + k * 0.06, 1 + k * 0.1, 1 + k * 0.06);
+      if (B.t >= 0.12) { FX.bounce = null; refreshShadows(); }   // the block is back in place: redraw its shadow once
+    }
+    if (hovBox && hovBox.material.opacity < 1) hovBox.material.opacity = Math.min(1, hovBox.material.opacity + dt / 0.15);
+  }
+
   // ── camera, input, movement ──────────────────────────────────────────────
-  const cam = { yaw: 0, pitch: 0.5, dist: 17, target: new THREE.Vector3(), follow: false };
+  // Input moves the goal; the camera eases towards it, so drags, wheel steps and pinches feel smooth.
+  // `pull` is the distance actually used once obstacles between the worker and the camera are counted.
+  const cam = { yaw: 0, pitch: 0.5, dist: 17, pull: 17, target: new THREE.Vector3(), follow: false, goal: { yaw: 0, pitch: 0.5, dist: 17 } };
   const keys = new Set();
   const canvas = renderer ? renderer.domElement : null;
   const ptr = { x: 0, y: 0, down: false, sx: 0, sy: 0, drag: false, moved: false, inside: false };
@@ -1315,7 +1386,7 @@
         touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (touches.size === 2) {
           const d = spread();
-          if (pinch > 0 && d > 0) cam.dist = clamp(cam.dist * (pinch / d), 3.2, 70);
+          if (pinch > 0 && d > 0) cam.goal.dist = clamp(cam.goal.dist * (pinch / d), 3.2, 70);
           pinch = d;
           return;
         }
@@ -1325,8 +1396,8 @@
       if (!ptr.down) return;
       if (!ptr.drag && Math.hypot(e.clientX - ptr.sx, e.clientY - ptr.sy) > 5) { ptr.drag = true; canvas.classList.add('dragging'); }
       if (ptr.drag) {
-        cam.yaw -= dx * 0.0055;
-        cam.pitch = clamp(cam.pitch + dy * 0.004, 0.05, 1.35);
+        cam.goal.yaw -= dx * 0.0055;
+        cam.goal.pitch = clamp(cam.goal.pitch + dy * 0.004, 0.05, 1.35);
         cam.follow = false;
       }
     });
@@ -1348,7 +1419,7 @@
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      cam.dist = clamp(cam.dist * (1 + e.deltaY * 0.0011), 3.2, 70);
+      cam.goal.dist = clamp(cam.goal.dist * (1 + e.deltaY * 0.0011), 3.2, 70);
     }, { passive: false });
   }
 
@@ -1362,6 +1433,7 @@
       else select(hit.info.id);
     } else {
       travelToPoint(hit.point.x, hit.point.z);
+      walkRing(hit.point.x, hit.point.z);
     }
   }
 
@@ -1474,18 +1546,47 @@
     if (room.R && W8.pos.z > room.D / 2 - 0.1 && !transitioning) exitRoom();
   }
 
+  // Where the segment from the worker to the camera first enters a block or rack (0..1), or 1 if it
+  // is clear. Slab test against each footprint box raised to the item's height.
+  function cameraBlock(ax, ay, az, bx, by, bz) {
+    let best = 1;
+    const d = [bx - ax, by - ay, bz - az], a = [ax, ay, az];
+    for (const o of OBST) {
+      const lo = [o.x0 - 0.3, -1, o.z0 - 0.3], hi = [o.x1 + 0.3, o.y1 + 0.3, o.z1 + 0.3];
+      if (ax > lo[0] && ax < hi[0] && az > lo[2] && az < hi[2] && ay < hi[1]) continue;   // the worker stands in its pad
+      let t0 = 0, t1 = best, hit = true;
+      for (let k = 0; k < 3 && hit; k++) {
+        if (Math.abs(d[k]) < 1e-9) { if (a[k] < lo[k] || a[k] > hi[k]) hit = false; continue; }
+        let u = (lo[k] - a[k]) / d[k], v = (hi[k] - a[k]) / d[k];
+        if (u > v) [u, v] = [v, u];
+        t0 = Math.max(t0, u); t1 = Math.min(t1, v);
+        if (t0 > t1) hit = false;
+      }
+      if (hit && t0 < best) best = t0;
+    }
+    return best;
+  }
   function updateCamera(dt) {
     if (cam.follow && W8.path) {
-      let d = (W8.yaw + Math.PI) - cam.yaw;
+      let d = (W8.yaw + Math.PI) - cam.goal.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      cam.yaw += d * Math.min(1, dt * 1.6);
+      cam.goal.yaw += d * Math.min(1, dt * 1.6);
     }
+    const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 12), kz = reduceMotion ? 1 : 1 - Math.exp(-dt * 8);
+    cam.yaw += (cam.goal.yaw - cam.yaw) * k;
+    cam.pitch += (cam.goal.pitch - cam.pitch) * k;
+    cam.dist += (cam.goal.dist - cam.dist) * kz;
     const tgt = tmpV.set(W8.pos.x, W8.pos.y + 1.55, W8.pos.z);
     cam.target.lerp(tgt, Math.min(1, dt * 10));
     const cp = Math.cos(cam.pitch);
-    let x = cam.target.x + Math.sin(cam.yaw) * cp * cam.dist;
-    let y = cam.target.y + Math.sin(cam.pitch) * cam.dist;
-    let z = cam.target.z + Math.cos(cam.yaw) * cp * cam.dist;
+    const ux = Math.sin(cam.yaw) * cp, uy = Math.sin(cam.pitch), uz = Math.cos(cam.yaw) * cp;
+    // Pull in at once when a container or silo comes between, ease back out once it is clear.
+    const t = cameraBlock(cam.target.x, cam.target.y, cam.target.z, cam.target.x + ux * cam.dist, cam.target.y + uy * cam.dist, cam.target.z + uz * cam.dist);
+    const want = t < 1 ? Math.max(0.5, cam.dist * t - 0.25) : cam.dist;   // the 0.3 pad keeps it off the surface
+    cam.pull = want < cam.pull ? want : cam.pull + (want - cam.pull) * kz;
+    let x = cam.target.x + ux * cam.pull;
+    let y = cam.target.y + uy * cam.pull;
+    let z = cam.target.z + uz * cam.pull;
     const out = 30; // the camera may step outside; walls behind it get hidden
     x = clamp(x, -room.W / 2 - out, room.W / 2 + out);
     z = clamp(z, -room.D / 2 - out, room.D / 2 + out);
@@ -1574,6 +1675,7 @@
 
   let arrival = null;
   function arrive() {
+    if (W8.path) sfx.arrive();
     W8.path = null;
     const a = arrival;
     arrival = null;
@@ -1616,8 +1718,9 @@
     W8.vel.set(0, 0, 0);
     W8.path = null;
     arrival = null;
-    cam.yaw = 0;
-    cam.pitch = 0.5;
+    cam.yaw = cam.goal.yaw = 0;
+    cam.pitch = cam.goal.pitch = 0.5;
+    cam.pull = cam.dist;
     cam.target.set(W8.pos.x, 1.55, W8.pos.z);
     if (worker) worker.root.rotation.y = W8.yaw;
   }
@@ -1849,8 +1952,11 @@
     const n = N.get(id);
     if (!n) return;
     if (pick && pick.from !== id) { const from = pick.from; endPick(); startRoute(from, id); return; }
+    const again = selected && selected.id === id;
     selected = { type: 'node', id };
     applyFocus();
+    if (!again && BLOCK_OBJ.has(id) && !reduceMotion) FX.bounce = { g: BLOCK_OBJ.get(id), t: 0 };
+    if (!again) sfx.click();
     const col = css(kindHex(n.kind));
     const inRoom = itemsById.has(id);
     const isOutside = !inRoom && !!opts.port;
@@ -3091,7 +3197,9 @@
   mm.addEventListener('click', (e) => {
     if (!mmT || planOn) return;
     const r = mm.getBoundingClientRect();
-    travelToPoint((e.clientX - r.left - mmT.ox) / mmT.s, (e.clientY - r.top - mmT.oz) / mmT.s);
+    const x = (e.clientX - r.left - mmT.ox) / mmT.s, z = (e.clientY - r.top - mmT.oz) / mmT.s;
+    travelToPoint(x, z);
+    walkRing(x, z);
   });
 
   // The pipe key doubles as a filter: switch a kind of connection off to hide its
@@ -3327,6 +3435,66 @@
   }
   $('#theme').addEventListener('click', () => setTheme(themeId === 'night' ? 'day' : 'night'));
 
+  // ── sound ────────────────────────────────────────────────────────────────
+  // Off until the reader turns it on (M or the button on the controls card), remembered per browser.
+  // Everything is synthesised with WebAudio: no audio files ship in the page.
+  const SND = { on: store.get('sound', '0') === '1', ctx: null, noise: null, played: 0 };
+  function audio() {
+    if (!SND.on) return null;
+    if (!SND.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { SND.ctx = new AC(); } catch (e) { return null; }
+      const len = SND.ctx.sampleRate * 0.2, buf = SND.ctx.createBuffer(1, len, SND.ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      SND.noise = buf;
+    }
+    if (SND.ctx.state === 'suspended') SND.ctx.resume();
+    return SND.ctx;
+  }
+  function envelope(ctx, node, t0, peak, dur) {
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    node.connect(g).connect(ctx.destination);
+  }
+  function tone(freq, delay, dur, peak, type) {
+    const ctx = audio();
+    if (!ctx) return;
+    const o = ctx.createOscillator(), t0 = ctx.currentTime + delay;
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    envelope(ctx, o, t0, peak, dur);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+    SND.played++;
+  }
+  const sfx = {
+    step() {   // a soft scuff: a burst of low-passed noise
+      const ctx = audio();
+      if (!ctx) return;
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), t0 = ctx.currentTime;
+      src.buffer = SND.noise;
+      f.type = 'lowpass'; f.frequency.value = 520 + Math.random() * 160;
+      src.connect(f);
+      envelope(ctx, f, t0, 0.07, 0.07);
+      src.start(t0, Math.random() * 0.1, 0.09);
+      SND.played++;
+    },
+    click() { tone(1180, 0, 0.05, 0.05, 'triangle'); },
+    arrive() { tone(660, 0, 0.22, 0.06); tone(990, 0.09, 0.3, 0.05); },
+  };
+  function setSound(on) {
+    SND.on = on;
+    store.set('sound', on ? '1' : '0');
+    const b = $('#soundBtn');
+    b.textContent = on ? 'Sound: on' : 'Sound: off';
+    b.setAttribute('aria-pressed', String(on));
+    if (on) sfx.click();   // the press is the gesture that lets the browser start audio
+  }
+  $('#soundBtn').addEventListener('click', () => setSound(!SND.on));
+  KEYS.m = () => { setSound(!SND.on); toast(SND.on ? 'Sound effects on' : 'Sound effects off'); };
+
   // ── welcome card ─────────────────────────────────────────────────────────
   function openWelcome() { $('#welcome').hidden = false; $('#welcomeGo').focus(); }
   function closeWelcome() { $('#welcome').hidden = true; store.set('welcomed', '1'); if (canvas) canvas.focus({ preventScroll: true }); }
@@ -3389,6 +3557,7 @@
     animateWorker(dt, time);
     updateCamera(dt);
     updateShell();
+    updateFx(dt);
     if (!reduceMotion) ANIM.forEach((f) => f(time));
     updateParticles(reduceMotion ? 0 : time);
     updateHover();
@@ -3443,7 +3612,7 @@
       return renderer && renderer.getPixelRatio();
     },
     idle: () => idle(performance.now()),
-    tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
+    tick(n, draw) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); updateFx(1 / 60); } if (renderer && draw !== false) renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
     // how well the first moving particle lines up with its pipe (1 = along the flow)
@@ -3460,6 +3629,18 @@
       return { align: best, additive: particles.material.blending === THREE.AdditiveBlending };
     },
     floorTexture: () => { const f = world.children.find((c) => c.userData.floor); return !!(f && f.material.map); },
+    fx: () => ({
+      ring: FX.ring ? +FX.ring.mesh.scale.x.toFixed(2) : null, bounce: !!FX.bounce,
+      hover: hovBox ? +hovBox.material.opacity.toFixed(2) : null,
+    }),
+    sound: () => ({ on: SND.on, played: SND.played, stored: store.get('sound', '0') }),
+    worker: () => ({ lean: W8.lean, tilt: W8.tilt, squash: W8.squash, head: W8.look }),
+    jump() { W8.vy = 6.5; },
+    look(yaw, pitch, dist) { Object.assign(cam.goal, { yaw, pitch, dist }); },
+    camera: () => {
+      const c = camera.position, inside = OBST.some((o) => c.x > o.x0 && c.x < o.x1 && c.z > o.z0 && c.z < o.z1 && c.y < o.y1);
+      return { yaw: cam.yaw, goal: Object.assign({}, cam.goal), dist: cam.dist, pull: cam.pull, inside };
+    },
     contactShadows: () => { const o = world.children.find((c) => c.userData.contact); return o ? o.count : 0; },
     labels: () => ({
       slots: SPRITES.filter((s) => s.slot && s.sp.visible).length, blocks: SPRITES.filter((s) => !s.slot && s.sp.visible).length,
@@ -3485,6 +3666,8 @@
   async function start() {
     $('#theme').textContent = themeId === 'night' ? 'Day shift' : 'Night shift';
     document.documentElement.dataset.theme = themeId;
+    $('#soundBtn').textContent = SND.on ? 'Sound: on' : 'Sound: off';
+    $('#soundBtn').setAttribute('aria-pressed', String(SND.on));
     try {
       await Promise.race([
         Promise.all([document.fonts.load('600 40px "Barlow Condensed"'), document.fonts.load('700 40px "Barlow Condensed"'), document.fonts.load('500 30px "Barlow"')]),
