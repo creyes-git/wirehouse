@@ -12,6 +12,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -38,6 +39,30 @@ JS_LANGS = {"typescript", "javascript"}
 ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template", ".env.dist", ".env.defaults", "example.env", "sample.env"}
 
 MAX_FILE_BYTES = 400_000
+
+
+def _is_link(path: str) -> bool:
+    # A junction is Windows' folder link; os.path.islink() does not see it (isjunction is 3.12+).
+    return os.path.islink(path) or bool(getattr(os.path, "isjunction", lambda _: False)(path))
+
+
+def read_inside(root: Path, rel: str, limit: int = MAX_FILE_BYTES) -> bytes | None:
+    """The bytes of a regular file under `root`, or None for links, devices, pipes, big files and paths that leave it.
+
+    Links can point anywhere on the machine (`package.json -> ~/.npmrc`), and reading a pipe or a device
+    never ends, so only plain files that really live inside the project are opened.
+    """
+    path = root / rel
+    try:
+        if not path.resolve().is_relative_to(root.resolve()):
+            return None
+        st = os.lstat(path)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > limit or _is_link(str(path)):
+            return None
+        with path.open("rb") as fh:
+            return fh.read(limit + 1)[:limit]
+    except (OSError, ValueError):
+        return None
 
 
 def as_dict(value) -> dict:
@@ -85,10 +110,8 @@ class ScanResult:
     skipped_large: int = 0
 
     def read(self, rel: str) -> str:
-        try:
-            return (self.root / rel).read_text(encoding="utf-8-sig", errors="replace")
-        except OSError:
-            return ""
+        raw = read_inside(self.root, rel)
+        return raw.decode("utf-8-sig", errors="replace") if raw is not None else ""
 
 
 @dataclass(frozen=True)
@@ -102,9 +125,9 @@ class IgnoreRule:
 
 def _load_gitignore(root: Path, rel_dir: str = "") -> list[IgnoreRule]:
     rules: list[IgnoreRule] = []
-    gi = root / rel_dir / ".gitignore"
-    if gi.is_file():
-        for raw in gi.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+    raw_text = read_inside(root, f"{rel_dir}/.gitignore" if rel_dir else ".gitignore")
+    if raw_text is not None:
+        for raw in raw_text.decode("utf-8-sig", errors="replace").splitlines():
             line = raw.strip()
             if not line or line.startswith("#"):
                 continue
@@ -211,15 +234,20 @@ def scan(root: Path) -> ScanResult:
             rd = f"{rel_dir}/{d}" if rel_dir else d
             if d in IGNORE_DIRS or d.endswith(".egg-info") or (d.startswith(".") and d not in (".github",)):
                 continue
-            if _ignored(rd, True, patterns):
-                continue
+            if _ignored(rd, True, patterns) or _is_link(os.path.join(dirpath, d)):
+                continue   # a linked folder can lead out of the project
             keep.append(d)
             rules_for[rd] = patterns
         dirnames[:] = sorted(keep)
         for fn in sorted(filenames):
             rel = f"{rel_dir}/{fn}" if rel_dir else fn
-            if _ignored(rel, False, patterns):
+            full = Path(dirpath) / fn
+            try:
+                st = os.lstat(full)
+            except OSError:
                 continue
+            if _ignored(rel, False, patterns) or not stat.S_ISREG(st.st_mode):
+                continue   # links, pipes and devices: never followed or opened
             cat = _config_category(rel, fn)
             if cat:
                 result.configs.setdefault(cat, []).append(rel)
@@ -227,14 +255,12 @@ def scan(root: Path) -> ScanResult:
             lang = SOURCE_EXT.get(ext)
             if not lang or fn.endswith(".d.ts") or fn.endswith(".min.js"):
                 continue
-            full = Path(dirpath) / fn
-            try:
-                size = full.stat().st_size
-                if size > MAX_FILE_BYTES:
-                    result.skipped_large += 1
-                    continue
-                raw = full.read_bytes()
-            except OSError:
+            size = st.st_size
+            if size > MAX_FILE_BYTES:
+                result.skipped_large += 1
+                continue
+            raw = read_inside(root, rel)
+            if raw is None:
                 continue
             text = raw.decode("utf-8-sig", errors="replace")   # editors on Windows often write a BOM
             result.sources.append(

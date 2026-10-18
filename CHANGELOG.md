@@ -202,6 +202,12 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
+- **The scan stays inside the project folder** (2026-10-18)
+  - Summary: Symlinks, Windows junctions, pipes and devices are skipped, every file read must resolve to
+    a path inside the project, and config files (compose, workflows, `.gitignore`, `package.json`, ...)
+    over 400 KB are not read, like source files.
+  - Why: a linked folder or a `package.json -> ~/.npmrc` link let the scan read files outside the
+    project, a named pipe called `x.py` hung it, and config reads had no size cap.
 - **The scan never runs filters named by the repository's own git config** (2026-10-18)
   - Summary: When the checkout's `.git/config` (or a file it includes) defines a `filter.*` clean or
     smudge command, the scan skips `git status` and marks the list of changed files as incomplete. Filters

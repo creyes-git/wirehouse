@@ -1187,3 +1187,26 @@ def test_scan_never_runs_filters_from_the_repos_own_git_config(tmp_path):
     info = repo.repo_info(tmp_path)
     assert not (tmp_path / "PWNED").exists()
     assert info["dirty"] == [] and info["dirty_complete"] is False   # the page then says links may show older code
+
+
+def test_scan_stays_inside_the_project(tmp_path):
+    # Links can lead anywhere on the machine and a pipe never ends: neither may be read.
+    import os
+
+    from wirehouse.scan import MAX_FILE_BYTES, scan
+
+    outside, root = tmp_path / "outside", tmp_path / "proj"
+    _write(outside, {"leak.py": "OUTSIDE_SOURCE = 1\n", "package.json": json.dumps({"name": "OUTSIDE_PKG"})})
+    _write(root, {"app/main.py": "x = 1\n", "app/docker-compose.yml": "services:\n  web:\n    image: x\n" + "#" * MAX_FILE_BYTES})
+    try:
+        os.symlink(outside, root / "linked", target_is_directory=True)
+        os.symlink(outside / "package.json", root / "app" / "package.json")
+    except (OSError, NotImplementedError):
+        pytest.skip("this system cannot create symlinks")
+    if hasattr(os, "mkfifo"):
+        os.mkfifo(root / "app" / "pipe.py")
+    res = scan(root)
+    assert [s.rel for s in res.sources] == ["app/main.py"]
+    assert "package_json" not in res.configs
+    assert res.read("app/docker-compose.yml") == ""            # over the size cap: not read at all
+    assert res.read("../outside/package.json") == "" and res.read("linked/package.json") == ""
