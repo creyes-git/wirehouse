@@ -249,6 +249,11 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **The README says when the shared skills folder is written** (2026-10-18)
+  - Summary: `~/.agents/skills` is written by a plain `wirehouse install`, not when `--agent` or `--dir`
+    picks the targets; the README table and the code comment now say so.
+  - Why: both said "always written", which was not true and could leave a reader looking for a file
+    that was never created.
 - **Building needs setuptools 77 or newer** (2026-10-18)
   - Summary: `pyproject.toml` requires `setuptools>=77` to build.
   - Why: the `license = "MIT"` and `license-files` fields follow PEP 639, which older setuptools rejects
