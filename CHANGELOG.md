@@ -7,6 +7,18 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Exploration marks** (2026-10-18)
+  - Summary: On the main floor, a block you have inspected carries a small tick on its label, and the
+    minimap draws blocks you have not inspected yet as outlines, filling them in as you go. Both follow
+    the progress kept in this browser and clear with "Start over".
+  - Why: in a big map it was hard to tell which blocks were already looked at; the Clipboard counted
+    them but the floor did not show it.
+- **A first-shift checklist** (2026-10-18)
+  - Summary: The Clipboard opens with four moves to try: walk to a block, step inside one, trace
+    downstream and start a tour (when the page has tours). Each ticks off when done, is kept with the
+    rest of the progress in this browser, and the list steps aside once all are done. No points or scores.
+  - Why: new readers found the warehouse but not what it can do; these four moves open up the rest of
+    the page.
 - **Optional sound effects** (2026-10-18)
   - Summary: Footsteps, a click when a block is selected and a chime on arrival, synthesised in the page
     with WebAudio (no audio files). Off by default; `M` or the button on the controls card turns them on,
@@ -83,6 +95,12 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **Traces ripple out hop by hop** (2026-10-18)
+  - Summary: When a trace, route or tour lights the floor, its rings and badges appear in the order the
+    recorded hops reach them, a quarter second per hop, and the lit pipes pulse. With reduced motion they
+    all show at once and hold still.
+  - Why: everything lit at once hid the order of the path, which is the point of a trace; the order comes
+    from the same hop counts the badges already show.
 - **The worker moves with more weight** (2026-10-18)
   - Summary: The worker leans into turns and into speeding up or slowing down, squashes a little on
     landing from a jump, and turns its head towards the selected block when it is in the same room.

@@ -448,3 +448,53 @@ def test_sound_is_off_until_turned_on_and_remembered(browser, html):
     page.keyboard.press("m")
     assert js(page, "__wirehouse.sound()")["stored"] == "0"
     assert errors == []
+
+
+def test_trace_marks_ripple_out_in_hop_order(browser, html):
+    page, errors = open_view(browser, html)
+    marks = js(page, "__wirehouse.startTrace('down', 'unit:js:web'); __wirehouse.ripple()")
+    assert {m["hop"] for m in marks} == {0, 1, 2}                  # from the recorded hop data
+    assert all(m["shown"] == (m["hop"] == 0) for m in marks)        # only the start at first
+    marks = js(page, "__wirehouse.tick(20, false); __wirehouse.ripple()")   # 0.33 s: one hop out
+    assert all(m["shown"] == (m["hop"] <= 1) for m in marks)
+    marks = js(page, "__wirehouse.tick(30, false); __wirehouse.ripple()")
+    assert all(m["shown"] and m["opacity"] == 1 for m in marks)
+    assert errors == []
+
+
+def test_trace_marks_hold_still_with_reduced_motion(browser, html):
+    page, errors = open_view(browser, html, reduced_motion="reduce")
+    marks = js(page, "__wirehouse.startTrace('down', 'unit:js:web'); __wirehouse.ripple()")
+    assert marks and all(m["shown"] and m["opacity"] == 1 for m in marks)
+    assert errors == []
+
+
+def test_first_shift_checklist_ticks_off_the_four_moves(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "localStorage.clear(); __wirehouse.toggleClip(true)")
+    assert page.locator("#clip .shift li").count() == 4 and page.locator("#clip .shift li.found").count() == 0
+    js(page, "__wirehouse.travelTo('unit:python:api'); for (let i = 0; i < 20 && __wirehouse.state().walking; i++) __wirehouse.tick(60, false)")
+    js(page, "__wirehouse.startTrace('down', 'unit:js:web')")
+    js(page, "__wirehouse.startTour('main-floor', 0, false)")
+    js(page, "__wirehouse.enterBlock('unit:python:api')")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert sorted(js(page, "__wirehouse.progress().shift")) == ["enter", "tour", "trace", "walk"]
+    js(page, "__wirehouse.toggleClip(true)")
+    assert page.locator("#clip .shift").count() == 0                 # done: the list steps aside
+    assert "score" not in page.inner_text("#clip").lower()
+    assert errors == []
+
+
+def test_inspected_blocks_are_ticked_and_the_rest_are_outlines(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "localStorage.clear()")
+    page.reload()
+    page.wait_for_function("window.__wirehouse && __wirehouse.state().items > 0")
+    before = js(page, "__wirehouse.explored()")
+    assert before["ticked"] == [] and before["outlines"] == js(page, "__wirehouse.state().items")
+    after = js(page, "__wirehouse.select('unit:python:api'); __wirehouse.explored()")
+    assert after["ticked"] == ["unit:python:api"] and after["outlines"] == before["outlines"] - 1
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert js(page, "__wirehouse.explored().outlines") == 0      # rooms keep their filled minimap
+    assert errors == []

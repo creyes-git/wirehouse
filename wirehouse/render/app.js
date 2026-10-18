@@ -507,14 +507,26 @@
     let w = 0;
     lines.forEach((l, i) => { ctx.font = fonts[i]; w = Math.max(w, ctx.measureText(l).width); });
     const lh = lines.map((l, i) => (i === 0 ? big * 1.12 : big * 0.8));
-    c.width = Math.ceil(Math.min(w, 1400) + pad * 2);
+    const tabW = o.check ? Math.round(big * 1.1) : 0;   // "inspected" tab on the right edge
+    const bw = Math.ceil(Math.min(w, 1400) + pad * 2);
+    c.width = bw + tabW;
     c.height = Math.ceil(lh.reduce((a, b) => a + b, 0) + pad * 1.4);
+    const rounded = (x0, x1, r) => {
+      ctx.beginPath();
+      ctx.moveTo(x0 + r, 0); ctx.arcTo(x1, 0, x1, c.height, r); ctx.arcTo(x1, c.height, x0, c.height, r);
+      ctx.arcTo(x0, c.height, x0, 0, r); ctx.arcTo(x0, 0, x1, 0, r); ctx.closePath();
+    };
+    if (o.check) {
+      rounded(bw - 12, c.width, 10);
+      ctx.fillStyle = o.check; ctx.fill();
+      const cx = bw + tabW / 2 - 6, cy = c.height / 2, k = big * 0.22;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(3, big * 0.1); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(cx - k, cy); ctx.lineTo(cx - k * 0.25, cy + k * 0.8); ctx.lineTo(cx + k * 1.1, cy - k * 0.9); ctx.stroke();
+    }
     if (o.bg !== false) {
       ctx.fillStyle = o.bg || T.label.bg;
-      const r = 10;
-      ctx.beginPath();
-      ctx.moveTo(r, 0); ctx.arcTo(c.width, 0, c.width, c.height, r); ctx.arcTo(c.width, c.height, 0, c.height, r);
-      ctx.arcTo(0, c.height, 0, 0, r); ctx.arcTo(0, 0, c.width, 0, r); ctx.closePath(); ctx.fill();
+      rounded(0, bw, 10);
+      ctx.fill();
       if (o.stripe) { ctx.fillStyle = o.stripe; ctx.fillRect(0, 0, 7, c.height); }
       ctx.strokeStyle = T.label.edge; ctx.lineWidth = 2; ctx.stroke();
     }
@@ -524,7 +536,7 @@
       ctx.fillStyle = i === 0 ? (o.ink || T.label.ink) : (o.sub || T.label.sub);
       ctx.textBaseline = 'top';
       ctx.textAlign = o.align === 'left' ? 'left' : 'center';
-      const tx = o.align === 'left' ? pad + (o.stripe ? 6 : 0) : c.width / 2;
+      const tx = o.align === 'left' ? pad + (o.stripe ? 6 : 0) : bw / 2;
       ctx.fillText(l, tx, y + (i === 0 ? big * 0.06 : 0));
       y += lh[i];
     });
@@ -563,6 +575,7 @@
   const ANIM = [];   // per-frame animations for the current room
   let PICK = [];     // meshes that can be clicked
   const BLOCK_OBJ = new Map();   // node id -> its group, for the selection bounce
+  const BLOCK_LABELS = new Map();   // node id -> its floating label, for the "inspected" tab
   let SPRITES = [];  // labels that fade with distance
 
   function tagPick(obj, info) { obj.traverse((o) => { if (o.isMesh) { o.userData.pick = info; PICK.push(o); } }); }
@@ -695,7 +708,9 @@
     world.add(g);
     // floating label
     const sub = n.kind === 'module' ? `${(n.stats && n.stats.files) || 0} files` : (KIND_LABEL[n.kind] || n.kind);
-    const lb = label([shortName(n.name, 28), sub], S === 'crate' ? 0.95 : 1.25, { stripe: css(col), align: 'left' });
+    const lbLines = [shortName(n.name, 28), sub], lbOpts = { stripe: css(col), align: 'left' };
+    const lb = label(lbLines, S === 'crate' ? 0.95 : 1.25, seenOpts(n.id, lbOpts));
+    BLOCK_LABELS.set(n.id, { sp: lb, lines: lbLines, opts: lbOpts });
     lb.position.set(it.x, h + (S === 'machine' || n.kind === 'ai' || S === 'gate' ? 2.3 : 0.6), it.z);
     world.add(lb);
     // on the main floor a far block's name never shrinks below about 14 px of text
@@ -1201,6 +1216,7 @@
     ANIM.length = 0;
     PICK = [];
     BLOCK_OBJ.clear();
+    BLOCK_LABELS.clear();
     FX.ring = FX.bounce = null;
     SPRITES = [];
     LINKS = [];
@@ -1680,6 +1696,7 @@
     const a = arrival;
     arrival = null;
     if (a && a.face) W8.yaw = Math.atan2(a.face.x - W8.pos.x, a.face.z - W8.pos.z);
+    if (a) shiftDone('walk');
     if (a && a.then) a.then();
   }
   function travelToPoint(x, z, then, face) {
@@ -1754,7 +1771,7 @@
       }, 260);
     } else doIt();
   }
-  function enterBlock(id) { if (enterable(id)) goRoom(id); }
+  function enterBlock(id) { if (enterable(id)) { goRoom(id); shiftDone('enter'); } }
   function exitRoom() { if (room && room.R) goRoom(parentOf(room.R), { from: room.R }); }
   function interact() {
     const near = nearest();
@@ -2208,6 +2225,7 @@
     endPick(true); stopPlayer(true);
     trace = { mode: dir === 'up' ? 'up' : 'down', id, res: walk(id, dir) };
     refreshMarks(); drawBar(); syncHash();
+    if (trace.mode === 'down') shiftDone('trace');
   }
   function startPick(from) {
     if (!N.has(from)) return;
@@ -2265,7 +2283,7 @@
       const best = new Map();
       res.dist.forEach((d, id) => { const r = rep(id); if (r && (!best.has(r) || best.get(r) > d)) best.set(r, d); });
       const s = rep(res.start);
-      best.forEach((d, r) => MARK.badges.set(r, { text: r === s ? startText : hops(d), color, strong: r === s }));
+      best.forEach((d, r) => MARK.badges.set(r, { text: r === s ? startText : hops(d), color, strong: r === s, hop: d }));
       MARK.ids = new Set(best.keys());
       MARK.lit = (info) => { for (const i of info.ids) if (res.used.has(i)) return true; return false; };
       MARK.hop = best;
@@ -2273,7 +2291,7 @@
     if (player) {
       const order = new Map();
       player.stops.forEach((st, k) => { const r = rep(st.id); if (r && !order.has(r)) order.set(r, k); });
-      order.forEach((k, r) => MARK.badges.set(r, { text: String(k + 1), color: TC.route, strong: k === player.i }));
+      order.forEach((k, r) => MARK.badges.set(r, { text: String(k + 1), color: TC.route, strong: k === player.i, hop: k }));
       MARK.ids = new Set(order.keys());
       if (player.used) MARK.lit = (info) => { for (const i of info.ids) if (player.used.has(i)) return true; return false; };
     } else if (pick) byHop(pick.res, TC.route, 'From');
@@ -2283,7 +2301,7 @@
       const order = new Map();
       trace.path.forEach((p) => { const r = rep(p.id); if (r && !order.has(r)) order.set(r, p.stop); });
       const end = rep(trace.b), first = order.keys().next().value;
-      order.forEach((s, r) => MARK.badges.set(r, { text: r === first ? 'Start' : r === end ? 'End' : String(s + 1), color: TC.route, strong: r === first || r === end }));
+      order.forEach((s, r) => MARK.badges.set(r, { text: r === first ? 'Start' : r === end ? 'End' : String(s + 1), color: TC.route, strong: r === first || r === end, hop: s }));
       MARK.ids = new Set(order.keys());
       MARK.lit = (info) => { for (const i of info.ids) if (trace.used.has(i)) return true; return false; };
     } else if (trace) byHop(trace.res, TC[trace.mode], 'Start');
@@ -2308,6 +2326,7 @@
       if (o.material) o.material.dispose();
     });
     markObjs = [];
+    markT = 0;
     if (!room || !MARK.badges || !MARK.badges.size) return;
     MARK.badges.forEach((b, id) => {
       const it = itemsById.get(id);
@@ -2320,6 +2339,7 @@
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(it.x, 0.05, it.z);
         ring.renderOrder = 4;
+        ring.userData.hop = b.hop || 0;
         world.add(ring);
         markObjs.push(ring);
       }
@@ -2328,8 +2348,30 @@
         const tall = it.shape === 'machine' || it.shape === 'gate' || N.get(id).kind === 'ai';
         lb.position.set(it.x, it.shape === 'slot' ? it.y + it.h + 0.5 : it.h + (tall ? 3.9 : 2.2), it.z);
       } else lb.position.set(port.x + Math.sin(port.ry) * 0.7, port.y + 1.0, port.z + Math.cos(port.ry) * 0.7);
+      lb.userData.hop = b.hop || 0;
+      lb.userData.size = lb.scale.clone();
       world.add(lb);
       markObjs.push(lb);
+    });
+    updateMarks(0);
+  }
+  // Ripple: marks appear in the order the recorded hops reach them, a quarter second per hop, and the
+  // lit pipes pulse. With reduced motion everything shows at once and holds still.
+  const HOP_S = 0.25;
+  let markT = 0;
+  function updateMarks(dt) {
+    markT += dt;
+    const still = reduceMotion;
+    markObjs.forEach((o) => {
+      const local = still ? 1 : markT - o.userData.hop * HOP_S;
+      const k = clamp(local / 0.2, 0, 1), s = 1 - Math.pow(1 - k, 3);   // ease out
+      o.visible = local >= 0;
+      if (o.isSprite) { o.material.opacity = k; o.scale.copy(o.userData.size).multiplyScalar(0.6 + 0.4 * s); }
+      else o.scale.setScalar(Math.max(0.001, s));
+    });
+    if (!MARK.lit) return;
+    LINKS.forEach((L) => {
+      if (L.focus) L.mat.opacity = still ? 0.98 : 0.8 + 0.18 * Math.sin(markT * 5);
     });
   }
   BUILD_HOOKS.push(() => { computeMarks(); drawMarks(); });
@@ -2543,7 +2585,22 @@
   let progHash = 0;
   for (let i = 0; i < progSig.length; i++) progHash = (progHash * 31 + progSig.charCodeAt(i)) | 0;
   const progKey = `progress:${D.project.name}:${(progHash >>> 0).toString(36)}`;
-  const PROG = { found: [], walked: [], seen: [] };
+  const PROG = { found: [], walked: [], seen: [], shift: [] };
+  // First shift: the four moves that open up the rest of the page. A checklist, never a score.
+  const SHIFT = [
+    { id: 'walk', text: 'Walk to a block', how: 'click a block twice, or click the floor' },
+    { id: 'enter', text: 'Step inside a block', how: 'stand at a glowing door and press E' },
+    { id: 'trace', text: 'Trace downstream', how: 'inspect a block, then choose Downstream' },
+    { id: 'tour', text: 'Start a tour', how: 'open the Clipboard and press Start' },
+  ].filter((st) => st.id !== 'tour' || TOURS.length);
+  function shiftDone(step) {
+    if (!SHIFT.some((st) => st.id === step) || PROG.shift.includes(step)) return;
+    PROG.shift.push(step);
+    saveProg();
+    const st = SHIFT.find((x) => x.id === step);
+    toast(PROG.shift.length >= SHIFT.length ? 'First shift done: the floor is yours' : `Checked off: ${st.text}`, 2600);
+    drawClip();
+  }
   try {
     const saved = JSON.parse(store.get(progKey, '{}'));
     for (const k of Object.keys(PROG)) if (saved && Array.isArray(saved[k])) PROG[k] = saved[k].filter((x) => typeof x === 'string');
@@ -2560,8 +2617,21 @@
   function evRows(evs) {
     return (evs || []).length ? `<ul class="rows">${evs.map((ev) => `<li><span class="main">${esc(ev.file + (ev.line ? ':' + ev.line : ''))}</span>${srcLinks(ev.file, ev.line)}</li>`).join('')}</ul>` : '';
   }
+  // Exploration marks: on the main floor, a block already inspected carries a small tick on its label
+  // (and is filled in on the minimap; blocks still to see are outlines).
+  const isSeen = (id) => room && !room.R && PROG.seen.includes(id);
+  function seenOpts(id, o) { return isSeen(id) ? Object.assign({}, o, { check: css(T.trace.down) }) : o; }
+  function refreshSeen() {
+    BLOCK_LABELS.forEach((L, id) => {
+      const t = textTexture(L.lines, seenOpts(id, L.opts));
+      if (L.sp.material.map === t) return;
+      L.sp.material.map = t;
+      L.sp.scale.x = L.sp.scale.y * t.userData.aspect;
+    });
+  }
   function drawClip() {
     clipCount();
+    refreshSeen();
     if (clip.hidden) return;
     const tops = kidsOf(ROOT);
     const seenTops = tops.filter((id) => PROG.seen.includes(id));
@@ -2569,6 +2639,13 @@
     const foundN = QUESTS.filter((q) => PROG.found.includes(q.id)).length;
     let h = `<div class="clip-head"><h2>Clipboard</h2><button class="ghost round close" data-c="close" aria-label="Close clipboard">×</button></div>
       <p class="note">Tours walk you through the system. Quests send you looking for something. Progress stays in this browser.</p>`;
+    if (PROG.shift.length < SHIFT.length) {
+      h += `<section class="sec"><h3>First shift</h3><ul class="quests shift">${SHIFT.map((st) => {
+        const done = PROG.shift.includes(st.id);
+        return `<li class="${done ? 'found' : ''}"><div class="q"><span class="box" aria-hidden="true">${done ? '✓' : ''}</span>
+          <span>${esc(st.text)}<span class="sub">${esc(st.how)}</span></span><span class="sr">${done ? ' (done)' : ' (not done yet)'}</span></div></li>`;
+      }).join('')}</ul></section>`;
+    }
     if (TOURS.length) {
       h += `<section class="sec"><h3>Tours</h3><ul class="rows">${TOURS.map((t) => `<li><span class="main"><b>${esc(t.title)}</b>${PROG.walked.includes(t.id) ? ' <span class="chip">walked</span>' : ''}
         <span class="sub">${t.route ? 'A route, walked hop by hop' : plural(t.stops.length, 'stop')}${t.intro ? ` · ${esc(t.intro)}` : ''}</span></span>
@@ -2604,7 +2681,7 @@
     clip.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => focusNode(b.dataset.goto)));
     clip.querySelectorAll('[data-c]').forEach((b) => b.addEventListener('click', () => {
       if (b.dataset.c === 'close') toggleClip(false);
-      if (b.dataset.c === 'reset') { PROG.found = []; PROG.walked = []; PROG.seen = []; hintsShown.clear(); saveProg(); drawClip(); }
+      if (b.dataset.c === 'reset') { PROG.found = []; PROG.walked = []; PROG.seen = []; PROG.shift = []; hintsShown.clear(); saveProg(); drawClip(); }
     }));
   }
   function toggleClip(on) {
@@ -2622,6 +2699,7 @@
     const t = TOURS.find((x) => x.id === id);
     if (!t) return;
     toggleClip(false);
+    shiftDone('tour');
     if (t.route) {
       if (!startRoute(t.route[0], t.route[1])) return;
       if (!trace || !trace.path) { toast('This tour has no recorded path to walk with the current pipe filter', 3000); return; }
@@ -3166,7 +3244,7 @@
     mctx.clearRect(0, 0, cw, ch);
     const pad = 8, s = Math.min((cw - pad * 2) / room.W, (ch - pad * 2) / room.D);
     const ox = cw / 2, oz = ch / 2;
-    mmT = { s, ox, oz };
+    mmT = { s, ox, oz, outlines: 0 };
     const X = (x) => ox + x * s, Z = (z) => oz + z * s;
     mctx.fillStyle = css(T.floor); mctx.strokeStyle = css(T.wallLine); mctx.lineWidth = 1.5;
     mctx.fillRect(X(-room.W / 2), Z(-room.D / 2), room.W * s, room.D * s);
@@ -3175,10 +3253,18 @@
     mctx.globalAlpha = 0.5;
     room.racks.forEach((r) => { mctx.fillStyle = css(T.wallLine); mctx.fillRect(X(r.x - r.w / 2), Z(r.z - r.d / 2), r.w * s, r.d * s); });
     mctx.globalAlpha = 1;
+    let outlines = 0;
     room.items.forEach((it) => {
       if (it.shape === 'slot') return;
-      mctx.fillStyle = css(kindHex(N.get(it.id).kind));
-      mctx.fillRect(X(it.x - it.w / 2), Z(it.z - it.d / 2), Math.max(2, it.w * s), Math.max(2, it.d * s));
+      const col = css(kindHex(N.get(it.id).kind)), x = X(it.x - it.w / 2), z = Z(it.z - it.d / 2), w = Math.max(2, it.w * s), d = Math.max(2, it.d * s);
+      if (!room.R && !isSeen(it.id)) {   // not inspected yet: an outline to go and fill in
+        mctx.strokeStyle = col; mctx.lineWidth = 1.5;
+        mctx.strokeRect(x + 0.75, z + 0.75, Math.max(1, w - 1.5), Math.max(1, d - 1.5));
+        outlines++;
+        return;
+      }
+      mctx.fillStyle = col;
+      mctx.fillRect(x, z, w, d);
     });
     room.ports.forEach((p) => { mctx.fillStyle = css(kindHex(N.get(p.rep).kind)); mctx.fillRect(X(p.x) - 2, Z(p.z) - 2, 4, 4); });
     if (selected && selected.type !== 'link' && itemsById.has(selected.id)) {
@@ -3187,6 +3273,7 @@
       mctx.strokeStyle = T.glow ? '#ffb23f' : '#1f6fd1'; mctx.lineWidth = 2;
       mctx.strokeRect(X(it.x - it.w / 2) - 2, Z(z - d / 2) - 2, it.w * s + 4, d * s + 4);
     }
+    mmT.outlines = outlines;
     mctx.save();
     mctx.translate(X(W8.pos.x), Z(W8.pos.z));
     mctx.rotate(-W8.yaw + Math.PI);
@@ -3558,6 +3645,7 @@
     updateCamera(dt);
     updateShell();
     updateFx(dt);
+    updateMarks(dt);
     if (!reduceMotion) ANIM.forEach((f) => f(time));
     updateParticles(reduceMotion ? 0 : time);
     updateHover();
@@ -3612,7 +3700,7 @@
       return renderer && renderer.getPixelRatio();
     },
     idle: () => idle(performance.now()),
-    tick(n, draw) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); updateFx(1 / 60); } if (renderer && draw !== false) renderer.render(scene, camera); },
+    tick(n, draw) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); updateFx(1 / 60); updateMarks(1 / 60); } if (renderer && draw !== false) renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
     // how well the first moving particle lines up with its pipe (1 = along the flow)
@@ -3633,6 +3721,12 @@
       ring: FX.ring ? +FX.ring.mesh.scale.x.toFixed(2) : null, bounce: !!FX.bounce,
       hover: hovBox ? +hovBox.material.opacity.toFixed(2) : null,
     }),
+    explored: () => {
+      drawMinimap();
+      const ticked = [...BLOCK_LABELS].filter(([id, L]) => isSeen(id) && L.sp.material.map === textTexture(L.lines, seenOpts(id, L.opts))).map(([id]) => id);
+      return { ticked, outlines: mmT.outlines };
+    },
+    ripple: () => markObjs.filter((o) => o.isSprite).map((o) => ({ hop: o.userData.hop, shown: o.visible, opacity: +o.material.opacity.toFixed(2) })),
     sound: () => ({ on: SND.on, played: SND.played, stored: store.get('sound', '0') }),
     worker: () => ({ lean: W8.lean, tilt: W8.tilt, squash: W8.squash, head: W8.look }),
     jump() { W8.vy = 6.5; },
