@@ -7,6 +7,12 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **A GPU cost hook for the viewer** (2026-10-18)
+  - Summary: `window.__wirehouse.gpu()` draws one frame and reports its draw calls (shadow pass
+    included), triangles, textures, geometries, shader programs, visible meshes, shadow casters and
+    pixel ratio.
+  - Why: the performance work in this release is measured against these numbers, and a test can keep
+    the budget from creeping back.
 - **IMPROVEMENT_LOG.md** (2026-10-18)
   - Summary: Records each improvement pass: the audit, the menu offered, what was done, deferred and
     rejected.

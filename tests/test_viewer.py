@@ -300,3 +300,10 @@ def test_without_webgl_the_floor_plan_runs_tours(browser, html):
     js(page, "__wirehouse.setPlan(false)")                 # there is no 3D view to go back to
     assert js(page, "!document.querySelector('#plan').hasAttribute('hidden')")
     assert [e for e in errors if "Error creating WebGL context" not in e] == []   # three.js says so itself
+
+
+def test_gpu_stats_hook_reports_one_frame(browser, html):
+    page, errors = open_view(browser, html)
+    g = js(page, "__wirehouse.gpu()")
+    assert g["calls"] > 0 and g["triangles"] > 0 and g["programs"] > 0 and g["pixelRatio"] > 0
+    assert errors == []

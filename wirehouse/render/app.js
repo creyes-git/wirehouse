@@ -3205,6 +3205,20 @@
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
     marks: () => Object.fromEntries([...(MARK.badges || new Map())].map(([id, b]) => [id, b.text])),
+    // What one frame costs the GPU, for the performance budget.
+    gpu: () => {
+      if (!renderer) return null;
+      let casters = 0, meshes = 0;
+      scene.traverseVisible((o) => { if (o.isMesh) { meshes++; if (o.castShadow) casters++; } });
+      // one frame drawn here with the counters kept across the shadow pass, which render() would reset
+      const i = renderer.info;
+      i.autoReset = false;
+      i.reset();
+      renderer.render(scene, camera);
+      i.autoReset = true;
+      return { calls: i.render.calls, triangles: i.render.triangles, textures: i.memory.textures, geometries: i.memory.geometries,
+        programs: (i.programs || []).length, meshes, casters, shadows: renderer.shadowMap.enabled, pixelRatio: renderer.getPixelRatio() };
+    },
   };
 
   async function start() {
