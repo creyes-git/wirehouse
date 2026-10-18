@@ -115,6 +115,13 @@ All notable changes to Wirehouse are listed here. The format follows
     suite now runs in about 15 seconds instead of over two minutes.
 
 ### Added
+- **Change review with `--against`** (2026-10-18)
+  - Summary: `wirehouse build` and `render` take `--against <earlier archmap.json>`. The page gets a
+    **Changes** panel (`V`) listing new, changed and removed blocks, connections and files, and **Show on
+    the floor** badges them in every room and lights the new pipes (`#changes=1` in links). `wirehouse
+    export` adds a Changes section.
+  - Why: "what did this change touch?" is the question reviewers ask most, and it was the top roadmap
+    item; blocks count as changed only when their code did, so the answer stays evidence-based.
 - **Go support** (2026-10-18)
   - Summary: Each `go.mod` becomes a block, classified by its framework (Gin, Echo, chi, Fiber,
     gorilla/mux, gRPC, `net/http`, cobra). Go files get imports (internal packages link to the package's

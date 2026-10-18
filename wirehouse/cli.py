@@ -48,7 +48,20 @@ def cmd_scan(project: Path, out_dir: Path) -> dict:
     return data
 
 
-def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False, strict: bool = False) -> Path:
+def _load_map(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except OSError as exc:
+        raise SystemExit(f"error: cannot read {path} ({exc.strerror or exc}).")
+    except ValueError as exc:
+        raise SystemExit(f"error: {path} is not valid JSON ({exc}).")
+    if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
+        raise SystemExit(f"error: {path} is not a Wirehouse map (archmap.json or archmap.raw.json).")
+    return data
+
+
+def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False, strict: bool = False,
+               against: Path | None = None) -> Path:
     from wirehouse import guide
     from wirehouse.enrich import load_enrichment, merge
     from wirehouse.redact import scrub
@@ -67,6 +80,16 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False,
     data = merge(data, enrichment)
     data = guide.apply(data, enrichment)
     data["diagnostics"] = shape_problems + data["diagnostics"]
+    if against:
+        from wirehouse import delta
+
+        data["delta"] = delta.compute(_load_map(against), data)
+        d = data["delta"]
+        _log(f"  changes since {d['against'].get('commit') or against.name}: "
+             + ", ".join(f"{d[level]['counts'][k]} {level} {k}" for level in ("blocks", "files") for k in ("added", "removed", "changed")
+                         if d[level]["counts"][k])
+             + (f", {len(d['links']['added'])} connections added, {len(d['links']['removed'])} removed" if d["links"]["added"] or d["links"]["removed"] else "")
+             + ("" if delta.total(d) else "none"))
     root = data["project"].get("root") or str(project)
     if share:
         # For publishing: no absolute paths of this machine (they name the user) and no list of
@@ -186,6 +209,8 @@ def main(argv: list[str] | None = None) -> int:
                             help="leave out local paths (this machine's folders, uncommitted files) before publishing the page")
             sp.add_argument("--strict", action="store_true",
                             help="exit with an error when the checks left parts of the enrichment out")
+            sp.add_argument("--against", metavar="MAP",
+                            help="an earlier archmap.json to compare with: the page shows what changed since")
     sp = sub.add_parser("export", help="write the map as Markdown with a Mermaid diagram",
                         description="Reads wirehouse-out/archmap.json (or the raw scan) and writes architecture.md "
                                     "or architecture.mmd next to it.")
@@ -213,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in ("scan", "build"):
         cmd_scan(project, out_dir)
     if args.cmd in ("render", "build"):
-        cmd_render(project, out_dir, args.open, args.share, args.strict)
+        cmd_render(project, out_dir, args.open, args.share, args.strict, Path(args.against).resolve() if args.against else None)
     if args.cmd == "export":
         cmd_export(project, out_dir, args.format)
     return 0

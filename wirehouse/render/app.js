@@ -1784,6 +1784,16 @@
   const hops = (d) => `${d} hop${d === 1 ? '' : 's'}`;
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const where = (id) => { const n = N.get(id); return !n ? id : n.parent ? n.path || n.name : n.name; };
+  // Change review (rendered with --against): what is new or changed, and the edges of new connections.
+  const DELTA = D.delta || null;
+  const DELTA_IDS = new Map(), DELTA_EDGES = new Set();
+  let changesOn = false;
+  if (DELTA) {
+    DELTA.blocks.added.concat(DELTA.files.added).forEach((id) => { if (N.has(id)) DELTA_IDS.set(id, 'added'); });
+    DELTA.blocks.changed.concat(DELTA.files.changed).forEach((id) => { if (N.has(id)) DELTA_IDS.set(id, 'changed'); });
+    const fresh = new Set(DELTA.links.added);
+    EDGES.forEach((e) => { if (fresh.has(topOf(e.source) + '->' + topOf(e.target))) DELTA_EDGES.add(e.i); });
+  }
 
   /** Shortest-hop walk over recorded edges. dir 'down' follows edges forward, 'up' backward. */
   function walk(start, dir, opts) {
@@ -1935,6 +1945,18 @@
       MARK.ids = new Set(order.keys());
       MARK.lit = (info) => { for (const i of info.ids) if (trace.used.has(i)) return true; return false; };
     } else if (trace) byHop(trace.res, TC[trace.mode], 'Start');
+    else if (changesOn && DELTA) {
+      // a block counts as new only when it is itself new; anything new or changed inside it marks it changed
+      DELTA_IDS.forEach((how, id) => {
+        const r = rep(id);
+        if (!r) return;
+        const text = r === id && how === 'added' ? 'New' : 'Changed';
+        const prev = MARK.badges.get(r);
+        if (!prev || prev.text === 'Changed') MARK.badges.set(r, { text, color: text === 'New' ? TC.down : TC.up, strong: text === 'New' });
+      });
+      MARK.ids = new Set(MARK.badges.keys());
+      MARK.lit = (info) => { for (const i of info.ids) if (DELTA_EDGES.has(i)) return true; return false; };
+    }
   }
   let markObjs = [];
   function drawMarks() {
@@ -2651,6 +2673,55 @@
   KEYS.x = () => toggleExport();
   onEscape(11, () => !exportMenu.hidden, () => { toggleExport(false); exportBtn.focus(); });
 
+  // ── changes: what moved since an earlier map ─────────────────────────────
+  // Only present when the page was rendered with --against. Removed things are listed, never drawn:
+  // they are no longer in the code.
+  const changesBtn = $('#changesBtn'), changesMenu = $('#changesMenu');
+  function drawChanges() {
+    if (!DELTA) return;
+    const b = DELTA.blocks, f = DELTA.files, L = DELTA.links;
+    const go = (id) => `<button type="button" data-go="${esc(id)}">${esc(N.get(id) ? N.get(id).name : id)}</button>`;
+    const list = (title, items) => items.length ? `<h3>${esc(title)}</h3><ul>${items.join('')}</ul>` : '';
+    const since = DELTA.against && DELTA.against.commit ? `commit ${esc(DELTA.against.commit)}` : 'the earlier map';
+    const pair = (k) => { const [a, c] = k.split('->'); return `${go(a)} → ${go(c)}`; };
+    const more = (n, shown) => n > shown ? [`<li class="gone">…and ${n - shown} more</li>`] : [];
+    changesMenu.innerHTML = `<p class="lead">Compared with ${since}. Blocks count as changed when the code inside them did.</p>` +
+      list('Blocks', b.added.map((i) => `<li><span class="tag">new</span>${go(i)}</li>`)
+        .concat(b.changed.map((i) => `<li><span class="tag">changed</span>${go(i)}</li>`))
+        .concat(b.removed.map((r) => `<li class="gone"><span class="tag">removed</span>${esc(r.name)} (no longer in the code)</li>`))) +
+      list('Connections', L.added.map((k) => `<li><span class="tag">new</span>${pair(k)}</li>`)
+        .concat(L.changed.map((k) => `<li><span class="tag">changed</span>${pair(k)}</li>`))
+        .concat(L.removed.map((r) => `<li class="gone"><span class="tag">removed</span>${esc(r.source_name)} → ${esc(r.target_name)}</li>`))) +
+      list('Files', f.added.slice(0, 40).map((i) => `<li><span class="tag">new</span>${go(i)}</li>`).concat(more(f.counts.added, Math.min(40, f.added.length)))
+        .concat(f.changed.slice(0, 40).map((i) => `<li><span class="tag">changed</span>${go(i)}</li>`)).concat(more(f.counts.changed, Math.min(40, f.changed.length)))
+        .concat(f.removed.slice(0, 20).map((r) => `<li class="gone"><span class="tag">removed</span>${esc(r.path || r.name)}</li>`)).concat(more(f.counts.removed, Math.min(20, f.removed.length)))) +
+      `<div class="acts"><button type="button" class="ghost small" data-floor>${changesOn ? 'Hide on the floor' : 'Show on the floor'}</button></div>`;
+    changesMenu.querySelectorAll('[data-go]').forEach((el) => el.addEventListener('click', () => { toggleChanges(false); focusNode(el.dataset.go); }));
+    // the redraw detaches the clicked button, so the outside-click check must not see this click
+    changesMenu.querySelector('[data-floor]').addEventListener('click', (e) => { e.stopPropagation(); setChangesOn(!changesOn); });
+  }
+  function setChangesOn(on) {
+    changesOn = !!(on && DELTA);
+    refreshMarks(); drawChanges(); syncHash();
+  }
+  function toggleChanges(on) {
+    changesMenu.hidden = on == null ? !changesMenu.hidden : !on;
+    changesBtn.setAttribute('aria-expanded', String(!changesMenu.hidden));
+  }
+  if (DELTA) {
+    const n = DELTA.blocks.counts.added + DELTA.blocks.counts.changed + DELTA.blocks.counts.removed +
+      DELTA.links.added.length + DELTA.links.removed.length + DELTA.links.changed.length;
+    $('#changesWrap').hidden = false;
+    changesBtn.textContent = `Changes · ${n}`;
+    drawChanges();
+  }
+  changesBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleChanges(); });
+  document.addEventListener('click', (e) => { if (!changesMenu.hidden && !changesMenu.contains(e.target)) toggleChanges(false); });
+  onEscape(14, () => !changesMenu.hidden, () => { toggleChanges(false); changesBtn.focus(); });
+  KEYS.v = () => { if (DELTA) toggleChanges(); };
+  HASH_PARTS.push(() => (changesOn ? 'changes=1' : null));
+  HASH_APPLY.push((h) => { if ((h.changes === '1') !== changesOn) setChangesOn(h.changes === '1'); });
+
   // ── checks: what the render left out ─────────────────────────────────────
   // Every part the agent wrote was checked against the scan (node ids, files, lines, secrets). What
   // failed is listed here, so a reader knows the page is missing it rather than that it was never written.
@@ -3092,7 +3163,7 @@
   // A small hook for automated checks (also handy in the devtools console).
   window.__wirehouse = {
     goRoom, focusNode, select, selectLink, setPlan, setTheme, exitRoom, enterBlock, travelTo,
-    startTrace, startPick, startRoute, startJourney, clearTrace, goStop, setPlaying, startTour, toggleClip,
+    startTrace, startPick, startRoute, startJourney, clearTrace, goStop, setPlaying, startTour, toggleClip, setChangesOn,
     progress: () => JSON.parse(JSON.stringify(PROG)),
     openErd,
     exportReceipts: () => EXPORTS.slice(), shareCard: async () => { const c = await shareCard(); return { name: c.name, w: c.canvas.width, h: c.canvas.height, url: c.canvas.toDataURL('image/png') }; },
@@ -3103,6 +3174,7 @@
     tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
+    marks: () => Object.fromEntries([...(MARK.badges || new Map())].map(([id, b]) => [id, b.text])),
   };
 
   async function start() {

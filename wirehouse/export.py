@@ -122,4 +122,23 @@ def markdown(data: dict) -> str:
             note = notes.get(f"{L['source']}->{L['target']}")
             out.append(f"| {_cell(nodes[L['source']]['name'])} | {_cell(nodes[L['target']]['name'])} | {kinds}"
                        + (f": {_cell(note)}" if note else "") + f" | {', '.join(cites) or 'none recorded'} |")
+    if data.get("delta"):
+        out += ["", *_changes(data["delta"], nodes)]
     return "\n".join(out) + "\n"
+
+
+def _changes(delta: dict, nodes: dict) -> list[str]:
+    name = lambda i: _cell(nodes[i]["name"] if i in nodes else i)  # noqa: E731
+    since = delta["against"].get("commit")
+    out = ["## Changes", "", f"Compared with the map{f' at commit `{since}`' if since else ' given with --against'}.", ""]
+    b, f, L = delta["blocks"], delta["files"], delta["links"]
+    rows = [("New blocks", [name(i) for i in b["added"]]), ("Changed blocks", [name(i) for i in b["changed"]]),
+            ("Removed blocks", [_cell(r["name"]) for r in b["removed"]]),
+            ("New connections", [f"{name(k.split('->')[0])} → {name(k.split('->')[1])}" for k in L["added"]]),
+            ("Removed connections", [f"{_cell(r['source_name'])} → {_cell(r['target_name'])}" for r in L["removed"]])]
+    for title, items in rows:
+        if items:
+            out.append(f"- **{title}**: " + ", ".join(items))
+    counts = f["counts"]
+    out.append(f"- **Files**: {counts['added']} new, {counts['changed']} changed, {counts['removed']} removed")
+    return out

@@ -1010,3 +1010,47 @@ def test_go_modules_become_blocks(tmp_path):
     assert ("file:api/internal/store/store.go", "res:postgres") in {(e["source"], e["target"]) for e in data["edges"]}
     assert "res:redis" not in nodes                       # an indirect dependency is not this module's own
     assert nodes["file:api/internal/store/store_test.go"].get("test")
+
+
+def _changed_shop(tmp_path: Path) -> tuple[Path, Path]:
+    """The fixture shop before and after a change: a new worker, an edited file, a removed CI block."""
+    import shutil
+
+    before = tmp_path / "before"
+    _write(before, FILES)
+    after = tmp_path / "after"
+    shutil.copytree(before, after)
+    shutil.rmtree(after / ".github")
+    (after / "web/lib/api.ts").write_text("export const apiFetch = (p: string) => fetch(`${process.env.API_URL}${p}`);\n", encoding="utf-8")
+    _write(after, {"jobs/requirements.txt": "celery\nredis\n", "jobs/tasks.py": "import os\nfrom celery import Celery\napp = Celery(broker=os.environ['REDIS_URL'])\n"})
+    return before, after
+
+
+def test_change_review_lists_what_moved(tmp_path):
+    from wirehouse.cli import main
+
+    before, after = _changed_shop(tmp_path)
+    old_out, new_out = tmp_path / "old", tmp_path / "new"
+    assert main(["build", str(before), "-o", str(old_out)]) == 0
+    assert main(["build", str(after), "-o", str(new_out), "--against", str(old_out / "archmap.json")]) == 0
+    data = json.loads((new_out / "archmap.json").read_text(encoding="utf-8"))
+    d = data["delta"]
+    assert "unit:python:jobs" in d["blocks"]["added"]
+    assert [r["id"] for r in d["blocks"]["removed"]] == ["infra:ci"]
+    assert "unit:js:web" in d["blocks"]["changed"] and "file:web/lib/api.ts" in d["files"]["changed"]
+    assert "file:jobs/tasks.py" in d["files"]["added"]
+    assert "unit:python:jobs->res:redis" in d["links"]["added"]
+    assert "unit:python:api" not in d["blocks"]["changed"]          # untouched code is not "changed"
+    assert main(["export", str(after), "-o", str(new_out)]) == 0
+    md = (new_out / "architecture.md").read_text(encoding="utf-8")
+    new_blocks = next(line for line in md.splitlines() if line.startswith("- **New blocks**"))
+    assert "## Changes" in md and "jobs" in new_blocks and "**Removed blocks**: CI/CD" in md
+
+
+def test_against_needs_a_real_map(repo, tmp_path):
+    from wirehouse.cli import main
+
+    bad = tmp_path / "bad.json"
+    bad.write_text('{"not": "a map"}', encoding="utf-8")
+    with pytest.raises(SystemExit, match="not a Wirehouse map"):
+        main(["build", str(repo), "-o", str(tmp_path / "out"), "--against", str(bad)])

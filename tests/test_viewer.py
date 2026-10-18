@@ -220,3 +220,28 @@ def test_checks_stay_hidden_when_everything_passed(browser, html):
     page, errors = open_view(browser, html)
     assert js(page, "document.querySelector('#checksWrap').hidden")
     assert errors == []
+
+
+def test_changes_show_on_the_floor(browser, tmp_path):
+    from test_wirehouse import _changed_shop
+
+    from wirehouse import delta
+
+    before, after = _changed_shop(tmp_path)
+    old = build_archmap(before, log=lambda *_: None)
+    data = guide.apply(build_archmap(after, log=lambda *_: None), {})
+    data["delta"] = delta.compute(old, data)
+    page, errors = open_view(browser, write_html(data, after / "wirehouse.html"))
+    assert js(page, "!document.querySelector('#changesWrap').hidden")
+    page.keyboard.press("v")
+    text = page.inner_text("#changesMenu")
+    assert "jobs" in text and "CI/CD (no longer in the code)" in text
+    page.click("#changesMenu [data-floor]")
+    assert "changes=1" in js(page, "location.hash")
+    marks = js(page, "__wirehouse.marks()")
+    assert marks["unit:python:jobs"] == "New" and marks["unit:js:web"] == "Changed"
+    assert "unit:python:api" not in marks
+    assert js(page, "__wirehouse.trace()") is None        # changes are marks, not a trace
+    page.click("#changesMenu [data-go='unit:python:jobs']")
+    assert js(page, "__wirehouse.state().selected.id") == "unit:python:jobs"
+    assert errors == []

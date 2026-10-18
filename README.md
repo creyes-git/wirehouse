@@ -128,6 +128,7 @@ wirehouse build path/to/project --open
 | `wirehouse render <path> [--open]` | Merge `enrichment.json` and write `wirehouse.html`. |
 | `--share` | (build, render) Leave out local paths before you publish the page. |
 | `--strict` | (build, render) Exit with an error when the checks left parts of the enrichment out, for CI. |
+| `--against <map>` | (build, render) Compare with an earlier `archmap.json`: the page and the export show what changed. |
 | `-o <folder>` | Write somewhere other than `<path>/wirehouse-out/`. |
 | `wirehouse export <path>` | Write `architecture.md`: a Mermaid diagram, the blocks and every connection with its file and line. `--format mermaid` writes only the diagram (`architecture.mmd`). |
 | `wirehouse install` | Add the skill to your agents (`--agent`, `--dir`, `--print`; see above). |
@@ -160,6 +161,7 @@ observability) runs down the left side.
 | `R` | route from the inspected block: pick an end point and walk it |
 | `C` | the Clipboard: tours and quests |
 | `X` | export a picture or a share card |
+| `V` | changes since an earlier map, when the page has them |
 | `Space` `,` `.` | during a tour or route: play or pause, back, next |
 | `Esc` | back out one step: close, pause, stop, clear |
 | `?` | show the controls |
@@ -230,7 +232,21 @@ Walk into a database to see its tables on racks, with foreign keys as pipes betw
 inventory tag lists each table's columns and keys, and **Open schema diagram** draws them all.
 Columns are read from SQL migrations, Prisma, SQLAlchemy, SQLModel, Django, Drizzle and TypeORM.
 
-### 6. Share it
+### 6. Review a change
+
+Keep a copy of `wirehouse-out/archmap.json` from before a change (for example from `main`), then build
+with `--against` it:
+
+```bash
+wirehouse build . --against ../main-map/archmap.json
+```
+
+**Changes** (`V`) lists the blocks, connections and files that are new, changed or removed, and
+**Show on the floor** badges them in every room and lights the new pipes. A block counts as changed only
+when the code inside it did. Removed things are listed, not drawn: they are no longer in the code.
+`wirehouse export` adds the same list to `architecture.md`.
+
+### 7. Share it
 
 - The address bar always describes the view (`#room=`, `#focus=`, `#trace=down~<id>`,
   `#route=<from>~<to>&stop=2`, `#tour=<id>&stop=3`, `#plan=1`), and **Copy link** copies it.
@@ -317,7 +333,7 @@ See [SECURITY.md](SECURITY.md) to report a problem.
 
 ## Roadmap
 
-- **Change review**: compare two scans (or a branch against `main`) and walk the differences.
+- **Change review from git**: `--against main` that scans the other branch itself, without a saved map.
 - **History**: a timeline of how each block changed, from git.
 - More stacks: Java/Kotlin (Spring), Ruby on Rails, PHP (Laravel).
 - Bigger repos: instanced rendering for rooms with thousands of files.

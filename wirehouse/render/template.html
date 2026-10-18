@@ -36,6 +36,10 @@
       <button type="button" role="menuitem" data-x="card">Save share card<span id="exportCardSub">1200 × 630</span></button>
     </div>
   </div>
+  <div id="changesWrap" class="menu-wrap" hidden>
+    <button id="changesBtn" class="ghost" type="button" aria-haspopup="dialog" aria-controls="changesMenu" aria-expanded="false" title="What changed since the earlier map (V)">Changes</button>
+    <div id="changesMenu" class="menu checks changes" role="dialog" aria-label="Changes" hidden></div>
+  </div>
   <div id="checksWrap" class="menu-wrap" hidden>
     <button id="checksBtn" class="ghost" type="button" aria-haspopup="dialog" aria-controls="checksMenu" aria-expanded="false" title="What the checks left out of this page, and why">Checks</button>
     <div id="checksMenu" class="menu checks" role="dialog" aria-label="Checks" hidden></div>
@@ -88,6 +92,7 @@
       <dt><kbd>R</kbd></dt><dd>Route from the inspected block: pick an end and walk it</dd>
       <dt><kbd>C</kbd></dt><dd>Clipboard: guided tours and quests</dd>
       <dt><kbd>X</kbd></dt><dd>Export a picture or a share card of what you are looking at</dd>
+      <dt><kbd>V</kbd></dt><dd>Changes since an earlier map, when the page has them</dd>
       <dt><kbd>Space</kbd> <kbd>,</kbd> <kbd>.</kbd></dt><dd>During a tour or route: play or pause, back, next</dd>
       <dt><kbd>Esc</kbd></dt><dd>Back out one step (stop, close, clear)</dd>
     </dl>
