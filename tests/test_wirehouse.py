@@ -1166,3 +1166,24 @@ def test_removed_connections_are_listed_in_the_checks(archmap):
     hits = [d for d in data["diagnostics"] if d["code"] == "enrichment/removed-edge"]
     assert len(hits) == 1 and hits[0]["subject"] == "remove_edges unit:js:web->unit:python:api"
     assert hits[0]["severity"] == "warning"
+
+
+def test_scan_never_runs_filters_from_the_repos_own_git_config(tmp_path):
+    # `git status` runs clean filters, and a .git folder from an archive can name any command in them.
+    import shutil
+    import subprocess
+
+    from wirehouse import repo
+
+    if not shutil.which("git"):
+        pytest.skip("git not installed")
+    _write(tmp_path, {"a.txt": "x\n", ".gitattributes": "* filter=evil\n"})
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)  # noqa: E731
+    run("init", "-q")
+    run("-c", "user.name=t", "-c", "user.email=t@example.com", "add", "-A")
+    run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init")
+    run("config", "filter.evil.clean", "touch PWNED; cat")
+    (tmp_path / "a.txt").write_text("changed\n", encoding="utf-8")
+    info = repo.repo_info(tmp_path)
+    assert not (tmp_path / "PWNED").exists()
+    assert info["dirty"] == [] and info["dirty_complete"] is False   # the page then says links may show older code

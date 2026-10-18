@@ -202,6 +202,12 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
+- **The scan never runs filters named by the repository's own git config** (2026-10-18)
+  - Summary: When the checkout's `.git/config` (or a file it includes) defines a `filter.*` clean or
+    smudge command, the scan skips `git status` and marks the list of changed files as incomplete. Filters
+    from your own global or system config (Git LFS) are unaffected.
+  - Why: `git status` runs those commands, so a `.git` folder that came with an archive or a copied
+    project could run any program during a scan.
 - **Enrichment that came with the repository is never applied silently** (2026-10-18)
   - Summary: When `wirehouse-out/enrichment.json` is tracked by git, render prints a warning and adds
     an `enrichment/from-repository` check. Every `remove_nodes` and `remove_edges` entry that removed

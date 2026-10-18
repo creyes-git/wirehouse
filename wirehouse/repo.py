@@ -50,7 +50,7 @@ def parse_remote(url: str) -> dict | None:
     return None
 
 
-def _git(root: Path, *args: str) -> str | None:
+def _git(root: Path, *args: str, ok: tuple[int, ...] = (0,)) -> str | None:
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
     try:
         # core.fsmonitor would run a command named by the scanned repo's own config: never for a scan
@@ -58,7 +58,19 @@ def _git(root: Path, *args: str) -> str | None:
                            errors="replace", timeout=15, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
-    return r.stdout if r.returncode == 0 else None
+    return r.stdout if r.returncode in ok else None
+
+
+def _repo_sets_filters(root: Path) -> bool:
+    """True when the checkout's own config (not the user's or the system's) defines a clean/smudge filter.
+
+    `git status` runs those filters, so a `.git/config` that came with an archive or a copied folder could
+    run any command during a scan. Unknown means yes: the dirty list is then skipped.
+    """
+    out = _git(root, "config", "--show-scope", "--includes", "--get-regexp", r"^filter\.", ok=(0, 1))
+    if out is None:
+        return True
+    return any(line.split("\t", 1)[0] in ("local", "worktree") for line in out.splitlines())
 
 
 def repo_info(root: Path) -> dict | None:
@@ -84,7 +96,7 @@ def repo_info(root: Path) -> dict | None:
         info.update(remote, host_name=PROVIDERS[remote["provider"]])
         info["pushed"] = bool((_git(root, "branch", "-r", "--contains", rev) or "").strip())
     # Files whose working copy differs from the commit: their web link shows older code.
-    status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    status = None if _repo_sets_filters(root) else _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
     dirty, entries = [], (status or "").split("\0")
     complete = status is not None
     i = 0
