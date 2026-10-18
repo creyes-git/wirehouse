@@ -388,3 +388,18 @@ def test_day_floor_is_concrete(browser, html):
     assert js(page, "__wirehouse.setTheme('day'); __wirehouse.floorTexture()") is True
     assert js(page, "__wirehouse.setTheme('night'); __wirehouse.floorTexture()") is False   # the night floor keeps its grid
     assert errors == []
+
+
+def test_camera_eases_and_never_clips_into_blocks(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "__wirehouse.travelTo('unit:python:api'); for (let i = 0; i < 20 && __wirehouse.state().walking; i++) __wirehouse.tick(60)")
+    assert not js(page, "__wirehouse.state().walking")
+    js(page, "__wirehouse.look(Math.PI, 0.3, 17); __wirehouse.tick(1)")
+    one = js(page, "__wirehouse.camera()")
+    assert 0 < one["yaw"] < 3.0                                   # eases towards the goal instead of jumping
+    cam = js(page, "__wirehouse.tick(120); __wirehouse.camera()")
+    assert abs(cam["yaw"] - 3.14159) < 0.05
+    assert cam["pull"] < 17 - 1 and not cam["inside"]            # the api container is behind the worker now
+    cam = js(page, "__wirehouse.look(0, 0.5, 17); __wirehouse.tick(240); __wirehouse.camera()")
+    assert cam["pull"] > 16                                       # clear again: eases back out
+    assert errors == []

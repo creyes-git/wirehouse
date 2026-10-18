@@ -1182,8 +1182,8 @@
     room.items.forEach((it) => (it.shape === 'slot' ? makeSlot(it) : makeBlock(it)));
     flushInstances();
     makeContactShadows(room);
-    OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2 }))
-      .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2 })));
+    OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2, y1: it.h }))
+      .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2, y1: r.h })));
     const { inner, ports } = roomLinks(R);
     room.links = inner;
     const pairCount = new Map();
@@ -1271,7 +1271,9 @@
   }
 
   // ── camera, input, movement ──────────────────────────────────────────────
-  const cam = { yaw: 0, pitch: 0.5, dist: 17, target: new THREE.Vector3(), follow: false };
+  // Input moves the goal; the camera eases towards it, so drags, wheel steps and pinches feel smooth.
+  // `pull` is the distance actually used once obstacles between the worker and the camera are counted.
+  const cam = { yaw: 0, pitch: 0.5, dist: 17, pull: 17, target: new THREE.Vector3(), follow: false, goal: { yaw: 0, pitch: 0.5, dist: 17 } };
   const keys = new Set();
   const canvas = renderer ? renderer.domElement : null;
   const ptr = { x: 0, y: 0, down: false, sx: 0, sy: 0, drag: false, moved: false, inside: false };
@@ -1315,7 +1317,7 @@
         touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
         if (touches.size === 2) {
           const d = spread();
-          if (pinch > 0 && d > 0) cam.dist = clamp(cam.dist * (pinch / d), 3.2, 70);
+          if (pinch > 0 && d > 0) cam.goal.dist = clamp(cam.goal.dist * (pinch / d), 3.2, 70);
           pinch = d;
           return;
         }
@@ -1325,8 +1327,8 @@
       if (!ptr.down) return;
       if (!ptr.drag && Math.hypot(e.clientX - ptr.sx, e.clientY - ptr.sy) > 5) { ptr.drag = true; canvas.classList.add('dragging'); }
       if (ptr.drag) {
-        cam.yaw -= dx * 0.0055;
-        cam.pitch = clamp(cam.pitch + dy * 0.004, 0.05, 1.35);
+        cam.goal.yaw -= dx * 0.0055;
+        cam.goal.pitch = clamp(cam.goal.pitch + dy * 0.004, 0.05, 1.35);
         cam.follow = false;
       }
     });
@@ -1348,7 +1350,7 @@
     });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      cam.dist = clamp(cam.dist * (1 + e.deltaY * 0.0011), 3.2, 70);
+      cam.goal.dist = clamp(cam.goal.dist * (1 + e.deltaY * 0.0011), 3.2, 70);
     }, { passive: false });
   }
 
@@ -1474,18 +1476,47 @@
     if (room.R && W8.pos.z > room.D / 2 - 0.1 && !transitioning) exitRoom();
   }
 
+  // Where the segment from the worker to the camera first enters a block or rack (0..1), or 1 if it
+  // is clear. Slab test against each footprint box raised to the item's height.
+  function cameraBlock(ax, ay, az, bx, by, bz) {
+    let best = 1;
+    const d = [bx - ax, by - ay, bz - az], a = [ax, ay, az];
+    for (const o of OBST) {
+      const lo = [o.x0 - 0.3, -1, o.z0 - 0.3], hi = [o.x1 + 0.3, o.y1 + 0.3, o.z1 + 0.3];
+      if (ax > lo[0] && ax < hi[0] && az > lo[2] && az < hi[2] && ay < hi[1]) continue;   // the worker stands in its pad
+      let t0 = 0, t1 = best, hit = true;
+      for (let k = 0; k < 3 && hit; k++) {
+        if (Math.abs(d[k]) < 1e-9) { if (a[k] < lo[k] || a[k] > hi[k]) hit = false; continue; }
+        let u = (lo[k] - a[k]) / d[k], v = (hi[k] - a[k]) / d[k];
+        if (u > v) [u, v] = [v, u];
+        t0 = Math.max(t0, u); t1 = Math.min(t1, v);
+        if (t0 > t1) hit = false;
+      }
+      if (hit && t0 < best) best = t0;
+    }
+    return best;
+  }
   function updateCamera(dt) {
     if (cam.follow && W8.path) {
-      let d = (W8.yaw + Math.PI) - cam.yaw;
+      let d = (W8.yaw + Math.PI) - cam.goal.yaw;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      cam.yaw += d * Math.min(1, dt * 1.6);
+      cam.goal.yaw += d * Math.min(1, dt * 1.6);
     }
+    const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 12), kz = reduceMotion ? 1 : 1 - Math.exp(-dt * 8);
+    cam.yaw += (cam.goal.yaw - cam.yaw) * k;
+    cam.pitch += (cam.goal.pitch - cam.pitch) * k;
+    cam.dist += (cam.goal.dist - cam.dist) * kz;
     const tgt = tmpV.set(W8.pos.x, W8.pos.y + 1.55, W8.pos.z);
     cam.target.lerp(tgt, Math.min(1, dt * 10));
     const cp = Math.cos(cam.pitch);
-    let x = cam.target.x + Math.sin(cam.yaw) * cp * cam.dist;
-    let y = cam.target.y + Math.sin(cam.pitch) * cam.dist;
-    let z = cam.target.z + Math.cos(cam.yaw) * cp * cam.dist;
+    const ux = Math.sin(cam.yaw) * cp, uy = Math.sin(cam.pitch), uz = Math.cos(cam.yaw) * cp;
+    // Pull in at once when a container or silo comes between, ease back out once it is clear.
+    const t = cameraBlock(cam.target.x, cam.target.y, cam.target.z, cam.target.x + ux * cam.dist, cam.target.y + uy * cam.dist, cam.target.z + uz * cam.dist);
+    const want = t < 1 ? Math.max(0.5, cam.dist * t - 0.25) : cam.dist;   // the 0.3 pad keeps it off the surface
+    cam.pull = want < cam.pull ? want : cam.pull + (want - cam.pull) * kz;
+    let x = cam.target.x + ux * cam.pull;
+    let y = cam.target.y + uy * cam.pull;
+    let z = cam.target.z + uz * cam.pull;
     const out = 30; // the camera may step outside; walls behind it get hidden
     x = clamp(x, -room.W / 2 - out, room.W / 2 + out);
     z = clamp(z, -room.D / 2 - out, room.D / 2 + out);
@@ -1616,8 +1647,9 @@
     W8.vel.set(0, 0, 0);
     W8.path = null;
     arrival = null;
-    cam.yaw = 0;
-    cam.pitch = 0.5;
+    cam.yaw = cam.goal.yaw = 0;
+    cam.pitch = cam.goal.pitch = 0.5;
+    cam.pull = cam.dist;
     cam.target.set(W8.pos.x, 1.55, W8.pos.z);
     if (worker) worker.root.rotation.y = W8.yaw;
   }
@@ -3460,6 +3492,11 @@
       return { align: best, additive: particles.material.blending === THREE.AdditiveBlending };
     },
     floorTexture: () => { const f = world.children.find((c) => c.userData.floor); return !!(f && f.material.map); },
+    look(yaw, pitch, dist) { Object.assign(cam.goal, { yaw, pitch, dist }); },
+    camera: () => {
+      const c = camera.position, inside = OBST.some((o) => c.x > o.x0 && c.x < o.x1 && c.z > o.z0 && c.z < o.z1 && c.y < o.y1);
+      return { yaw: cam.yaw, goal: Object.assign({}, cam.goal), dist: cam.dist, pull: cam.pull, inside };
+    },
     contactShadows: () => { const o = world.children.find((c) => c.userData.contact); return o ? o.count : 0; },
     labels: () => ({
       slots: SPRITES.filter((s) => s.slot && s.sp.visible).length, blocks: SPRITES.filter((s) => !s.slot && s.sp.visible).length,

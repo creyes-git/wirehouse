@@ -71,6 +71,12 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **The camera eases and stays out of blocks** (2026-10-18)
+  - Summary: Dragging, scrolling and pinching set a goal that the camera eases towards (instantly with
+    reduced motion). When a container, silo or rack comes between the worker and the camera, the camera
+    pulls in at once and eases back out when the view is clear.
+  - Why: the camera jumped with each input step and could sit inside a container or silo, showing its
+    inside faces instead of the worker.
 - **Pipe particles show the direction of flow** (2026-10-18)
   - Summary: The dots moving along pipes are short streaks, wide at the head, aligned with the pipe;
     at night they glow with additive blending.
