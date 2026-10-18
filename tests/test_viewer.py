@@ -403,3 +403,16 @@ def test_camera_eases_and_never_clips_into_blocks(browser, html):
     cam = js(page, "__wirehouse.look(0, 0.5, 17); __wirehouse.tick(240); __wirehouse.camera()")
     assert cam["pull"] > 16                                       # clear again: eases back out
     assert errors == []
+
+
+def test_clicks_answer_with_a_ring_a_bounce_and_a_fading_outline(browser, html):
+    page, errors = open_view(browser, html)
+    page.mouse.click(640, 700)                                   # the floor in front of the worker
+    assert js(page, "__wirehouse.fx().ring") is not None
+    js(page, "for (let i = 0; i < 20 && __wirehouse.state().walking; i++) __wirehouse.tick(30); __wirehouse.tick(30)")
+    assert js(page, "__wirehouse.fx().ring") is None              # shrank away on arrival
+    assert js(page, "__wirehouse.select('unit:python:api'); __wirehouse.fx().bounce") is True
+    assert js(page, "__wirehouse.tick(10); __wirehouse.fx().bounce") is False   # 120 ms
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert errors == []

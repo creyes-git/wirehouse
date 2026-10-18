@@ -562,6 +562,7 @@
   const SLOT_LABEL_FAR = 24, SLOT_LABELS_SHOWN = 24;
   const ANIM = [];   // per-frame animations for the current room
   let PICK = [];     // meshes that can be clicked
+  const BLOCK_OBJ = new Map();   // node id -> its group, for the selection bounce
   let SPRITES = [];  // labels that fade with distance
 
   function tagPick(obj, info) { obj.traverse((o) => { if (o.isMesh) { o.userData.pick = info; PICK.push(o); } }); }
@@ -690,6 +691,7 @@
       ANIM.push((t) => { door.material.opacity = 0.55 + Math.sin(t * 2.4) * 0.25; });
     }
     tagPick(g, { type: 'node', id: n.id });
+    BLOCK_OBJ.set(n.id, g);
     world.add(g);
     // floating label
     const sub = n.kind === 'module' ? `${(n.stats && n.stats.files) || 0} files` : (KIND_LABEL[n.kind] || n.kind);
@@ -739,6 +741,7 @@
     box(it.w, h, it.d, col, 0, 0, 0, g, { edgeOpacity: 0.7 });
     if (n.endpoints && n.endpoints.length) noCast(box(it.w * 0.9, 0.08, 0.04, T.glow ? 0x39c0f5 : 0x2f80c0, 0, h * 0.7, it.d / 2 + 0.03, g, { basic: true, noEdges: true }));
     tagPick(g, { type: 'node', id: n.id });
+    BLOCK_OBJ.set(n.id, g);
     world.add(g);
     const lb = label([shortName(n.name, 26)], 0.34, { big: 40, pad: 10 });
     lb.position.set(it.x, it.y + h + 0.05, it.z + 0.45);
@@ -1166,6 +1169,8 @@
     while (world.children.length) world.remove(world.children[0]);
     ANIM.length = 0;
     PICK = [];
+    BLOCK_OBJ.clear();
+    FX.ring = FX.bounce = null;
     SPRITES = [];
     LINKS = [];
     PART.length = 0;
@@ -1246,6 +1251,7 @@
       world.add(b);
     }
     if (which === 'sel') selBox = b; else hovBox = b;
+    if (b && which === 'hov' && !reduceMotion) { b.material.transparent = true; b.material.opacity = 0; }   // fades in, see updateFx
   }
   function applyFocus() {
     const lit = litLinks();   // a trace, route or tour step lights its own pipes; hovering still peeks
@@ -1268,6 +1274,38 @@
     setBox('sel', selected && selected.type !== 'link' ? selected.id : null, T.glow ? 0xffb23f : 0x1f6fd1);
     setBox('hov', hovered && hovered.type !== 'link' && (!selected || hovered.id !== selected.id) ? hovered.id : null, T.glow ? 0x9fb3d9 : 0x5a6474);
     if (planOn) planFocus();
+  }
+
+  // ── click feedback ───────────────────────────────────────────────────────
+  // A ring where a click sends the worker (it shrinks away on arrival), a short bounce on the block
+  // just selected, and a hover outline that fades in rather than flashing.
+  const FX = { ring: null, bounce: null };
+  function walkRing(x, z) {
+    if (FX.ring) { world.remove(FX.ring.mesh); FX.ring.mesh.geometry.dispose(); FX.ring.mesh.material.dispose(); }
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.62, 40).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: T.glow ? 0xffb23f : 0x1f6fd1, transparent: true, opacity: 0.9, depthWrite: false }));
+    m.position.set(x, 0.05, z);
+    m.renderOrder = 4;
+    world.add(m);
+    FX.ring = { mesh: m, t: 0, leaving: 0 };
+  }
+  function updateFx(dt) {
+    const R = FX.ring;
+    if (R) {
+      R.t += dt;
+      if (!W8.path) R.leaving += dt;   // arrived, or the walk was cut short
+      const s = R.leaving ? Math.max(0, 1 - R.leaving / 0.3) : (reduceMotion ? 1 : 1 + Math.sin(R.t * 6) * 0.08);
+      R.mesh.scale.setScalar(Math.max(s, 0.001));
+      if (R.leaving >= 0.3) { world.remove(R.mesh); R.mesh.geometry.dispose(); R.mesh.material.dispose(); FX.ring = null; }
+    }
+    const B = FX.bounce;
+    if (B) {
+      B.t += dt;
+      const k = B.t < 0.12 ? Math.sin((Math.PI * B.t) / 0.12) : 0;
+      B.g.scale.set(1 + k * 0.06, 1 + k * 0.1, 1 + k * 0.06);
+      if (B.t >= 0.12) { FX.bounce = null; refreshShadows(); }   // the block is back in place: redraw its shadow once
+    }
+    if (hovBox && hovBox.material.opacity < 1) hovBox.material.opacity = Math.min(1, hovBox.material.opacity + dt / 0.15);
   }
 
   // ── camera, input, movement ──────────────────────────────────────────────
@@ -1364,6 +1402,7 @@
       else select(hit.info.id);
     } else {
       travelToPoint(hit.point.x, hit.point.z);
+      walkRing(hit.point.x, hit.point.z);
     }
   }
 
@@ -1881,8 +1920,10 @@
     const n = N.get(id);
     if (!n) return;
     if (pick && pick.from !== id) { const from = pick.from; endPick(); startRoute(from, id); return; }
+    const again = selected && selected.id === id;
     selected = { type: 'node', id };
     applyFocus();
+    if (!again && BLOCK_OBJ.has(id) && !reduceMotion) FX.bounce = { g: BLOCK_OBJ.get(id), t: 0 };
     const col = css(kindHex(n.kind));
     const inRoom = itemsById.has(id);
     const isOutside = !inRoom && !!opts.port;
@@ -3123,7 +3164,9 @@
   mm.addEventListener('click', (e) => {
     if (!mmT || planOn) return;
     const r = mm.getBoundingClientRect();
-    travelToPoint((e.clientX - r.left - mmT.ox) / mmT.s, (e.clientY - r.top - mmT.oz) / mmT.s);
+    const x = (e.clientX - r.left - mmT.ox) / mmT.s, z = (e.clientY - r.top - mmT.oz) / mmT.s;
+    travelToPoint(x, z);
+    walkRing(x, z);
   });
 
   // The pipe key doubles as a filter: switch a kind of connection off to hide its
@@ -3421,6 +3464,7 @@
     animateWorker(dt, time);
     updateCamera(dt);
     updateShell();
+    updateFx(dt);
     if (!reduceMotion) ANIM.forEach((f) => f(time));
     updateParticles(reduceMotion ? 0 : time);
     updateHover();
@@ -3475,7 +3519,7 @@
       return renderer && renderer.getPixelRatio();
     },
     idle: () => idle(performance.now()),
-    tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
+    tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); updateFx(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
     // how well the first moving particle lines up with its pipe (1 = along the flow)
@@ -3492,6 +3536,10 @@
       return { align: best, additive: particles.material.blending === THREE.AdditiveBlending };
     },
     floorTexture: () => { const f = world.children.find((c) => c.userData.floor); return !!(f && f.material.map); },
+    fx: () => ({
+      ring: FX.ring ? +FX.ring.mesh.scale.x.toFixed(2) : null, bounce: !!FX.bounce,
+      hover: hovBox ? +hovBox.material.opacity.toFixed(2) : null,
+    }),
     look(yaw, pitch, dist) { Object.assign(cam.goal, { yaw, pitch, dist }); },
     camera: () => {
       const c = camera.position, inside = OBST.some((o) => c.x > o.x0 && c.x < o.x1 && c.z > o.z0 && c.z < o.z1 && c.y < o.y1);

@@ -7,6 +7,12 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Click feedback** (2026-10-18)
+  - Summary: Clicking the floor or the minimap drops a ring where the worker is heading, which pulses
+    while walking and shrinks away on arrival. A newly selected block gives a 120 ms bounce, and the
+    hover outline fades in. With reduced motion the ring stays still and nothing bounces or fades.
+  - Why: a click on the floor had no visible answer until the worker started moving, and the hover
+    outline flashed on and off as the pointer crossed blocks.
 - **A concrete floor for the day shift** (2026-10-18)
   - Summary: The day floor and zones are concrete slabs with saw-cut joints: one 256 px texture drawn in
     the page and tiled by world size, so every floor shares it. The night floor keeps its grid.
