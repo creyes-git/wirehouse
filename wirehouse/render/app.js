@@ -734,6 +734,23 @@
     });
   }
 
+  // Contact shadows: a soft dark blob under every block and rack, in one draw call. They ground the
+  // blocks at night (no shadow map) and soften the hard shadow-map edge by day.
+  function makeContactShadows(L) {
+    const feet = L.items.filter((it) => it.shape !== 'slot').map((it) => [it.x, it.z, it.w * 1.35 + 0.8, it.d * 1.35 + 0.8])
+      .concat(L.racks.map((r) => [r.x, r.z, r.w * 1.15 + 0.6, r.d * 1.8 + 0.6]));
+    if (!feet.length) return;
+    const g = geo(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2));
+    const m = new THREE.MeshBasicMaterial({ map: blobTexture(), color: 0x000000, transparent: true, opacity: T.glow ? 0.6 : 0.32,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const im = new THREE.InstancedMesh(g, m, feet.length);
+    feet.forEach(([x, z, w, d], i) => im.setMatrixAt(i, tmpM.compose(tmpV.set(x, 0.012, z), tmpQ.identity(), tmpS.set(w, 1, d))));
+    im.frustumCulled = false;
+    im.renderOrder = 1;
+    im.userData.contact = true;
+    world.add(im);
+  }
+
   // ── room shell: floor, walls, zones, signage, lights ────────────────────
   const SHELL = { walls: [], ceiling: [] };
   function updateShell() {
@@ -1115,6 +1132,7 @@
     room.racks.forEach(makeRack);
     room.items.forEach((it) => (it.shape === 'slot' ? makeSlot(it) : makeBlock(it)));
     flushInstances();
+    makeContactShadows(room);
     OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2 }))
       .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2 })));
     const { inner, ports } = roomLinks(R);
@@ -3379,6 +3397,7 @@
     tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
+    contactShadows: () => { const o = world.children.find((c) => c.userData.contact); return o ? o.count : 0; },
     labels: () => ({
       slots: SPRITES.filter((s) => s.slot && s.sp.visible).length, blocks: SPRITES.filter((s) => !s.slot && s.sp.visible).length,
       racks: world.children.filter((o) => o.userData.rackSign).map((o) => o.userData.rackSign),

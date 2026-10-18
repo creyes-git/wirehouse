@@ -359,3 +359,15 @@ def test_file_labels_are_readable_on_entering_a_room(browser, html):
     assert labels["slots"] <= 24
     assert labels["racks"] and " to " in labels["racks"][0]           # an aisle sign names the first and last file
     assert errors == []
+
+
+def test_blocks_and_racks_stand_on_contact_shadows(browser, html):
+    page, errors = open_view(browser, html)
+    for theme in ("night", "day"):
+        js(page, f"__wirehouse.setTheme('{theme}')")
+        assert js(page, "__wirehouse.contactShadows()") == js(page, "__wirehouse.state().items")   # one blob per block
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert js(page, "__wirehouse.contactShadows()") >= 4      # three folder crates and a rack
+    js(page, "__wirehouse.setTheme('night')")
+    assert errors == []

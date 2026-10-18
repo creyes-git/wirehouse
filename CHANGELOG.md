@@ -7,6 +7,11 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Contact shadows** (2026-10-18)
+  - Summary: Every block and rack stands on a soft dark blob, drawn as one instanced mesh with the same
+    64 px gradient as the worker's shadow, in both themes.
+  - Why: at night there is no shadow map, so blocks seemed to float; by day the blobs soften the hard
+    edge of the shadow map, for one draw call per room.
 - **A GPU cost hook for the viewer** (2026-10-18)
   - Summary: `window.__wirehouse.gpu()` draws one frame and reports its draw calls (shadow pass
     included), triangles, textures, geometries, shader programs, visible meshes, shadow casters and
