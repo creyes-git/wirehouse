@@ -253,6 +253,12 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Long generated export lists connect again** (2026-10-18)
+  - Summary: An `import` or `export` whose `{ ... }` name list is long (a generated API client that
+    re-exports hundreds of types from `./types.gen`) links to the module again; the name list has its
+    own bound and stops at the next brace, so the scan stays linear.
+  - Why: the 2,000-character bound added in Pass 1 against slow scans cut such statements off, and the
+    demo map lost its `index.ts` to `types.gen.ts` import.
 - **The README says when the shared skills folder is written** (2026-10-18)
   - Summary: `~/.agents/skills` is written by a plain `wirehouse install`, not when `--agent` or `--dir`
     picks the targets; the README table and the code comment now say so.

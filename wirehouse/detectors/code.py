@@ -46,8 +46,9 @@ class _Lines:
 PY_IMPORT = re.compile(r"^[ \t]*import[ \t]+([\w.]+(?:[ \t]*,[ \t]*[\w.]+)*)", re.M)
 PY_FROM = re.compile(r"^[ \t]*from[ \t]+(\.*[\w.]*)[ \t]+import[ \t]+(\([^)]*\)|[^\n]+)", re.M)
 # An import clause never holds "=" or "(": without that stop, every `export const x = 1` scanned to the
-# end of the file looking for a `from` (quadratic on long files).
-JS_FROM = re.compile(r"\b(?:import|export)\s[^'\";=(]{0,2000}?\bfrom\s*['\"]([^'\"]+)['\"]")
+# end of the file looking for a `from` (quadratic on long files). A `{ ... }` name list may be long
+# (generated `export type { ...300 names }`), so it gets its own bound and stops at the next brace.
+JS_FROM = re.compile(r"\b(?:import|export)\s[^'\";=({]{0,300}?(?:\{[^{}'\";=(]{0,50000}\}[^'\";=({]{0,300}?)?\bfrom\s*['\"]([^'\"]+)['\"]")
 JS_SIDE = re.compile(r"\bimport\s*['\"]([^'\"]+)['\"]")
 JS_REQ = re.compile(r"\b(?:require|import)\s*\(\s*['\"]([^'\"]+)['\"]\s*\)")
 CS_USING = re.compile(r"^[ \t]*(?:global[ \t]+)?using[ \t]+(?:static[ \t]+)?([\w.]+)[ \t]*;", re.M)
