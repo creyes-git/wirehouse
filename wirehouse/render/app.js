@@ -320,12 +320,43 @@
   const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 700);
   const world = new THREE.Group();
   scene.add(world);
+  // GPU budget: most of a frame is pixel fill, so the resolution is capped and steps down on slow
+  // devices (integrated GPUs on hi-dpi screens). Shadows are drawn once per room, not every frame.
+  const MAX_DPR = 1.5, LOW_DPR = 1;
+  const dprCap = () => Math.min(window.devicePixelRatio || 1, MAX_DPR);
+  const GOV = { ratio: 1, frames: [], over: 0, under: 0 };
   if (renderer) {
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    GOV.ratio = dprCap();
+    renderer.setPixelRatio(GOV.ratio);
     renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.autoUpdate = false;
     stage.appendChild(renderer.domElement);
     renderer.domElement.tabIndex = 0;
+  }
+  function refreshShadows() { if (renderer) renderer.shadowMap.needsUpdate = true; }
+  // Frame-time governor: when the 75th percentile of the last 2 s of frames stays over 18 ms for 2 s,
+  // drop to 1x; when it stays under 12 ms for 2 s, step back up towards the cap.
+  function governFrame(ms, now) {
+    if (!renderer) return;
+    const F = GOV.frames;
+    F.push([now, ms]);
+    while (F.length && F[0][0] < now - 2000) F.shift();
+    if (F.length < 20) return;
+    const sorted = F.map((f) => f[1]).sort((a, b) => a - b);
+    const p75 = sorted[Math.floor(sorted.length * 0.75)];
+    GOV.over = p75 > 18 ? (GOV.over || now) : 0;
+    GOV.under = p75 < 12 ? (GOV.under || now) : 0;
+    let next = GOV.ratio;
+    if (GOV.over && now - GOV.over >= 2000) next = LOW_DPR;
+    else if (GOV.under && now - GOV.under >= 2000) next = Math.min(dprCap(), GOV.ratio + 0.25);
+    if (next !== GOV.ratio) {
+      GOV.ratio = next;
+      GOV.over = GOV.under = 0;
+      F.length = 0;   // judge the new resolution on its own frames
+      renderer.setPixelRatio(next);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
   }
 
   // material + geometry caches (cleared on theme change / room rebuild)
@@ -370,6 +401,8 @@
     if (parent) parent.add(me);
     return me;
   }
+  // Animated parts would go stale in the static shadow map, so they cast none.
+  function noCast(obj) { obj.traverse((o) => { o.castShadow = false; }); return obj; }
   function box(w, h, d, hex, x, y, z, parent, o) {
     const m = mesh(new THREE.BoxGeometry(w, h, d), mat(hex, o), x, y + h / 2, z, parent);
     if (T.glow && !(o && o.noEdges)) {
@@ -377,6 +410,43 @@
       m.add(edges);
     }
     return m;
+  }
+
+  // Repeated decorative parts (container ribs, rack frames, cabinet lights) are drawn as one
+  // InstancedMesh per material instead of one mesh each. They are never picked, so nothing is lost,
+  // and a busy floor drops from hundreds of draw calls to a few.
+  let INST = new Map();
+  const ORIGIN = new THREE.Vector3();
+  function instBox(w, h, d, m, x, y, z, parent, o) {   // y is the bottom, like box()
+    o = o || {};
+    const key = m.uuid + (o.cast ? '|cast' : '');
+    let b = INST.get(key);
+    if (!b) { b = { m, cast: !!o.cast, mats: [], colors: [], phase: [] }; INST.set(key, b); }
+    const at = parent ? parent.position : ORIGIN;
+    b.mats.push(new THREE.Matrix4().compose(new THREE.Vector3(at.x + x, at.y + y + h / 2, at.z + z), new THREE.Quaternion(), new THREE.Vector3(w, h, d)));
+    if (o.color != null) { b.colors.push(new THREE.Color(o.color)); b.phase.push(o.phase || 0); }
+  }
+  function flushInstances() {
+    if (!INST.size) return;
+    const unit = geo(new THREE.BoxGeometry(1, 1, 1));
+    INST.forEach((b) => {
+      const im = new THREE.InstancedMesh(unit, b.m, b.mats.length);
+      b.mats.forEach((M, i) => im.setMatrixAt(i, M));
+      b.colors.forEach((c, i) => im.setColorAt(i, c));
+      im.frustumCulled = false;   // the bounding sphere is the unit box's, not the instances'
+      im.castShadow = T.shadows && b.cast;
+      im.receiveShadow = !!T.shadows;
+      world.add(im);
+      if (b.phase.length) {
+        // cabinet lights blink by dimming their instance colour, not by hiding meshes
+        const dim = new THREE.Color();
+        ANIM.push((t) => {
+          b.colors.forEach((c, i) => im.setColorAt(i, Math.sin(t * 3 + b.phase[i] * 1.7) > -0.6 ? c : dim.copy(c).multiplyScalar(0.15)));
+          im.instanceColor.needsUpdate = true;
+        });
+      }
+    });
+    INST = new Map();
   }
 
   // text → canvas textures
@@ -467,10 +537,11 @@
       } else {
         box(w, h, d, col, 0, 0, 0, g, { bright: S === 'dock' });
         const ribs = Math.max(4, Math.floor(w / 0.9));
+        const ribM = mat(col, { noEdges: true, emissive: 0.25, bright: true });
         for (let i = 1; i < ribs; i++) {
           const rx = -w / 2 + (w * i) / ribs;
-          box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, d / 2 + 0.03, g, { noEdges: true, emissive: 0.25, bright: true });
-          box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, -d / 2 - 0.03, g, { noEdges: true, emissive: 0.25, bright: true });
+          instBox(0.08, h * 0.86, 0.06, ribM, rx, h * 0.07, d / 2 + 0.03, g);
+          instBox(0.08, h * 0.86, 0.06, ribM, rx, h * 0.07, -d / 2 - 0.03, g);
         }
         box(0.06, h * 0.9, d * 0.46, 0x1a1f28, w / 2 + 0.03, h * 0.05, -d * 0.24, g, { noEdges: true });
         box(0.06, h * 0.9, d * 0.46, 0x1a1f28, w / 2 + 0.03, h * 0.05, d * 0.24, g, { noEdges: true });
@@ -485,11 +556,11 @@
             tooth.rotation.z = k * Math.PI / 4;
           }
           gear.position.set(w * 0.25, h + 1.1, 0);
-          g.add(gear);
+          g.add(noCast(gear));
           ANIM.push((t) => { gear.rotation.z = t * 0.9; });
         }
         if (n.kind === 'ai') {
-          const orb = mesh(new THREE.IcosahedronGeometry(0.7, 0), mat(col, { bright: true, emissive: 0.9 }), 0, h + 1.3, 0, g);
+          const orb = noCast(mesh(new THREE.IcosahedronGeometry(0.7, 0), mat(col, { bright: true, emissive: 0.9 }), 0, h + 1.3, 0, g));
           ANIM.push((t) => { orb.rotation.y = t * 0.8; orb.position.y = h + 1.3 + Math.sin(t * 2) * 0.15; });
         }
       }
@@ -521,7 +592,7 @@
       box(w, 0.9, 0.12, col, 0, 0, d / 2 - 0.06, g);
       box(w, 0.9, 0.12, col, 0, 0, -d / 2 + 0.06, g);
       const parcels = [];
-      for (let k = 0; k < 4; k++) parcels.push(box(0.8, 0.6, 0.9, col, 0, 1.15, 0, g, { bright: true }));
+      for (let k = 0; k < 4; k++) parcels.push(noCast(box(0.8, 0.6, 0.9, col, 0, 1.15, 0, g, { bright: true })));
       ANIM.push((t) => parcels.forEach((p, k) => { p.position.x = ((t * 0.8 + k / 4) % 1) * w - w / 2; }));
     } else if (S === 'pallet') {
       box(w, 0.3, d, 0x8a6a45, 0, 0, 0, g, { noEdges: true });
@@ -531,24 +602,22 @@
       box(0.6, h, d, col, -w / 2 + 0.3, 0, 0, g);
       box(0.6, h, d, col, w / 2 - 0.3, 0, 0, g);
       box(w, 0.6, d, col, 0, h - 0.6, 0, g, { bright: true });
-      const bar = box(w - 1.4, 0.14, 0.14, 0xf2c230, 0, 1.1, 0, g, { emissive: 0.4 });
+      const bar = noCast(box(w - 1.4, 0.14, 0.14, 0xf2c230, 0, 1.1, 0, g, { emissive: 0.4 }));
       if (S === 'gate') {
         const lock = new THREE.Group();
         mesh(new THREE.BoxGeometry(1.0, 0.85, 0.4), mat(col, { bright: true, emissive: 0.45 }), 0, 0, 0, lock);
         mesh(new THREE.TorusGeometry(0.33, 0.09, 8, 16, Math.PI), mat(col, { bright: true, emissive: 0.45 }), 0, 0.42, 0, lock);
         lock.position.set(0, h + 0.7, 0);
-        g.add(lock);
+        g.add(noCast(lock));
         ANIM.push((t) => { lock.rotation.y = Math.sin(t * 1.2) * 0.5; });
       }
       ANIM.push((t) => { bar.rotation.z = Math.max(0, Math.sin(t * 0.6)) * 0.9; });
     } else if (S === 'cabinet') {
       box(w, h, d, col, 0, 0, 0, g);
-      const leds = [];
+      const ledM = mat(0xffffff, { basic: true });
       for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++) {
-        const led = mesh(new THREE.BoxGeometry(0.16, 0.08, 0.04), mat((r + c) % 3 ? 0x4ade80 : 0xfbbf24, { basic: true }), -w / 4 + c * (w / 4), h * 0.2 + r * (h * 0.11), d / 2 + 0.03, g);
-        leds.push(led);
+        instBox(0.16, 0.08, 0.04, ledM, -w / 4 + c * (w / 4), h * 0.2 + r * (h * 0.11) - 0.04, d / 2 + 0.03, g, { color: (r + c) % 3 ? 0x4ade80 : 0xfbbf24, phase: r * 3 + c });
       }
-      ANIM.push((t) => leds.forEach((l, i) => { l.visible = Math.sin(t * 3 + i * 1.7) > -0.6; }));
       const sign = decal([shortName(n.name, 16)], w * 0.86, { bg: false, ink: T.glow ? css(col) : '#ffffff', big: 60 });
       sign.position.set(0, h * 0.9, d / 2 + 0.05);
       g.add(sign);
@@ -573,7 +642,7 @@
       box(w, h, d, col, 0, 0, 0, g);
     }
     if (enterable(n.id) && S !== 'slot') {
-      const door = box(Math.min(1.6, w * 0.4), Math.min(2.3, h * 0.75), 0.06, T.glow ? 0xffb23f : 0xf2c230, 0, 0, d / 2 + 0.06, g, { basic: true, opacity: 0.85, noEdges: true });
+      const door = noCast(box(Math.min(1.6, w * 0.4), Math.min(2.3, h * 0.75), 0.06, T.glow ? 0xffb23f : 0xf2c230, 0, 0, d / 2 + 0.06, g, { basic: true, opacity: 0.85, noEdges: true }));
       ANIM.push((t) => { door.material.opacity = 0.55 + Math.sin(t * 2.4) * 0.25; });
     }
     tagPick(g, { type: 'node', id: n.id });
@@ -592,12 +661,13 @@
     g.position.set(rk.x, 0, rk.z);
     const steel = T.glow ? 0x3b5b94 : 0x2f6db5;
     const beam = T.glow ? 0xffb23f : 0xf28c28;
-    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => box(0.1, rk.h, 0.1, steel, sx * (rk.w / 2), 0, sz * (rk.d / 2), g, { noEdges: true, emissive: 0.4 }));
+    const steelM = mat(steel, { noEdges: true, emissive: 0.4 }), beamM = mat(beam, { noEdges: true, emissive: 0.4 });
+    const shelfM = mat(T.glow ? 0x121b30 : 0x9aa1a8, { noEdges: true });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => instBox(0.1, rk.h, 0.1, steelM, sx * (rk.w / 2), 0, sz * (rk.d / 2), g, { cast: true }));
     for (let l = 0; l < SLOT_LEVELS; l++) {
-      box(rk.w, 0.07, rk.d, T.glow ? 0x121b30 : 0x9aa1a8, 0, 0.25 + l * 1.2, 0, g, { noEdges: true });
-      box(rk.w, 0.1, 0.08, beam, 0, 0.25 + l * 1.2, rk.d / 2, g, { noEdges: true, emissive: 0.4 });
+      instBox(rk.w, 0.07, rk.d, shelfM, 0, 0.25 + l * 1.2, 0, g, { cast: true });
+      instBox(rk.w, 0.1, 0.08, beamM, 0, 0.25 + l * 1.2, rk.d / 2, g);
     }
-    world.add(g);
   }
 
   function makeSlot(it) {
@@ -611,7 +681,7 @@
     if (n.kind === 'resource') col = kindHex(n.subkind && T.kind[n.subkind] != null ? n.subkind : 'resource');
     const h = n.kind === 'file' ? clamp(0.35 + Math.log2((n.lines || 10) + 1) * 0.06, 0.4, 0.9) : 0.75;
     box(it.w, h, it.d, col, 0, 0, 0, g, { edgeOpacity: 0.7 });
-    if (n.endpoints && n.endpoints.length) box(it.w * 0.9, 0.08, 0.04, T.glow ? 0x39c0f5 : 0x2f80c0, 0, h * 0.7, it.d / 2 + 0.03, g, { basic: true, noEdges: true });
+    if (n.endpoints && n.endpoints.length) noCast(box(it.w * 0.9, 0.08, 0.04, T.glow ? 0x39c0f5 : 0x2f80c0, 0, h * 0.7, it.d / 2 + 0.03, g, { basic: true, noEdges: true }));
     tagPick(g, { type: 'node', id: n.id });
     world.add(g);
     const lb = label([shortName(n.name, 26)], 0.34, { big: 40, pad: 10 });
@@ -640,6 +710,7 @@
     // floor
     const floor = mesh(new THREE.PlaneGeometry(W, Dp), mat(T.floor, { rough: 0.95 }), 0, 0, 0, world);
     floor.rotation.x = -Math.PI / 2;
+    floor.castShadow = false;   // flat things only receive: each caster costs a draw call in the shadow pass
     floor.receiveShadow = true;
     floor.userData.floor = true;
     // the yard outside, so stepping the camera out never shows a void
@@ -657,12 +728,14 @@
       const zw = Z.x1 - Z.x0, zd = Z.z1 - Z.z0;
       const pl = mesh(new THREE.PlaneGeometry(zw - 1, zd - 1), mat(i % 2 ? T.floorAlt : T.floor, { rough: 0.95 }), (Z.x0 + Z.x1) / 2, 0.005, (Z.z0 + Z.z1) / 2, world);
       pl.rotation.x = -Math.PI / 2;
+      pl.castShadow = false;
       pl.receiveShadow = true;
       // painted boundary lines
       const lineCol = T.paint;
       [[zw - 1, 0.18, (Z.x0 + Z.x1) / 2, Z.z1 - 0.5], [zw - 1, 0.18, (Z.x0 + Z.x1) / 2, Z.z0 + 0.5]].forEach(([lw, lt, lx, lz]) => {
         const s = mesh(new THREE.PlaneGeometry(lw, lt), mat(lineCol, { basic: true }), lx, 0.02, lz, world);
         s.rotation.x = -Math.PI / 2;
+        s.castShadow = false;
       });
       // floor lettering
       const txt = Z.empty ? (Z.id === 'edge' ? 'No gateway or auth found' : 'Nothing here yet') : Z.name;
@@ -859,6 +932,20 @@
   let worker = null;
   const W8 = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), vy: 0, yaw: 0, phase: 0, moving: 0 };
 
+  // A soft round shadow, shared by every blob: drawn once on a 64 px canvas.
+  let BLOB = null;
+  function blobTexture() {
+    if (BLOB) return BLOB;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.55, 'rgba(255,255,255,0.45)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+    BLOB = new THREE.CanvasTexture(c);
+    return BLOB;
+  }
+
   function disposeTree(root) {
     root.traverse((o) => {
       if (o.geometry && !o.isSprite) o.geometry.dispose();   // sprites share one geometry inside three.js
@@ -875,7 +962,9 @@
     const reflect = new THREE.MeshStandardMaterial({ color: 0xe8edf2, emissive: 0xe8edf2, emissiveIntensity: T.glow ? 0.9 : 0.15 });
     const hat = new THREE.MeshStandardMaterial({ color: 0xffc400, roughness: 0.4, emissive: 0xffc400, emissiveIntensity: T.glow ? 0.25 : 0 });
     const boot = new THREE.MeshStandardMaterial({ color: 0x3b2a1e, roughness: 0.9 });
-    const part = (g, m, x, y, z, p) => { const me = new THREE.Mesh(g, m); me.position.set(x, y, z); me.castShadow = T.shadows; p.add(me); return me; };
+    // The worker moves every frame, so it casts no real shadow (that would redraw the shadow map
+    // each frame); a soft blob on the floor grounds it instead.
+    const part = (g, m, x, y, z, p) => { const me = new THREE.Mesh(g, m); me.position.set(x, y, z); p.add(me); return me; };
     const body = new THREE.Group();
     root.add(body);
     const legs = [-1, 1].map((s) => {
@@ -915,7 +1004,11 @@
       root.add(lamp);
     }
     scene.add(root);
-    worker = { root, body, legs, arms, head };
+    const blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: blobTexture(), color: 0x000000, transparent: true, opacity: T.glow ? 0.55 : 0.4, depthWrite: false }));
+    blob.rotation.x = -Math.PI / 2;
+    blob.renderOrder = 1;
+    root.add(blob);
+    worker = { root, body, legs, arms, head, blob };
   }
 
   function animateWorker(dt, time) {
@@ -930,6 +1023,9 @@
     w.arms[1].rotation.x = swing * 0.8;
     w.body.position.y = Math.abs(Math.sin(W8.phase)) * 0.06 * W8.moving + (1 - W8.moving) * Math.sin(time * 1.8) * 0.01;
     w.root.position.copy(W8.pos);
+    // the blob stays on the floor and shrinks as the worker jumps
+    w.blob.position.y = 0.04 - W8.pos.y;
+    w.blob.scale.setScalar(Math.max(0.4, 1 - W8.pos.y * 0.25));
     let dy = W8.yaw - w.root.rotation.y;
     dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     w.root.rotation.y += dy * Math.min(1, dt * 12);
@@ -950,6 +1046,7 @@
       if ((o.isSprite || o.isMesh || o.isLine) && o.material && !shared.has(o.material)) o.material.dispose();
       if (o.isLine && o.geometry) o.geometry.dispose();          // grid and selection boxes
       if (o.isLight && o.dispose) o.dispose();                   // frees the 2048px shadow map
+      if (o.isInstancedMesh && o !== particles) o.dispose();     // frees the per-instance buffers
     });
     texRoom++;
     TEX.forEach((t, k) => { if (t.userData.used < texRoom - TEX_ROOMS) { t.dispose(); TEX.delete(k); } });
@@ -974,6 +1071,7 @@
     makeShell(room);
     room.racks.forEach(makeRack);
     room.items.forEach((it) => (it.shape === 'slot' ? makeSlot(it) : makeBlock(it)));
+    flushInstances();
     OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2 }))
       .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2 })));
     const { inner, ports } = roomLinks(R);
@@ -1000,8 +1098,8 @@
       });
     });
     buildParticles();
-    if (T.shadows) renderer && (renderer.shadowMap.enabled = true);
-    else renderer && (renderer.shadowMap.enabled = false);
+    if (renderer) renderer.shadowMap.enabled = !!T.shadows;
+    refreshShadows();   // the scene is static apart from small animated parts that cast no shadow
     BUILD_HOOKS.forEach((f) => f());
     applyFocus();
     drawCrumbs();
@@ -3131,18 +3229,46 @@
   let frameNo = 0;
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    if (renderer) { renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); renderer.setSize(w, h); }
+    if (renderer) {
+      GOV.ratio = dprCap();
+      GOV.frames.length = 0;
+      renderer.setPixelRatio(GOV.ratio);
+      renderer.setSize(w, h);
+    }
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     if (planOn && room) { fitPlan(); setViewBox(); }
   }
   window.addEventListener('resize', resize);
+  // Moving the window to a screen with another pixel density fires no resize event in every browser.
+  (function watchDensity() {
+    if (!window.matchMedia) return;
+    const q = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    const on = () => { resize(); watchDensity(); };
+    if (q.addEventListener) q.addEventListener('change', on, { once: true });
+  })();
 
-  function frame() {
+  // Idle: after 5 s without input, walking or a playing tour, draw every other frame.
+  const IDLE_MS = 5000;
+  let lastInput = performance.now();
+  ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart'].forEach((ev) => window.addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true }));
+  function idle(now) {
+    const busy = keys.size || W8.path || ptr.down || transitioning || W8.pos.y > 0 || (player && player.playing);
+    if (busy) lastInput = now;
+    return now - lastInput > IDLE_MS;
+  }
+
+  let lastFrame = 0;
+  function frame(now) {
     requestAnimationFrame(frame);
+    now = now || performance.now();
+    frameNo++;
+    const lazy = idle(now);
+    if (lazy && frameNo % 2) return;   // the skipped frame's time goes into the next one's dt
     const dt = Math.min(clock.getDelta(), 0.05);
     const time = clock.elapsedTime;
-    frameNo++;
+    if (lastFrame && !lazy && !document.hidden) governFrame(now - lastFrame, now);
+    lastFrame = now;
     if (!room) return;
     if (planOn) {
       if (frameNo % 10 === 0) { const me = plan.querySelector('#planMe'); if (me) me.setAttribute('transform', `translate(${W8.pos.x},${W8.pos.z})`); }
@@ -3201,10 +3327,33 @@
       ? { mode: 'route', loose: trace.loose, stops: trace.stops.map((s) => s.id), path: trace.path && trace.path.map((p) => p.id) }
       : { mode: trace.mode, id: trace.id, marks: MARK.hop && Object.fromEntries(MARK.hop) }),
     player: () => player && { kind: player.kind, i: player.i, n: player.stops.length, playing: player.playing, arrived: player.arrived, stops: player.stops.map((s) => s.id) },
+    // feeds the resolution governor `seconds` of frames that each took `ms`, as a slow or fast device would
+    frames(ms, seconds) {
+      const t0 = performance.now() + 1e6, reset = () => { GOV.frames.length = 0; GOV.over = GOV.under = 0; };
+      reset();
+      for (let t = 0; t < seconds * 1000; t += ms) governFrame(ms, t0 + t);
+      reset();
+      return renderer && renderer.getPixelRatio();
+    },
+    idle: () => idle(performance.now()),
     tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
     marks: () => Object.fromEntries([...(MARK.badges || new Map())].map(([id, b]) => [id, b.text])),
+    // What one frame costs the GPU, for the performance budget.
+    gpu: () => {
+      if (!renderer) return null;
+      let casters = 0, meshes = 0, instanced = 0;
+      scene.traverseVisible((o) => { if (o.isMesh) { meshes++; if (o.castShadow) casters++; if (o.isInstancedMesh) instanced++; } });
+      // one frame drawn here with the counters kept across the shadow pass, which render() would reset
+      const i = renderer.info;
+      i.autoReset = false;
+      i.reset();
+      renderer.render(scene, camera);
+      i.autoReset = true;
+      return { calls: i.render.calls, triangles: i.render.triangles, textures: i.memory.textures, geometries: i.memory.geometries,
+        programs: (i.programs || []).length, meshes, instanced, casters, shadows: renderer.shadowMap.enabled, pixelRatio: renderer.getPixelRatio() };
+    },
   };
 
   async function start() {

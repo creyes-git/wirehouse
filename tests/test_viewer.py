@@ -300,3 +300,51 @@ def test_without_webgl_the_floor_plan_runs_tours(browser, html):
     js(page, "__wirehouse.setPlan(false)")                 # there is no 3D view to go back to
     assert js(page, "!document.querySelector('#plan').hasAttribute('hidden')")
     assert [e for e in errors if "Error creating WebGL context" not in e] == []   # three.js says so itself
+
+
+def test_gpu_stats_hook_reports_one_frame(browser, html):
+    page, errors = open_view(browser, html)
+    g = js(page, "__wirehouse.gpu()")
+    assert g["calls"] > 0 and g["triangles"] > 0 and g["programs"] > 0 and g["pixelRatio"] > 0
+    assert errors == []
+
+
+def test_resolution_is_capped_and_follows_frame_times(browser, html):
+    page, errors = open_view(browser, html, device_scale_factor=2)
+    assert js(page, "__wirehouse.frames(8, 7)") == 1.5         # fast device: steps up to the cap, never to 2
+    assert js(page, "__wirehouse.frames(30, 4.1)") == 1         # slow for 2 s: drops to 1x
+    assert js(page, "__wirehouse.frames(8, 2.5)") == 1.25       # fast again: one step back up
+    assert js(page, "__wirehouse.frames(16, 6)") == 1.25        # in between: holds
+    assert errors == []
+
+
+def test_day_shadows_are_drawn_once_per_room_not_every_frame(browser, html):
+    page, errors = open_view(browser, html)
+    first, steady, again = js(page, "__wirehouse.setTheme('day'); [__wirehouse.gpu(), __wirehouse.gpu(), __wirehouse.gpu()]")
+    assert first["shadows"] and first["calls"] > steady["calls"] + 20   # the first frame after a build draws the shadow map
+    assert again["calls"] == steady["calls"]                             # later frames reuse it
+    js(page, "__wirehouse.setTheme('night')")
+    assert errors == []
+
+
+def test_an_idle_view_slows_down_and_wakes_on_input(browser, html):
+    page, errors = open_view(browser, html)
+    assert js(page, "__wirehouse.idle()") is False
+    page.wait_for_function("__wirehouse.idle()", timeout=12000)          # 5 s without input
+    page.mouse.move(400, 300)
+    assert js(page, "__wirehouse.idle()") is False
+    assert js(page, "getComputedStyle(document.querySelector('#panel')).backdropFilter") in ("none", "")
+    assert errors == []
+
+
+def test_repeated_parts_are_instanced_within_the_draw_call_budget(browser, html):
+    page, errors = open_view(browser, html)
+    night = js(page, "__wirehouse.setTheme('night'); __wirehouse.gpu()")
+    day = js(page, "__wirehouse.setTheme('day'); __wirehouse.gpu(); __wirehouse.gpu()")   # steady frame, shadow map already drawn
+    assert night["instanced"] >= 2 and night["calls"] <= 155     # was 167 with one mesh per rib and light
+    assert day["calls"] <= 140                                   # was 273 with the shadow pass every frame
+    js(page, "__wirehouse.enterBlock('unit:python:api')")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert js(page, "__wirehouse.gpu().instanced") >= 3           # rack posts, shelves and beams
+    js(page, "__wirehouse.setTheme('night')")
+    assert errors == []
