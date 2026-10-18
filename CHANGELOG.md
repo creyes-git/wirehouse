@@ -208,6 +208,11 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
+- **YAML alias bombs no longer hang the scan** (2026-10-18)
+  - Summary: Compose, workflow and Kubernetes values are taken only when they are plain scalars (or
+    lists of them), with a length cap, so nested `&anchor`/`*alias` lists are never expanded into text.
+  - Why: an 11-line compose file with nine levels of aliases turned into hundreds of millions of items
+    when `image` or `command` was converted to text, and the build never finished.
 - **The scan stays inside the project folder** (2026-10-18)
   - Summary: Symlinks, Windows junctions, pipes and devices are skipped, every file read must resolve to
     a path inside the project, and config files (compose, workflows, `.gitignore`, `package.json`, ...)

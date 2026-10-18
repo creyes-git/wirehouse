@@ -1250,3 +1250,23 @@ def test_scan_stays_inside_the_project(tmp_path):
     assert "package_json" not in res.configs
     assert res.read("app/docker-compose.yml") == ""            # over the size cap: not read at all
     assert res.read("../outside/package.json") == "" and res.read("linked/package.json") == ""
+
+
+ALIAS_BOMB = "".join(f"x-{c}: &{c} [{', '.join([f'*{p}'] * 9)}]\n" for p, c in zip("abcdefgh", "bcdefghi"))
+ALIAS_BOMB = 'x-a: &a ["lol", "lol", "lol", "lol", "lol", "lol", "lol", "lol", "lol"]\n' + ALIAS_BOMB
+
+
+@pytest.mark.parametrize(("rel", "body"), [
+    ("docker-compose.yml", ALIAS_BOMB + "services:\n  web:\n    image: *i\n    command: *i\n    ports: *i\n"
+                           "    environment: *i\n    labels: *i\n    depends_on: *i\n    build:\n      context: *i\n"),
+    (".github/workflows/ci.yml", ALIAS_BOMB + "name: *i\non: *i\njobs:\n  test:\n    runs-on: ubuntu-latest\n"),
+    ("k8s/deploy.yaml", ALIAS_BOMB + "apiVersion: v1\nkind: *i\nmetadata:\n  name: *i\n"),
+])
+def test_yaml_alias_bombs_do_not_hang_the_scan(tmp_path, rel, body):
+    # Nine levels of nine aliases is 387 million items once turned into text, from a dozen lines.
+    import time
+
+    _write(tmp_path, {rel: body})
+    t0 = time.perf_counter()
+    build_archmap(tmp_path, log=lambda *_: None)
+    assert time.perf_counter() - t0 < 5
