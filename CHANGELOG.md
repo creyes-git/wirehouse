@@ -147,6 +147,13 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Monorepo imports connect their packages** (2026-10-18)
+  - Summary: An import of a workspace package by name (`import { Button } from "@mono/ui"`, with
+    `workspace:*`) links to that package's files, through its `source`/`module`/`main`/`exports` entry or
+    `src/index`. tsconfig `extends` is followed (relative configs, lists included), `tsconfig.base.json`
+    (Nx) is read, and a project config without `paths` falls through to the nearest parent config.
+  - Why: in a monorepo none of these imports made an edge, so apps and their shared packages looked
+    unrelated on the map.
 - **Requests from a frontend are not drawn as served endpoints** (2026-10-18)
   - Summary: `x.get('/path')` counts as a route only in a file that imports a server framework (Express,
     Fastify, Koa, Hono, ...) or when the call passes a handler (a function, or a named handler on a

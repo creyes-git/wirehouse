@@ -209,7 +209,7 @@ def _config_category(rel: str, name: str) -> str | None:
         return "env_template"
     if low.startswith("appsettings") and low.endswith(".json"):
         return "appsettings"
-    if low in ("tsconfig.json", "jsconfig.json"):
+    if low in ("tsconfig.json", "jsconfig.json", "tsconfig.base.json"):
         return "tsconfig"
     if low in ("nginx.conf", "caddyfile", "traefik.yml", "traefik.yaml") or low.endswith(".nginx.conf"):
         return "gateway_config"

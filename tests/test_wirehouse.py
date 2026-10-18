@@ -1336,3 +1336,31 @@ def test_client_requests_are_not_served_endpoints(tmp_path):
     assert {(e["method"], e["path"]) for e in nodes["file:server/src/app.ts"]["endpoints"]} == {("GET", "/health")}
     assert {(e["method"], e["path"]) for e in nodes["file:server/src/routes/users.ts"]["endpoints"]} == {
         ("GET", "/users"), ("POST", "/users"), ("DELETE", "/users/:id")}
+
+
+def test_monorepo_imports_reach_their_packages(tmp_path):
+    _write(tmp_path, {
+        "package.json": json.dumps({"name": "mono", "private": True, "workspaces": ["apps/*", "packages/*"]}),
+        # Nx style: the aliases live in tsconfig.base.json, which project configs extend
+        "tsconfig.base.json": '{\n  // shared\n  "compilerOptions": {"baseUrl": ".", "paths": {"@mono/utils": ["libs/utils/src/index.ts"]}}\n}\n',
+        "libs/utils/src/index.ts": "export const slug = (s: string) => s;\n",
+        "packages/ui/package.json": json.dumps({"name": "@mono/ui", "main": "dist/index.js"}),
+        "packages/ui/src/index.ts": "export * from './Button';\n",
+        "packages/ui/src/Button.tsx": "export const Button = () => null;\n",
+        "apps/web/package.json": json.dumps({"name": "web", "dependencies": {"next": "15.0.0", "@mono/ui": "workspace:*"}}),
+        "apps/web/tsconfig.json": '{"extends": "../../tsconfig.base.json", "compilerOptions": {"jsx": "preserve"}}',
+        "apps/web/app/page.tsx": 'import { Button } from "@mono/ui";\nimport { Button as B } from "@mono/ui/Button";\n'
+                                 'import { slug } from "@mono/utils";\nexport default function Page() { return null }\n',
+        # a project config with no paths and no extends: the root config's aliases still apply
+        "apps/admin/package.json": json.dumps({"name": "admin", "dependencies": {"next": "15.0.0"}}),
+        "apps/admin/tsconfig.json": '{"compilerOptions": {"strict": true}}',
+        "apps/admin/app/page.tsx": 'import { slug } from "@mono/utils";\nexport default function Page() { return null }\n',
+    })
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    imports = {(e["source"], e["target"]) for e in data["edges"] if e["kind"] == "imports"}
+    assert ("file:apps/web/app/page.tsx", "file:packages/ui/src/index.ts") in imports
+    assert ("file:apps/web/app/page.tsx", "file:packages/ui/src/Button.tsx") in imports
+    assert ("file:apps/web/app/page.tsx", "file:libs/utils/src/index.ts") in imports
+    assert ("file:apps/admin/app/page.tsx", "file:libs/utils/src/index.ts") in imports
+    _, links = _index(data)
+    assert ("unit:js:apps/web", "unit:js:packages/ui", "imports") in links
