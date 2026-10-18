@@ -1042,7 +1042,8 @@
 
   // ── avatar: worker in a hard hat ─────────────────────────────────────────
   let worker = null;
-  const W8 = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), vy: 0, yaw: 0, phase: 0, moving: 0 };
+  const W8 = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), vy: 0, yaw: 0, phase: 0, moving: 0,
+    speed: 0, lean: 0, tilt: 0, squash: 0, air: false, look: 0 };
 
   // A soft round shadow, shared by every blob: drawn once on a 64 px canvas.
   let BLOB = null;
@@ -1103,11 +1104,15 @@
     part(new THREE.BoxGeometry(0.03, 0.34, 0.26), new THREE.MeshStandardMaterial({ color: 0x8a6a45 }), 0.07, -0.62, 0.1, arms[0]);
     part(new THREE.BoxGeometry(0.035, 0.28, 0.2), new THREE.MeshStandardMaterial({ color: 0xf4f4f0 }), 0.08, -0.6, 0.1, arms[0]);
     part(new THREE.CylinderGeometry(0.08, 0.09, 0.1, 10), skin, 0, 1.6, 0, body);
-    const head = part(new THREE.SphereGeometry(0.2, 18, 14), skin, 0, 1.82, 0, body);
-    part(new THREE.SphereGeometry(0.235, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), hat, 0, 1.86, 0, body);
-    part(new THREE.CylinderGeometry(0.32, 0.32, 0.03, 20), hat, 0, 1.86, 0.03, body);
-    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), -0.07, 1.84, 0.18, body);
-    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), 0.07, 1.84, 0.18, body);
+    // head, hat and eyes turn together (towards the selected block)
+    const head = new THREE.Group();
+    head.position.set(0, 1.82, 0);
+    body.add(head);
+    part(new THREE.SphereGeometry(0.2, 18, 14), skin, 0, 0, 0, head);
+    part(new THREE.SphereGeometry(0.235, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), hat, 0, 0.04, 0, head);
+    part(new THREE.CylinderGeometry(0.32, 0.32, 0.03, 20), hat, 0, 0.04, 0.03, head);
+    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), -0.07, 0.02, 0.18, head);
+    part(new THREE.BoxGeometry(0.07, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0x222222 }), 0.07, 0.02, 0.18, head);
     // a soft spot of light that follows the worker on the night shift
     let lamp = null;
     if (T.glow) {
@@ -1134,6 +1139,29 @@
     w.arms[0].rotation.x = -swing * 0.8 - 0.25 * (1 - W8.moving);
     w.arms[1].rotation.x = swing * 0.8;
     w.body.position.y = Math.abs(Math.sin(W8.phase)) * 0.06 * W8.moving + (1 - W8.moving) * Math.sin(time * 1.8) * 0.01;
+    // Lean into turns and into speeding up or slowing down; squash a little on landing.
+    let turn = W8.yaw - w.root.rotation.y;
+    turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+    const accel = dt > 0 ? (speed - W8.speed) / dt : 0;
+    W8.speed = speed;
+    const ease = Math.min(1, dt * 8);
+    W8.lean += ((reduceMotion ? 0 : clamp(-turn * 0.35 * Math.min(1, speed / 6), -0.22, 0.22)) - W8.lean) * ease;
+    W8.tilt += ((reduceMotion ? 0 : clamp(accel * 0.012, -0.16, 0.16)) - W8.tilt) * ease;
+    if (W8.air && W8.pos.y === 0 && !reduceMotion) W8.squash = 1;
+    W8.air = W8.pos.y > 0;
+    W8.squash = Math.max(0, W8.squash - dt * 6);
+    const sq = Math.sin(W8.squash * Math.PI) * 0.16;
+    w.body.rotation.set(W8.tilt, 0, W8.lean);
+    w.body.scale.set(1 + sq * 0.5, 1 - sq, 1 + sq * 0.5);
+    // The head turns towards the selected block when it is in this room, within what a neck allows.
+    const sel = selected && selected.type !== 'link' && itemsById.get(selected.id);
+    let look = 0;
+    if (sel) {
+      look = Math.atan2(sel.x - W8.pos.x, sel.z - W8.pos.z) - w.root.rotation.y;
+      look = clamp(Math.atan2(Math.sin(look), Math.cos(look)), -1.1, 1.1);
+    }
+    W8.look += (look - W8.look) * (reduceMotion ? 1 : Math.min(1, dt * 6));
+    w.head.rotation.y = W8.look;
     w.root.position.copy(W8.pos);
     // the blob stays on the floor and shrinks as the worker jumps
     w.blob.position.y = 0.04 - W8.pos.y;
@@ -3519,7 +3547,7 @@
       return renderer && renderer.getPixelRatio();
     },
     idle: () => idle(performance.now()),
-    tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); updateFx(1 / 60); } renderer && renderer.render(scene, camera); },
+    tick(n, draw) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); updateFx(1 / 60); } if (renderer && draw !== false) renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
     // how well the first moving particle lines up with its pipe (1 = along the flow)
@@ -3540,6 +3568,8 @@
       ring: FX.ring ? +FX.ring.mesh.scale.x.toFixed(2) : null, bounce: !!FX.bounce,
       hover: hovBox ? +hovBox.material.opacity.toFixed(2) : null,
     }),
+    worker: () => ({ lean: W8.lean, tilt: W8.tilt, squash: W8.squash, head: W8.look }),
+    jump() { W8.vy = 6.5; },
     look(yaw, pitch, dist) { Object.assign(cam.goal, { yaw, pitch, dist }); },
     camera: () => {
       const c = camera.position, inside = OBST.some((o) => c.x > o.x0 && c.x < o.x1 && c.z > o.z0 && c.z < o.z1 && c.y < o.y1);

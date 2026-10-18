@@ -416,3 +416,16 @@ def test_clicks_answer_with_a_ring_a_bounce_and_a_fading_outline(browser, html):
     js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
     page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
     assert errors == []
+
+
+def test_worker_leans_squashes_and_looks_at_the_selection(browser, html):
+    page, errors = open_view(browser, html)
+    head = js(page, "__wirehouse.select('infra:ci'); __wirehouse.tick(60); __wirehouse.worker().head")
+    assert abs(head) > 0.3                                          # CI/CD stands off to one side
+    squash = js(page, """(() => { __wirehouse.jump(); let m = 0;
+        for (let i = 0; i < 90; i++) { __wirehouse.tick(1, false); m = Math.max(m, __wirehouse.worker().squash); } return m; })()""")
+    assert squash > 0.5                                              # landed
+    lean = js(page, """(() => { __wirehouse.travelTo('res:redis'); let m = 0;
+        for (let i = 0; i < 240; i++) { __wirehouse.tick(1, false); const w = __wirehouse.worker(); m = Math.max(m, Math.abs(w.lean) + Math.abs(w.tilt)); } return m; })()""")
+    assert lean > 0.02
+    assert errors == []

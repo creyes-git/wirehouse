@@ -77,6 +77,11 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **The worker moves with more weight** (2026-10-18)
+  - Summary: The worker leans into turns and into speeding up or slowing down, squashes a little on
+    landing from a jump, and turns its head towards the selected block when it is in the same room.
+    Reduced motion keeps the body upright and the head turn instant.
+  - Why: the worker slid around stiffly, and nothing on it showed which block the reader had picked.
 - **The camera eases and stays out of blocks** (2026-10-18)
   - Summary: Dragging, scrolling and pinching set a goal that the camera eases towards (instantly with
     reduced motion). When a container, silo or rack comes between the worker and the camera, the camera
