@@ -871,3 +871,17 @@ def test_skill_text_only_points_at_a_real_checkout(tmp_path):
     installed = skill_text(tmp_path)                          # site-packages: no pyproject.toml
     assert "pip install -e" not in installed and "{{WIREHOUSE_HOME}}" not in installed
     assert "pip install \"git+https://github.com/creyes-git/wirehouse\"" in installed
+
+
+def test_strict_render_fails_when_parts_were_left_out(repo, tmp_path):
+    from wirehouse.cli import main
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "enrichment.json").write_text(json.dumps({"add_edges": [{"source": "unit:js:web", "target": "res:redis"}]}), encoding="utf-8")
+    assert main(["build", str(repo), "-o", str(out)]) == 0
+    with pytest.raises(SystemExit, match="--strict"):
+        main(["build", str(repo), "-o", str(out), "--strict"])
+    assert (out / "wirehouse.html").is_file()   # the page is still written
+    (out / "enrichment.json").write_text("{}", encoding="utf-8")
+    assert main(["render", str(repo), "-o", str(out), "--strict"]) == 0

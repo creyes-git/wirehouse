@@ -186,3 +186,29 @@ def test_corrupt_saved_progress_starts_fresh(browser, html):
     assert js(page, "__wirehouse.progress().found") == []
     assert errors == []
     page.close()
+
+
+def test_checks_list_what_was_left_out(browser, tmp_path):
+    root = tmp_path / "shop"
+    for rel, body in FILES.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
+    enrichment = {"tours": [{"title": "Broken", "stops": [{"node": "nope", "text": "<b>x</b>"}]}]}
+    page_html = write_html(guide.apply(build_archmap(root, log=lambda *_: None), enrichment), root / "wirehouse.html")
+    page, errors = open_view(browser, page_html)
+    assert js(page, "!document.querySelector('#checksWrap').hidden")
+    page.click("#checksBtn")
+    text = page.inner_text("#checksMenu")
+    assert "tour/unknown-node" in text and "left parts out" in text
+    page.keyboard.press("Escape")
+    assert js(page, "document.querySelector('#checksMenu').hidden")
+    assert errors == []
+    page.close()
+
+
+def test_checks_stay_hidden_when_everything_passed(browser, html):
+    page, errors = open_view(browser, html)
+    assert js(page, "document.querySelector('#checksWrap').hidden")
+    assert errors == []
+    page.close()

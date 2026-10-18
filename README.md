@@ -127,6 +127,7 @@ wirehouse build path/to/project --open
 | `wirehouse scan <path>` | Detect structure only: writes `archmap.raw.json` and the agent's worklist `enrich-brief.md`. |
 | `wirehouse render <path> [--open]` | Merge `enrichment.json` and write `wirehouse.html`. |
 | `--share` | (build, render) Leave out local paths before you publish the page. |
+| `--strict` | (build, render) Exit with an error when the checks left parts of the enrichment out, for CI. |
 | `-o <folder>` | Write somewhere other than `<path>/wirehouse-out/`. |
 | `wirehouse install` | Add the skill to your agents (`--agent`, `--dir`, `--print`; see above). |
 
@@ -218,7 +219,8 @@ Your agent writes them during `/wirehouse`. You can add your own to
 error [evidence/line-out-of-range] tours[login].stops[0]: `frontend/src/routes/login.tsx` has 30 lines, cited line 42 -> open the file and cite the line the claim is based on
 ```
 
-Invalid parts are left out of the page, never guessed. Without enrichment, Wirehouse makes a
+Invalid parts are left out of the page, never guessed, and the page's **Checks** button lists what was
+left out and why, so a reader knows it is missing rather than never written. Without enrichment, Wirehouse makes a
 main-floor tour, a follow-a-request route and a few quests from what it found.
 
 ### 5. Database rooms

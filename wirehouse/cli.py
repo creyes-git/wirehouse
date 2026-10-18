@@ -47,7 +47,7 @@ def cmd_scan(project: Path, out_dir: Path) -> dict:
     return data
 
 
-def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False) -> Path:
+def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False, strict: bool = False) -> Path:
     from wirehouse import guide
     from wirehouse.enrich import load_enrichment, merge
     from wirehouse.redact import scrub
@@ -96,6 +96,10 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False)
     _log(f"  wrote {html_path} ({size:.1f} MB)")
     if open_it:
         webbrowser.open(html_path.as_uri())
+    errors = sum(1 for d in data.get("diagnostics", []) if d["severity"] == "error")
+    if strict and errors:
+        # the page is still written; the exit code lets CI or an agent stop on what was left out
+        raise SystemExit(f"error: {errors} problem(s) left parts of the enrichment out (--strict)")
     return html_path
 
 
@@ -157,6 +161,8 @@ def main(argv: list[str] | None = None) -> int:
             sp.add_argument("--open", action="store_true", help="open the HTML in your browser")
             sp.add_argument("--share", action="store_true",
                             help="leave out local paths (this machine's folders, uncommitted files) before publishing the page")
+            sp.add_argument("--strict", action="store_true",
+                            help="exit with an error when the checks left parts of the enrichment out")
     sp = sub.add_parser("install", help="add the /wirehouse skill to your coding agents",
                         description="Writes SKILL.md to ~/.agents/skills plus the skills folder of every agent found "
                                     "in your home folder, unless --agent or --dir is given.")
@@ -178,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in ("scan", "build"):
         cmd_scan(project, out_dir)
     if args.cmd in ("render", "build"):
-        cmd_render(project, out_dir, args.open, args.share)
+        cmd_render(project, out_dir, args.open, args.share, args.strict)
     return 0
 
 

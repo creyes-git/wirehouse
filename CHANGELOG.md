@@ -109,6 +109,12 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Added
+- **Checks in the page and `--strict`** (2026-10-18)
+  - Summary: When the checks left something out (an unknown node in a tour, an added connection with no
+    evidence, a wrongly shaped entry), a **Checks** button in the top bar lists each problem with its fix.
+    `wirehouse render --strict` (and `build --strict`) still writes the page but exits with an error.
+  - Why: the diagnostics were computed and embedded but never shown, so a reader could not tell a missing
+    part from one that was never written, and CI or an agent had no exit code to stop on.
 - **A "nasty repository" test** (2026-10-18)
   - Summary: `tests/test_nasty_repo.py` maps one repository full of past failure cases (secrets in every
     format, BOM files, oddly shaped configs, comment URLs, a 20,000-line file, malformed enrichment) with

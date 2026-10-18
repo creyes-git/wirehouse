@@ -2651,6 +2651,32 @@
   KEYS.x = () => toggleExport();
   onEscape(11, () => !exportMenu.hidden, () => { toggleExport(false); exportBtn.focus(); });
 
+  // ── checks: what the render left out ─────────────────────────────────────
+  // Every part the agent wrote was checked against the scan (node ids, files, lines, secrets). What
+  // failed is listed here, so a reader knows the page is missing it rather than that it was never written.
+  const DIAGS = D.diagnostics || [];
+  const MAX_CHECKS = 60;
+  const checksBtn = $('#checksBtn'), checksMenu = $('#checksMenu');
+  if (DIAGS.length) {
+    const errors = DIAGS.filter((d) => d.severity === 'error').length;
+    $('#checksWrap').hidden = false;
+    checksBtn.textContent = `Checks · ${DIAGS.length}`;
+    checksBtn.classList.toggle('warn', errors > 0);
+    checksMenu.innerHTML = `<p class="lead">Wirehouse checked every node id, file, line and secret in the agent's notes. ` +
+      `${errors ? `${plural(errors, 'error')} left parts out of this page` : 'Nothing was left out'}` +
+      `${DIAGS.length - errors ? `; ${plural(DIAGS.length - errors, 'warning')} worth a look` : ''}.</p><ol>` +
+      DIAGS.slice(0, MAX_CHECKS).map((d) => `<li class="${d.severity === 'error' ? 'error' : 'warning'}"><b>${esc(d.code)}</b>` +
+        `<span class="subj">${esc(d.subject)}</span><p>${esc(d.message)}</p><p class="fix">${esc(d.fix)}</p></li>`).join('') + '</ol>' +
+      (DIAGS.length > MAX_CHECKS ? `<p class="lead">…and ${DIAGS.length - MAX_CHECKS} more in archmap.json.</p>` : '');
+  }
+  function toggleChecks(on) {
+    checksMenu.hidden = on == null ? !checksMenu.hidden : !on;
+    checksBtn.setAttribute('aria-expanded', String(!checksMenu.hidden));
+  }
+  checksBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleChecks(); });
+  document.addEventListener('click', (e) => { if (!checksMenu.hidden && !checksMenu.contains(e.target)) toggleChecks(false); });
+  onEscape(13, () => !checksMenu.hidden, () => { toggleChecks(false); checksBtn.focus(); });
+
   // ── breadcrumbs ──────────────────────────────────────────────────────────
   function drawCrumbs() {
     const nav = $('#crumbs');
