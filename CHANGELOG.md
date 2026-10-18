@@ -61,6 +61,12 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **Day-shift shadows are drawn once per room** (2026-10-18)
+  - Summary: The shadow map is rendered when a room is built or the theme changes, not every frame,
+    with plain PCF filtering. Floors, zone planes, paint lines, container ribs, cabinet lights and moving
+    parts no longer cast shadows, and the worker stands on a soft blob shadow instead of casting one.
+  - Why: in day mode every frame re-drew about 120 shadow casters, more than doubling the draw calls
+    (273 on the test page's main floor); the scene is static apart from small animated parts.
 - **The 3D view adapts its resolution to the device** (2026-10-18)
   - Summary: The pixel ratio is capped at 1.5. A frame-time governor drops it to 1 when the slowest
     quarter of frames take over 18 ms for 2 seconds and steps back up when they stay under 12 ms.

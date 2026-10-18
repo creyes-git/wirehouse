@@ -316,3 +316,12 @@ def test_resolution_is_capped_and_follows_frame_times(browser, html):
     assert js(page, "__wirehouse.frames(8, 2.5)") == 1.25       # fast again: one step back up
     assert js(page, "__wirehouse.frames(16, 6)") == 1.25        # in between: holds
     assert errors == []
+
+
+def test_day_shadows_are_drawn_once_per_room_not_every_frame(browser, html):
+    page, errors = open_view(browser, html)
+    first, steady, again = js(page, "__wirehouse.setTheme('day'); [__wirehouse.gpu(), __wirehouse.gpu(), __wirehouse.gpu()]")
+    assert first["shadows"] and first["calls"] > steady["calls"] + 20   # the first frame after a build draws the shadow map
+    assert again["calls"] == steady["calls"]                             # later frames reuse it
+    js(page, "__wirehouse.setTheme('night')")
+    assert errors == []

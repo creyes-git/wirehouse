@@ -329,10 +329,12 @@
     GOV.ratio = dprCap();
     renderer.setPixelRatio(GOV.ratio);
     renderer.outputEncoding = THREE.sRGBEncoding;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.autoUpdate = false;
     stage.appendChild(renderer.domElement);
     renderer.domElement.tabIndex = 0;
   }
+  function refreshShadows() { if (renderer) renderer.shadowMap.needsUpdate = true; }
   // Frame-time governor: when the 75th percentile of the last 2 s of frames stays over 18 ms for 2 s,
   // drop to 1x; when it stays under 12 ms for 2 s, step back up towards the cap.
   function governFrame(ms, now) {
@@ -399,6 +401,8 @@
     if (parent) parent.add(me);
     return me;
   }
+  // Animated parts would go stale in the static shadow map, so they cast none.
+  function noCast(obj) { obj.traverse((o) => { o.castShadow = false; }); return obj; }
   function box(w, h, d, hex, x, y, z, parent, o) {
     const m = mesh(new THREE.BoxGeometry(w, h, d), mat(hex, o), x, y + h / 2, z, parent);
     if (T.glow && !(o && o.noEdges)) {
@@ -498,8 +502,8 @@
         const ribs = Math.max(4, Math.floor(w / 0.9));
         for (let i = 1; i < ribs; i++) {
           const rx = -w / 2 + (w * i) / ribs;
-          box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, d / 2 + 0.03, g, { noEdges: true, emissive: 0.25, bright: true });
-          box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, -d / 2 - 0.03, g, { noEdges: true, emissive: 0.25, bright: true });
+          noCast(box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, d / 2 + 0.03, g, { noEdges: true, emissive: 0.25, bright: true }));
+          noCast(box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, -d / 2 - 0.03, g, { noEdges: true, emissive: 0.25, bright: true }));
         }
         box(0.06, h * 0.9, d * 0.46, 0x1a1f28, w / 2 + 0.03, h * 0.05, -d * 0.24, g, { noEdges: true });
         box(0.06, h * 0.9, d * 0.46, 0x1a1f28, w / 2 + 0.03, h * 0.05, d * 0.24, g, { noEdges: true });
@@ -514,11 +518,11 @@
             tooth.rotation.z = k * Math.PI / 4;
           }
           gear.position.set(w * 0.25, h + 1.1, 0);
-          g.add(gear);
+          g.add(noCast(gear));
           ANIM.push((t) => { gear.rotation.z = t * 0.9; });
         }
         if (n.kind === 'ai') {
-          const orb = mesh(new THREE.IcosahedronGeometry(0.7, 0), mat(col, { bright: true, emissive: 0.9 }), 0, h + 1.3, 0, g);
+          const orb = noCast(mesh(new THREE.IcosahedronGeometry(0.7, 0), mat(col, { bright: true, emissive: 0.9 }), 0, h + 1.3, 0, g));
           ANIM.push((t) => { orb.rotation.y = t * 0.8; orb.position.y = h + 1.3 + Math.sin(t * 2) * 0.15; });
         }
       }
@@ -550,7 +554,7 @@
       box(w, 0.9, 0.12, col, 0, 0, d / 2 - 0.06, g);
       box(w, 0.9, 0.12, col, 0, 0, -d / 2 + 0.06, g);
       const parcels = [];
-      for (let k = 0; k < 4; k++) parcels.push(box(0.8, 0.6, 0.9, col, 0, 1.15, 0, g, { bright: true }));
+      for (let k = 0; k < 4; k++) parcels.push(noCast(box(0.8, 0.6, 0.9, col, 0, 1.15, 0, g, { bright: true })));
       ANIM.push((t) => parcels.forEach((p, k) => { p.position.x = ((t * 0.8 + k / 4) % 1) * w - w / 2; }));
     } else if (S === 'pallet') {
       box(w, 0.3, d, 0x8a6a45, 0, 0, 0, g, { noEdges: true });
@@ -560,13 +564,13 @@
       box(0.6, h, d, col, -w / 2 + 0.3, 0, 0, g);
       box(0.6, h, d, col, w / 2 - 0.3, 0, 0, g);
       box(w, 0.6, d, col, 0, h - 0.6, 0, g, { bright: true });
-      const bar = box(w - 1.4, 0.14, 0.14, 0xf2c230, 0, 1.1, 0, g, { emissive: 0.4 });
+      const bar = noCast(box(w - 1.4, 0.14, 0.14, 0xf2c230, 0, 1.1, 0, g, { emissive: 0.4 }));
       if (S === 'gate') {
         const lock = new THREE.Group();
         mesh(new THREE.BoxGeometry(1.0, 0.85, 0.4), mat(col, { bright: true, emissive: 0.45 }), 0, 0, 0, lock);
         mesh(new THREE.TorusGeometry(0.33, 0.09, 8, 16, Math.PI), mat(col, { bright: true, emissive: 0.45 }), 0, 0.42, 0, lock);
         lock.position.set(0, h + 0.7, 0);
-        g.add(lock);
+        g.add(noCast(lock));
         ANIM.push((t) => { lock.rotation.y = Math.sin(t * 1.2) * 0.5; });
       }
       ANIM.push((t) => { bar.rotation.z = Math.max(0, Math.sin(t * 0.6)) * 0.9; });
@@ -574,7 +578,7 @@
       box(w, h, d, col, 0, 0, 0, g);
       const leds = [];
       for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++) {
-        const led = mesh(new THREE.BoxGeometry(0.16, 0.08, 0.04), mat((r + c) % 3 ? 0x4ade80 : 0xfbbf24, { basic: true }), -w / 4 + c * (w / 4), h * 0.2 + r * (h * 0.11), d / 2 + 0.03, g);
+        const led = noCast(mesh(new THREE.BoxGeometry(0.16, 0.08, 0.04), mat((r + c) % 3 ? 0x4ade80 : 0xfbbf24, { basic: true }), -w / 4 + c * (w / 4), h * 0.2 + r * (h * 0.11), d / 2 + 0.03, g));
         leds.push(led);
       }
       ANIM.push((t) => leds.forEach((l, i) => { l.visible = Math.sin(t * 3 + i * 1.7) > -0.6; }));
@@ -602,7 +606,7 @@
       box(w, h, d, col, 0, 0, 0, g);
     }
     if (enterable(n.id) && S !== 'slot') {
-      const door = box(Math.min(1.6, w * 0.4), Math.min(2.3, h * 0.75), 0.06, T.glow ? 0xffb23f : 0xf2c230, 0, 0, d / 2 + 0.06, g, { basic: true, opacity: 0.85, noEdges: true });
+      const door = noCast(box(Math.min(1.6, w * 0.4), Math.min(2.3, h * 0.75), 0.06, T.glow ? 0xffb23f : 0xf2c230, 0, 0, d / 2 + 0.06, g, { basic: true, opacity: 0.85, noEdges: true }));
       ANIM.push((t) => { door.material.opacity = 0.55 + Math.sin(t * 2.4) * 0.25; });
     }
     tagPick(g, { type: 'node', id: n.id });
@@ -640,7 +644,7 @@
     if (n.kind === 'resource') col = kindHex(n.subkind && T.kind[n.subkind] != null ? n.subkind : 'resource');
     const h = n.kind === 'file' ? clamp(0.35 + Math.log2((n.lines || 10) + 1) * 0.06, 0.4, 0.9) : 0.75;
     box(it.w, h, it.d, col, 0, 0, 0, g, { edgeOpacity: 0.7 });
-    if (n.endpoints && n.endpoints.length) box(it.w * 0.9, 0.08, 0.04, T.glow ? 0x39c0f5 : 0x2f80c0, 0, h * 0.7, it.d / 2 + 0.03, g, { basic: true, noEdges: true });
+    if (n.endpoints && n.endpoints.length) noCast(box(it.w * 0.9, 0.08, 0.04, T.glow ? 0x39c0f5 : 0x2f80c0, 0, h * 0.7, it.d / 2 + 0.03, g, { basic: true, noEdges: true }));
     tagPick(g, { type: 'node', id: n.id });
     world.add(g);
     const lb = label([shortName(n.name, 26)], 0.34, { big: 40, pad: 10 });
@@ -669,6 +673,7 @@
     // floor
     const floor = mesh(new THREE.PlaneGeometry(W, Dp), mat(T.floor, { rough: 0.95 }), 0, 0, 0, world);
     floor.rotation.x = -Math.PI / 2;
+    floor.castShadow = false;   // flat things only receive: each caster costs a draw call in the shadow pass
     floor.receiveShadow = true;
     floor.userData.floor = true;
     // the yard outside, so stepping the camera out never shows a void
@@ -686,12 +691,14 @@
       const zw = Z.x1 - Z.x0, zd = Z.z1 - Z.z0;
       const pl = mesh(new THREE.PlaneGeometry(zw - 1, zd - 1), mat(i % 2 ? T.floorAlt : T.floor, { rough: 0.95 }), (Z.x0 + Z.x1) / 2, 0.005, (Z.z0 + Z.z1) / 2, world);
       pl.rotation.x = -Math.PI / 2;
+      pl.castShadow = false;
       pl.receiveShadow = true;
       // painted boundary lines
       const lineCol = T.paint;
       [[zw - 1, 0.18, (Z.x0 + Z.x1) / 2, Z.z1 - 0.5], [zw - 1, 0.18, (Z.x0 + Z.x1) / 2, Z.z0 + 0.5]].forEach(([lw, lt, lx, lz]) => {
         const s = mesh(new THREE.PlaneGeometry(lw, lt), mat(lineCol, { basic: true }), lx, 0.02, lz, world);
         s.rotation.x = -Math.PI / 2;
+        s.castShadow = false;
       });
       // floor lettering
       const txt = Z.empty ? (Z.id === 'edge' ? 'No gateway or auth found' : 'Nothing here yet') : Z.name;
@@ -888,6 +895,20 @@
   let worker = null;
   const W8 = { pos: new THREE.Vector3(), vel: new THREE.Vector3(), vy: 0, yaw: 0, phase: 0, moving: 0 };
 
+  // A soft round shadow, shared by every blob: drawn once on a 64 px canvas.
+  let BLOB = null;
+  function blobTexture() {
+    if (BLOB) return BLOB;
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.55, 'rgba(255,255,255,0.45)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+    BLOB = new THREE.CanvasTexture(c);
+    return BLOB;
+  }
+
   function disposeTree(root) {
     root.traverse((o) => {
       if (o.geometry && !o.isSprite) o.geometry.dispose();   // sprites share one geometry inside three.js
@@ -904,7 +925,9 @@
     const reflect = new THREE.MeshStandardMaterial({ color: 0xe8edf2, emissive: 0xe8edf2, emissiveIntensity: T.glow ? 0.9 : 0.15 });
     const hat = new THREE.MeshStandardMaterial({ color: 0xffc400, roughness: 0.4, emissive: 0xffc400, emissiveIntensity: T.glow ? 0.25 : 0 });
     const boot = new THREE.MeshStandardMaterial({ color: 0x3b2a1e, roughness: 0.9 });
-    const part = (g, m, x, y, z, p) => { const me = new THREE.Mesh(g, m); me.position.set(x, y, z); me.castShadow = T.shadows; p.add(me); return me; };
+    // The worker moves every frame, so it casts no real shadow (that would redraw the shadow map
+    // each frame); a soft blob on the floor grounds it instead.
+    const part = (g, m, x, y, z, p) => { const me = new THREE.Mesh(g, m); me.position.set(x, y, z); p.add(me); return me; };
     const body = new THREE.Group();
     root.add(body);
     const legs = [-1, 1].map((s) => {
@@ -944,7 +967,11 @@
       root.add(lamp);
     }
     scene.add(root);
-    worker = { root, body, legs, arms, head };
+    const blob = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: blobTexture(), color: 0x000000, transparent: true, opacity: T.glow ? 0.55 : 0.4, depthWrite: false }));
+    blob.rotation.x = -Math.PI / 2;
+    blob.renderOrder = 1;
+    root.add(blob);
+    worker = { root, body, legs, arms, head, blob };
   }
 
   function animateWorker(dt, time) {
@@ -959,6 +986,9 @@
     w.arms[1].rotation.x = swing * 0.8;
     w.body.position.y = Math.abs(Math.sin(W8.phase)) * 0.06 * W8.moving + (1 - W8.moving) * Math.sin(time * 1.8) * 0.01;
     w.root.position.copy(W8.pos);
+    // the blob stays on the floor and shrinks as the worker jumps
+    w.blob.position.y = 0.04 - W8.pos.y;
+    w.blob.scale.setScalar(Math.max(0.4, 1 - W8.pos.y * 0.25));
     let dy = W8.yaw - w.root.rotation.y;
     dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     w.root.rotation.y += dy * Math.min(1, dt * 12);
@@ -1029,8 +1059,8 @@
       });
     });
     buildParticles();
-    if (T.shadows) renderer && (renderer.shadowMap.enabled = true);
-    else renderer && (renderer.shadowMap.enabled = false);
+    if (renderer) renderer.shadowMap.enabled = !!T.shadows;
+    refreshShadows();   // the scene is static apart from small animated parts that cast no shadow
     BUILD_HOOKS.forEach((f) => f());
     applyFocus();
     drawCrumbs();
