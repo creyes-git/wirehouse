@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from pathlib import Path
 from urllib.parse import quote
 
@@ -35,11 +36,13 @@ def render_html(data: dict) -> str:
         "/*__DATA__*/": "window.WIREHOUSE = " + _safe_json(data) + ";",
         "/*__APP__*/": app,
     }
-    out = template
-    for key, value in parts.items():
-        # str.replace treats the value literally (no regex escapes to worry about)
-        out = out.replace(key, value, 1)
-    return out
+    # One pass over the template only: a value that happens to contain a placeholder (a description
+    # quoting "/*__APP__*/") is inserted as it is, never filled in turn.
+    pattern = re.compile("|".join(re.escape(k) for k in parts))
+    missing = [k for k in parts if template.count(k) != 1]
+    if missing:
+        raise ValueError(f"template.html must hold each placeholder once: {missing}")
+    return pattern.sub(lambda m: parts[m.group(0)], template)
 
 
 def write_html(data: dict, path: Path) -> Path:

@@ -840,3 +840,25 @@ def test_detector_details(tmp_path):
     assert [c["name"] for c in sql_columns(sql, 0)] == ["id", "email"]
     assert _next_route("web/app/pages/index.vue") == ("page", "/")
     assert URL_RE.search("https://john.doe:s3cret@api.acme.io/v1").group(1) == "api.acme.io"
+
+
+def test_placeholder_text_in_the_data_stays_text(archmap):
+    data = json.loads(json.dumps(archmap))
+    data["project"]["name"] = "__FAVICON__ /*__CSS__*/"
+    data["nodes"][0]["description"] = "html.py fills the /*__APP__*/ placeholder"
+    html = render_html(data)
+    assert html.count("</script>") == 3
+    app_tag = html.rsplit("<script>", 1)[1]
+    assert "window.__wirehouse" in app_tag      # the app landed in its own tag, not inside the data
+    assert 'href="__FAVICON__"' not in html and "<title>__FAVICON__ /*__CSS__*/ · Wirehouse</title>" in html
+
+
+def test_remove_edges_drops_both_directions(archmap):
+    data = json.loads(json.dumps(archmap))
+    enrichment = {"remove_edges": [{"source": "unit:python:api", "target": "unit:js:web"}],
+                  "links": {"unit:js:web->unit:python:api": {"description": "gone"}}}
+    merged = merge(data, enrichment)
+    _, links = _index(merged)
+    assert not {(a, b) for a, b, _ in links} & {("unit:js:web", "unit:python:api"), ("unit:python:api", "unit:js:web")}
+    assert "unit:js:web->unit:python:api" not in merged["link_notes"]
+    assert merged["enrichment_stats"]["removed_edges"] == 1

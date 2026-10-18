@@ -201,7 +201,7 @@ def write_brief(data: dict, enrichment: dict, out_dir: Path) -> tuple[Path, int,
         "",
         "- `name`: only set it when the folder or package name hides what the block is (for example `superdb` ->",
         "  \"Market data warehouse\"). Never just repeat the path.",
-        "- `remove_edges` on two top-level ids drops every connection between those blocks, at all levels. Add a",
+        "- `remove_edges` on two top-level ids drops every connection between those blocks, both ways and at all levels. Add a",
         "  `reason` with file:line evidence; it is kept for reviewers. The matching `links` entry is dropped too.",
         "- Unknown keys are ignored. `wirehouse render` reports how many nodes, links and removals were applied.",
         "- `tours` (2-4, each 3-8 stops) walk a new teammate through the system in the order a request or job really",
@@ -288,12 +288,17 @@ def merge(data: dict, enrichment: dict) -> dict:
         data["edges"] = [e for e in data["edges"] if e["source"] not in gone and e["target"] not in gone]
         nodes, children = _index(data)
 
-    removed_pairs = set()
+    # Removing a pair drops the connections both ways: the brief and the skill promise "every
+    # connection between those blocks", and a false positive is rarely one-directional.
+    removed_pairs, removed_edges = set(), 0
     for rm in enrichment.get("remove_edges", []):
-        removed_pairs.add(f"{rm.get('source')}->{rm.get('target')}")
+        a, b = rm.get("source"), rm.get("target")
+        removed_pairs |= {f"{a}->{b}", f"{b}->{a}"}
+        before = len(data["edges"])
         data["edges"] = [e for e in data["edges"]
-                         if not (_top(nodes, e["source"]) == rm.get("source") and _top(nodes, e["target"]) == rm.get("target"))
-                         and not (e["source"] == rm.get("source") and e["target"] == rm.get("target"))]
+                         if {_top(nodes, e["source"]), _top(nodes, e["target"])} != {a, b}
+                         and {e["source"], e["target"]} != {a, b}]
+        removed_edges += before > len(data["edges"])
 
     # What the agent adds goes through the same checks as tours: cited files must exist, text is
     # scanned for credentials, and a connection without valid evidence is left out.
@@ -353,7 +358,7 @@ def merge(data: dict, enrichment: dict) -> dict:
         "nodes": sum(1 for nid in (enrichment.get("nodes") or {}) if nid in nodes),
         "links": len(data["link_notes"]),
         "added_nodes": added_nodes, "added_edges": added_edges,
-        "removed_nodes": removed_nodes, "removed_edges": len(removed_pairs),
+        "removed_nodes": removed_nodes, "removed_edges": removed_edges,
     }
     data["diagnostics"] = diags
     return data

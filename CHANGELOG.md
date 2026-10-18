@@ -7,6 +7,16 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Text that looks like a page placeholder stays text** (2026-10-18)
+  - Summary: The page is assembled in one pass over the template, so a description or project name that
+    contains `/*__APP__*/` or `__FAVICON__` is shown as written.
+  - Why: such text pulled the app or the stylesheet into the data or the title, and the page loaded
+    without a viewer. That is likely when Wirehouse maps its own code.
+- **`remove_edges` removes both directions** (2026-10-18)
+  - Summary: Removing a top-level pair drops the connections and connection notes from A to B and from
+    B to A, and render counts the removals that really happened.
+  - Why: the brief, the skill and the docs promise "every connection between those blocks", but only one
+    direction was removed.
 - **Long JavaScript files scan in a blink** (2026-10-18)
   - Summary: The import pattern stops at `=` or `(`, so a file of many `export const` lines no longer
     makes it search to the end of the file each time.
