@@ -44,7 +44,8 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   github-release:
-    needs: build
+    # after PyPI: when publishing fails, no GitHub release points at a version that cannot be installed
+    needs: [build, pypi]
     runs-on: ubuntu-latest
     permissions:
       contents: write

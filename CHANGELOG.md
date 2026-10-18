@@ -147,6 +147,10 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **A release is created only after PyPI publishing works** (2026-10-18)
+  - Summary: The release workflow's GitHub release job now waits for the PyPI job as well as the build.
+  - Why: the workflow's own comment says nothing ships until PyPI publishing is set up, but the GitHub
+    release ran in parallel and was created even when publishing failed.
 - **Go files say "Go file"** (2026-10-18)
   - Summary: Go files and Go blocks name their language in the rule-based description.
   - Why: the language table had no Go entry, so a Go file read " file, 12 lines." and a Go block listed
