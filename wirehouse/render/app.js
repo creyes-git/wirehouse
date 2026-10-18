@@ -507,14 +507,26 @@
     let w = 0;
     lines.forEach((l, i) => { ctx.font = fonts[i]; w = Math.max(w, ctx.measureText(l).width); });
     const lh = lines.map((l, i) => (i === 0 ? big * 1.12 : big * 0.8));
-    c.width = Math.ceil(Math.min(w, 1400) + pad * 2);
+    const tabW = o.check ? Math.round(big * 1.1) : 0;   // "inspected" tab on the right edge
+    const bw = Math.ceil(Math.min(w, 1400) + pad * 2);
+    c.width = bw + tabW;
     c.height = Math.ceil(lh.reduce((a, b) => a + b, 0) + pad * 1.4);
+    const rounded = (x0, x1, r) => {
+      ctx.beginPath();
+      ctx.moveTo(x0 + r, 0); ctx.arcTo(x1, 0, x1, c.height, r); ctx.arcTo(x1, c.height, x0, c.height, r);
+      ctx.arcTo(x0, c.height, x0, 0, r); ctx.arcTo(x0, 0, x1, 0, r); ctx.closePath();
+    };
+    if (o.check) {
+      rounded(bw - 12, c.width, 10);
+      ctx.fillStyle = o.check; ctx.fill();
+      const cx = bw + tabW / 2 - 6, cy = c.height / 2, k = big * 0.22;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = Math.max(3, big * 0.1); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(cx - k, cy); ctx.lineTo(cx - k * 0.25, cy + k * 0.8); ctx.lineTo(cx + k * 1.1, cy - k * 0.9); ctx.stroke();
+    }
     if (o.bg !== false) {
       ctx.fillStyle = o.bg || T.label.bg;
-      const r = 10;
-      ctx.beginPath();
-      ctx.moveTo(r, 0); ctx.arcTo(c.width, 0, c.width, c.height, r); ctx.arcTo(c.width, c.height, 0, c.height, r);
-      ctx.arcTo(0, c.height, 0, 0, r); ctx.arcTo(0, 0, c.width, 0, r); ctx.closePath(); ctx.fill();
+      rounded(0, bw, 10);
+      ctx.fill();
       if (o.stripe) { ctx.fillStyle = o.stripe; ctx.fillRect(0, 0, 7, c.height); }
       ctx.strokeStyle = T.label.edge; ctx.lineWidth = 2; ctx.stroke();
     }
@@ -524,7 +536,7 @@
       ctx.fillStyle = i === 0 ? (o.ink || T.label.ink) : (o.sub || T.label.sub);
       ctx.textBaseline = 'top';
       ctx.textAlign = o.align === 'left' ? 'left' : 'center';
-      const tx = o.align === 'left' ? pad + (o.stripe ? 6 : 0) : c.width / 2;
+      const tx = o.align === 'left' ? pad + (o.stripe ? 6 : 0) : bw / 2;
       ctx.fillText(l, tx, y + (i === 0 ? big * 0.06 : 0));
       y += lh[i];
     });
@@ -563,6 +575,7 @@
   const ANIM = [];   // per-frame animations for the current room
   let PICK = [];     // meshes that can be clicked
   const BLOCK_OBJ = new Map();   // node id -> its group, for the selection bounce
+  const BLOCK_LABELS = new Map();   // node id -> its floating label, for the "inspected" tab
   let SPRITES = [];  // labels that fade with distance
 
   function tagPick(obj, info) { obj.traverse((o) => { if (o.isMesh) { o.userData.pick = info; PICK.push(o); } }); }
@@ -695,7 +708,9 @@
     world.add(g);
     // floating label
     const sub = n.kind === 'module' ? `${(n.stats && n.stats.files) || 0} files` : (KIND_LABEL[n.kind] || n.kind);
-    const lb = label([shortName(n.name, 28), sub], S === 'crate' ? 0.95 : 1.25, { stripe: css(col), align: 'left' });
+    const lbLines = [shortName(n.name, 28), sub], lbOpts = { stripe: css(col), align: 'left' };
+    const lb = label(lbLines, S === 'crate' ? 0.95 : 1.25, seenOpts(n.id, lbOpts));
+    BLOCK_LABELS.set(n.id, { sp: lb, lines: lbLines, opts: lbOpts });
     lb.position.set(it.x, h + (S === 'machine' || n.kind === 'ai' || S === 'gate' ? 2.3 : 0.6), it.z);
     world.add(lb);
     // on the main floor a far block's name never shrinks below about 14 px of text
@@ -1201,6 +1216,7 @@
     ANIM.length = 0;
     PICK = [];
     BLOCK_OBJ.clear();
+    BLOCK_LABELS.clear();
     FX.ring = FX.bounce = null;
     SPRITES = [];
     LINKS = [];
@@ -2601,8 +2617,21 @@
   function evRows(evs) {
     return (evs || []).length ? `<ul class="rows">${evs.map((ev) => `<li><span class="main">${esc(ev.file + (ev.line ? ':' + ev.line : ''))}</span>${srcLinks(ev.file, ev.line)}</li>`).join('')}</ul>` : '';
   }
+  // Exploration marks: on the main floor, a block already inspected carries a small tick on its label
+  // (and is filled in on the minimap; blocks still to see are outlines).
+  const isSeen = (id) => room && !room.R && PROG.seen.includes(id);
+  function seenOpts(id, o) { return isSeen(id) ? Object.assign({}, o, { check: css(T.trace.down) }) : o; }
+  function refreshSeen() {
+    BLOCK_LABELS.forEach((L, id) => {
+      const t = textTexture(L.lines, seenOpts(id, L.opts));
+      if (L.sp.material.map === t) return;
+      L.sp.material.map = t;
+      L.sp.scale.x = L.sp.scale.y * t.userData.aspect;
+    });
+  }
   function drawClip() {
     clipCount();
+    refreshSeen();
     if (clip.hidden) return;
     const tops = kidsOf(ROOT);
     const seenTops = tops.filter((id) => PROG.seen.includes(id));
@@ -3215,7 +3244,7 @@
     mctx.clearRect(0, 0, cw, ch);
     const pad = 8, s = Math.min((cw - pad * 2) / room.W, (ch - pad * 2) / room.D);
     const ox = cw / 2, oz = ch / 2;
-    mmT = { s, ox, oz };
+    mmT = { s, ox, oz, outlines: 0 };
     const X = (x) => ox + x * s, Z = (z) => oz + z * s;
     mctx.fillStyle = css(T.floor); mctx.strokeStyle = css(T.wallLine); mctx.lineWidth = 1.5;
     mctx.fillRect(X(-room.W / 2), Z(-room.D / 2), room.W * s, room.D * s);
@@ -3224,10 +3253,18 @@
     mctx.globalAlpha = 0.5;
     room.racks.forEach((r) => { mctx.fillStyle = css(T.wallLine); mctx.fillRect(X(r.x - r.w / 2), Z(r.z - r.d / 2), r.w * s, r.d * s); });
     mctx.globalAlpha = 1;
+    let outlines = 0;
     room.items.forEach((it) => {
       if (it.shape === 'slot') return;
-      mctx.fillStyle = css(kindHex(N.get(it.id).kind));
-      mctx.fillRect(X(it.x - it.w / 2), Z(it.z - it.d / 2), Math.max(2, it.w * s), Math.max(2, it.d * s));
+      const col = css(kindHex(N.get(it.id).kind)), x = X(it.x - it.w / 2), z = Z(it.z - it.d / 2), w = Math.max(2, it.w * s), d = Math.max(2, it.d * s);
+      if (!room.R && !isSeen(it.id)) {   // not inspected yet: an outline to go and fill in
+        mctx.strokeStyle = col; mctx.lineWidth = 1.5;
+        mctx.strokeRect(x + 0.75, z + 0.75, Math.max(1, w - 1.5), Math.max(1, d - 1.5));
+        outlines++;
+        return;
+      }
+      mctx.fillStyle = col;
+      mctx.fillRect(x, z, w, d);
     });
     room.ports.forEach((p) => { mctx.fillStyle = css(kindHex(N.get(p.rep).kind)); mctx.fillRect(X(p.x) - 2, Z(p.z) - 2, 4, 4); });
     if (selected && selected.type !== 'link' && itemsById.has(selected.id)) {
@@ -3236,6 +3273,7 @@
       mctx.strokeStyle = T.glow ? '#ffb23f' : '#1f6fd1'; mctx.lineWidth = 2;
       mctx.strokeRect(X(it.x - it.w / 2) - 2, Z(z - d / 2) - 2, it.w * s + 4, d * s + 4);
     }
+    mmT.outlines = outlines;
     mctx.save();
     mctx.translate(X(W8.pos.x), Z(W8.pos.z));
     mctx.rotate(-W8.yaw + Math.PI);
@@ -3683,6 +3721,11 @@
       ring: FX.ring ? +FX.ring.mesh.scale.x.toFixed(2) : null, bounce: !!FX.bounce,
       hover: hovBox ? +hovBox.material.opacity.toFixed(2) : null,
     }),
+    explored: () => {
+      drawMinimap();
+      const ticked = [...BLOCK_LABELS].filter(([id, L]) => isSeen(id) && L.sp.material.map === textTexture(L.lines, seenOpts(id, L.opts))).map(([id]) => id);
+      return { ticked, outlines: mmT.outlines };
+    },
     ripple: () => markObjs.filter((o) => o.isSprite).map((o) => ({ hop: o.userData.hop, shown: o.visible, opacity: +o.material.opacity.toFixed(2) })),
     sound: () => ({ on: SND.on, played: SND.played, stored: store.get('sound', '0') }),
     worker: () => ({ lean: W8.lean, tilt: W8.tilt, squash: W8.squash, head: W8.look }),

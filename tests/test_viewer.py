@@ -483,3 +483,18 @@ def test_first_shift_checklist_ticks_off_the_four_moves(browser, html):
     assert page.locator("#clip .shift").count() == 0                 # done: the list steps aside
     assert "score" not in page.inner_text("#clip").lower()
     assert errors == []
+
+
+def test_inspected_blocks_are_ticked_and_the_rest_are_outlines(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "localStorage.clear()")
+    page.reload()
+    page.wait_for_function("window.__wirehouse && __wirehouse.state().items > 0")
+    before = js(page, "__wirehouse.explored()")
+    assert before["ticked"] == [] and before["outlines"] == js(page, "__wirehouse.state().items")
+    after = js(page, "__wirehouse.select('unit:python:api'); __wirehouse.explored()")
+    assert after["ticked"] == ["unit:python:api"] and after["outlines"] == before["outlines"] - 1
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert js(page, "__wirehouse.explored().outlines") == 0      # rooms keep their filled minimap
+    assert errors == []

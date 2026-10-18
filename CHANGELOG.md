@@ -7,6 +7,12 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Exploration marks** (2026-10-18)
+  - Summary: On the main floor, a block you have inspected carries a small tick on its label, and the
+    minimap draws blocks you have not inspected yet as outlines, filling them in as you go. Both follow
+    the progress kept in this browser and clear with "Start over".
+  - Why: in a big map it was hard to tell which blocks were already looked at; the Clipboard counted
+    them but the floor did not show it.
 - **A first-shift checklist** (2026-10-18)
   - Summary: The Clipboard opens with four moves to try: walk to a block, step inside one, trace
     downstream and start a tour (when the page has tours). Each ticks off when done, is kept with the
