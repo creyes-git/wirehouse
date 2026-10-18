@@ -55,6 +55,11 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **CI uses the current major versions of its actions** (2026-10-18)
+  - Summary: `actions/checkout`, `setup-python`, `setup-node` and `upload-artifact` move to v7 and
+    `download-artifact` to v8 in the CI and release workflows.
+  - Why: the v4 and v5 lines run on a Node version GitHub is retiring from its runners, and the
+    upload and download actions must stay on matching artifact versions.
 - **Viewer tests close their pages** (2026-10-18)
   - Summary: An autouse fixture closes every page a viewer test opened.
   - Why: open WebGL pages kept rendering in the background and later tests timed out at random; the
