@@ -84,8 +84,8 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: the focused tests guard each bug; this one guards the invariants together, so a new field or
     parser cannot quietly reopen a leak.
 - **TODO.md** (2026-10-17)
-  - Summary: Lists deferred work, starting with creating the GitHub repository and the first push.
-  - Why: the repository is not created yet, so the published links do not resolve until then.
+  - Summary: Lists known gaps and deferred work, each with a date, where it is and a suggested fix.
+  - Why: work that is put off should be written down where contributors look for it.
 - **`wirehouse install` reaches any coding agent** (2026-10-16)
   - Summary: The skill is written to the shared `~/.agents/skills` folder and to the skills folder of
     every agent found in the home folder (Claude Code, Codex, Cursor, OpenCode, Gemini CLI,
@@ -95,6 +95,12 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **TODO.md is written for a public repository** (2026-10-18)
+  - Summary: The first-push and history-rewrite steps are gone; TODO.md now lists the remaining
+    repository settings, deferred features and precision work, and the Low findings of the Pass 2 audit,
+    each with a date, location and suggested fix.
+  - Why: the repository is public now, and the old steps (creating it, deleting backup branches) no
+    longer applied.
 - **Traces ripple out hop by hop** (2026-10-18)
   - Summary: When a trace, route or tour lights the floor, its rings and badges appear in the order the
     recorded hops reach them, a quarter second per hop, and the lit pipes pulse. With reduced motion they
