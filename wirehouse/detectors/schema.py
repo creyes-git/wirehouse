@@ -28,7 +28,6 @@ def _unquote(name: str) -> str:
 def _balanced(text: str, start: int, open_ch: str = "(", close_ch: str = ")", comment: str | None = None) -> str | None:
     """The text between a bracket and its partner. `comment` starts a line comment to skip, so an
     apostrophe in `-- the user's id` does not open a string that never closes."""
-    """Text between the bracket at `start` and its match, or None."""
     if start >= len(text) or text[start] != open_ch:
         return None
     depth, quote = 0, None

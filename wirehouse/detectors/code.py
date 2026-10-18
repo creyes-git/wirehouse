@@ -277,15 +277,14 @@ def analyze(sf: SourceFile) -> FileFacts:
             f.symbols.append({"name": m.group(2), "kind": m.group(1), "line": L.line(m.start())})
         env_key = "csharp"
     elif lang == "go":
-        L0 = _Lines(text)
         for m in GO_IMPORT_ONE.finditer(text):
-            f.imports.append((m.group(1), L0.line(m.start())))
+            f.imports.append((m.group(1), L.line(m.start())))
         for m in GO_IMPORT_BLOCK.finditer(text):
             for s in GO_IMPORT_SPEC.finditer(m.group(1)):
-                f.imports.append((s.group(1), L0.line(m.start(1) + s.start(1))))
+                f.imports.append((s.group(1), L.line(m.start(1) + s.start(1))))
         f.doc = _go_doc(text)
         for m in GO_SYMBOL.finditer(text):
-            f.symbols.append({"name": m.group(1) or m.group(2), "kind": "func" if m.group(1) else m.group(3), "line": L0.line(m.start())})
+            f.symbols.append({"name": m.group(1) or m.group(2), "kind": "func" if m.group(1) else m.group(3), "line": L.line(m.start())})
         env_key = "go"
     else:
         env_key = None

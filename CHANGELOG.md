@@ -71,6 +71,10 @@ All notable changes to Wirehouse are listed here. The format follows
     and run commands.
 
 ### Removed
+- **Two leftovers in the detectors** (2026-10-18)
+  - Summary: Go files reuse the line index every other language uses instead of building a second one,
+    and `schema._balanced` keeps one docstring instead of two.
+  - Why: found in the Pass 2 audit; duplicate code makes readers look for a difference that is not there.
 - **Unused scanner code** (2026-10-18)
   - Summary: Dropped `Builder.unit_node_id`, a loop that did nothing, the never-read compose `profiles`,
     Dockerfile `copies` and `Unit.implicit` fields, the unused `sln` config category and `.pyi` entry. The
