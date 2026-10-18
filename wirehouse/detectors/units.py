@@ -135,7 +135,8 @@ def _parse_python_manifest(scan: ScanResult, rel: str, u: Unit) -> None:
                 u.deps[m.group(1).lower()] = Dep(m.group(1), rel, _line_of(text, m.group(0)))
 
 
-_GO_REQUIRE = re.compile(r"^\s*(?:require\s+)?([\w.~-]+(?:/[\w.~+-]+)+)\s+v[\w.+-]+(\s*//\s*indirect)?", re.M)
+# `^[ \t]*`, not `^\s*`: a blank-line run made every line start rescan all the blank lines after it.
+_GO_REQUIRE = re.compile(r"^[ \t]*(?:require[ \t]+)?([\w.~-]+(?:/[\w.~+-]+)+)\s+v[\w.+-]+(\s*//\s*indirect)?", re.M)
 
 
 def _parse_go_mod(scan: ScanResult, rel: str, u: Unit) -> None:

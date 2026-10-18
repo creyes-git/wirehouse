@@ -143,6 +143,12 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Hostile files no longer stall the scan** (2026-10-18)
+  - Summary: The C# and Go doc-comment readers go line by line, and the Go import block, FastAPI and
+    Flask router prefix, TypeORM entity and column, SQL `CREATE TABLE` body, `go.mod` require and URL
+    scheme patterns are anchored or bounded. Each case now scans a 200 KB file in well under a second.
+  - Why: one file could hold the scan for minutes: 200 KB of `///` lines took 174 s, 80 KB of `//` lines
+    29 s, 390 KB of `import (` lines 94 s and of `CREATE TABLE ` 106 s.
 - **The minimap keeps its size on scaled displays** (2026-10-18)
   - Summary: At 125% or 200% display scaling the minimap grew with every redraw until it covered the view;
     it now has a fixed size, and the 3D view also follows browser zoom and moves to another monitor.

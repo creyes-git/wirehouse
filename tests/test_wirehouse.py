@@ -771,6 +771,46 @@ def test_long_files_scan_quickly():
     assert "y" in {i[0] for i in facts.imports}
 
 
+@pytest.mark.parametrize(("rel", "lang", "unit"), [
+    ("Doc.cs", "csharp", "///\n"), ("Doc.cs", "csharp", " "), ("doc.go", "go", "//\n"), ("imports.go", "go", "import (\n"),
+    ("routes.py", "python", "r = APIRouter("), ("words.py", "python", "a_"), ("entity.ts", "typescript", "@Entity("),
+    ("schema.sql", "sql", "CREATE TABLE "), ("models.ts", "typescript", "@Column() "),
+])
+def test_hostile_patterns_scan_in_linear_time(rel, lang, unit):
+    # Each of these took from 30 seconds to minutes on one file before the patterns were bounded.
+    import time
+
+    from wirehouse.detectors.code import analyze
+    from wirehouse.scan import MAX_FILE_BYTES, SourceFile
+
+    text = ("@Entity()\nclass A {\n" if unit.startswith("@Column") else "") + unit * (MAX_FILE_BYTES // len(unit) // 2)
+    sf = SourceFile(rel=rel, lang=lang, size=len(text), text=text, sha="0", lines=text.count("\n") + 1)
+    t0 = time.perf_counter()
+    analyze(sf)
+    assert time.perf_counter() - t0 < 5
+
+
+def test_go_require_blocks_with_blank_runs_parse_quickly():
+    import time
+
+    from wirehouse.detectors.units import _GO_REQUIRE
+
+    t0 = time.perf_counter()
+    assert not list(_GO_REQUIRE.finditer("\n" * 200_000))
+    assert time.perf_counter() - t0 < 5
+    assert [m.group(1) for m in _GO_REQUIRE.finditer("require (\n\n\tgithub.com/a/b v1.0.0\n)\n")] == ["github.com/a/b"]
+
+
+def test_doc_comments_are_still_read():
+    from wirehouse.detectors.code import _cs_doc, _go_doc
+
+    cs = "using X;\n\n/// <summary>Charges <b>cards</b>.</summary>\n///\tSecond line.\n[ApiController]\n[Route(\"x\")]\npublic class Pay {}\n"
+    assert _cs_doc(cs) == "Charges cards. Second line."
+    assert _cs_doc("/// lonely\n\npublic class A {}\n") == ""
+    assert _go_doc("// Package pay charges cards.\n//\n// More.\npackage pay\n") == "Package pay charges cards."
+    assert _go_doc("// Copyright 2024 Acme\npackage pay\n") == "" and _go_doc("// stray\n\npackage pay\n") == ""
+
+
 def test_public_api_urls_and_cors_strings_still_connect(tmp_path):
     _write(tmp_path, {
         "docker-compose.yml": """

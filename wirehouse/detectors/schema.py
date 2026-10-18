@@ -91,11 +91,13 @@ def _col(name: str, type_: str = "", *, pk: bool = False, fk: tuple[str, str] | 
 
 
 # ── SQL DDL ──────────────────────────────────────────────────────────────────
+SQL_OPEN = re.compile(r"CREATE\s+[^(;]{0,400}?\(", re.I)
 SQL_REF = re.compile(r"\bREFERENCES\s+([\w.\"`\[\]]+)\s*(?:\(\s*([\w\"`\[\]]+)\s*\))?", re.I)
 
 
 def sql_columns(text: str, offset: int) -> list[dict]:
-    m = re.compile(r"CREATE\s+[^(;]*?\(", re.I).search(text, offset)
+    # Searched in a window: `[^(;]*?` over the rest of the file was quadratic on many `CREATE TABLE ` lines.
+    m = SQL_OPEN.search(text, offset, offset + 1000)
     if not m or m.start() - offset > 400:
         return []
     body = _balanced(text, m.end() - 1, comment="--")
@@ -280,7 +282,8 @@ def drizzle_columns(text: str, offset: int, var_tables: dict[str, str]) -> list[
 
 
 TYPEORM_DECO = re.compile(r"@(PrimaryGeneratedColumn|PrimaryColumn|Column|CreateDateColumn|UpdateDateColumn|DeleteDateColumn|ManyToOne|OneToOne)\(")
-TYPEORM_PROP = re.compile(r"\s*(?:@\w+(?:\([^)]*\))?\s*)*(\w+)\s*[!?]?\s*:\s*([\w\[\]<>|. ]+)")
+# Bounded: one property rarely has more than a few decorators, and a long run of them was quadratic.
+TYPEORM_PROP = re.compile(r"\s*(?:@\w+(?:\([^)]{0,300}\))?\s*){0,12}(\w+)\s*[!?]?\s*:\s*([\w\[\]<>|. ]+)")
 
 
 def typeorm_columns(text: str, offset: int) -> list[dict]:
