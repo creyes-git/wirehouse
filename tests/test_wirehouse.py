@@ -1091,3 +1091,43 @@ def test_ordinary_text_is_not_redacted(text):
     from wirehouse.redact import scrub
 
     assert scrub({"doc": text}) == ({"doc": text}, 0)
+
+
+@pytest.mark.parametrize(("text", "kept"), [
+    ("C:\\Users\\alice\\code\\x.py", "~\\code\\x.py"), ("C:/Users/alice/code", "~/code"),
+    ("C:\\Documents and Settings\\alice\\x", "~\\x"), ("at /Users/alice/code", "at ~/code"), ('"/home/alice/x"', '"~/x"'),
+    ("/mnt/c/Users/alice/x", "~/x"), ("/c/Users/alice/x", "~/x"), ("cwd=/var/home/alice/x", "cwd=~/x"),
+    ("/export/home/alice", "~"), ("/root/x.py", "~/x.py"), ("`/home/alice/y.py` is missing", "`~/y.py` is missing"),
+])
+def test_share_cuts_home_folders(text, kept):
+    from wirehouse.redact import scrub
+
+    assert scrub({"doc": text}, share=True)[0]["doc"] == kept
+
+
+def test_share_keeps_api_routes(tmp_path):
+    # Routes under /users and /home are URLs, not home folders: --share must leave them as written.
+    from wirehouse.cli import main
+
+    _write(tmp_path, {
+        "api/requirements.txt": "fastapi\n",
+        "api/main.py": """
+            from fastapi import FastAPI
+            app = FastAPI()
+
+            @app.get("/users/{id}")
+            def user(id: int):
+                return {}
+
+            @app.get("/home/dashboard")
+            def dashboard():
+                return {}
+        """,
+    })
+    out = tmp_path / "out"
+    assert main(["build", str(tmp_path), "-o", str(out), "--share"]) == 0
+    data = json.loads((out / "archmap.json").read_text(encoding="utf-8"))
+    eps = {e["path"] for n in data["nodes"] for e in n.get("endpoints", [])}
+    assert {"/users/{id}", "/home/dashboard"} <= eps
+    quests = json.dumps(data["quests"])
+    assert "GET /home/dashboard" in quests and "~" not in quests   # the route in narrated text survives too

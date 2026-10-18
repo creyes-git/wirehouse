@@ -35,17 +35,25 @@ SECRET_LIKE = re.compile(
     r"|\b(?:[Bb]earer|Basic)[ \t]+(?=[A-Za-z0-9._~+/-]{0,500}[0-9+/=])[A-Za-z0-9._~+/-]{12,}=*"
     r"|(?i:(?<![A-Za-z])(?:" + _KEYS + r")['\"]?\s*[:=]\s*['\"]?[^\s'\",;]{4,})")
 REDACTED = "[redacted]"
-# A home folder names the person who ran the scan: C:\Users\<name>, /Users/<name>, /home/<name>.
-HOME_PATH = re.compile(r"(?:\b[A-Za-z]:[\\/]+Users|(?<![\w.])/(?:Users|home))[\\/]+[^\\/\s\"'<>`]+", re.I)
+# A home folder names the person who ran the scan. Windows paths carry a drive letter. POSIX ones are
+# only taken where a path starts (string start, space, quote, backtick, `=`, `(` or `[`), with the real
+# capitals and not after an HTTP method, so routes such as `GET /users/{id}` or `GET /home/dashboard`
+# stay as they are (endpoint paths are skipped entirely).
+_METHODS = ("GET", "PUT", "POST", "PATCH", "DELETE", "HEAD", "OPTIONS", "ANY", "PAGE", "WS")
+_PATH_START = r"(?<![^\s\"'`=(\[])" + "".join(f"(?<!{m} )" for m in _METHODS)
+HOME_PATH = re.compile(
+    r"(?i:\b[A-Za-z]:[\\/]+(?:Users|Documents and Settings))[\\/]+[^\\/\s\"'<>`]+"
+    r"|" + _PATH_START + r"(?:/(?:mnt/)?[A-Za-z]/Users|/Users|/(?:var/|export/)?home)/[^/\s\"'<>`]+"
+    r"|" + _PATH_START + r"/root(?=[/\s\"'<>`]|$)")
 
 
-def _walk(value, fix):
+def _walk(value, fix, route=False):
     if isinstance(value, str):
-        return fix(value)
+        return fix(value, route)
     if isinstance(value, dict):
-        return {fix(k) if isinstance(k, str) else k: _walk(v, fix) for k, v in value.items()}
+        return {fix(k, route) if isinstance(k, str) else k: _walk(v, fix, route or k == "endpoints") for k, v in value.items()}
     if isinstance(value, list):
-        return [_walk(v, fix) for v in value]
+        return [_walk(v, fix, route) for v in value]
     return value
 
 
@@ -60,7 +68,7 @@ def scrub(data: dict, *, share: bool = False, root: str | Path | None = None) ->
         r = str(root).rstrip("\\/")
         roots = sorted({r, r.replace("\\", "/"), r.replace("/", "\\")}, key=len, reverse=True)
 
-    def fix(text: str) -> str:
+    def fix(text: str, route: bool) -> str:
         nonlocal hits
         out = SECRET_LIKE.sub(REDACTED, text)
         if out != text:
@@ -68,7 +76,8 @@ def scrub(data: dict, *, share: bool = False, root: str | Path | None = None) ->
         if share:
             for r in roots:
                 out = out.replace(r + "/", "").replace(r + "\\", "").replace(r, ".")
-            out = HOME_PATH.sub("~", out)
+            if not route:   # an endpoint path is a URL, never a folder on this machine
+                out = HOME_PATH.sub("~", out)
         return out
 
     return _walk(data, fix), hits

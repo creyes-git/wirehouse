@@ -202,6 +202,13 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
+- **`--share` keeps API routes and finds more home folders** (2026-10-18)
+  - Summary: Only real home folders are cut: `C:\Users\<name>` and `C:\Documents and Settings\<name>`
+    with a drive letter, and `/Users/<name>`, `/home/<name>`, `/var/home/<name>`, `/export/home/<name>`,
+    `/mnt/c/Users/<name>` (WSL), `/c/Users/<name>` (Git Bash) and `/root` where a path starts. Endpoint
+    paths are never touched, and a route after an HTTP method (`GET /home/dashboard`) is kept.
+  - Why: the old pattern ignored case and matched anywhere, so `--share` turned routes such as
+    `GET /users/{id}` and `/home/dashboard` into `~`, while WSL and Git Bash home folders went through.
 - **More credential formats are redacted** (2026-10-18)
   - Summary: The last redaction pass now also catches GitHub `gho_`/`ghs_`/`ghu_`/`ghr_` tokens, AWS
     `ASIA` keys and secret access keys, JWTs, OpenAI and Anthropic `sk-` keys, Google `AIza` keys,
