@@ -7,6 +7,11 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **Demo pictures of the 0.3.0 viewer** (2026-10-18)
+  - Summary: `docs/assets` has a new animated demo and MP4, nine screenshots and a share card of the
+    0.3.0 viewer on the demo map, plus `one-map-two-readers.png` (`wirehouse export` next to the
+    warehouse). They are rendered frame by frame on a virtual clock, so motion is smooth without a GPU.
+  - Why: every picture still showed the 0.2.0 viewer.
 - **The improvement log records Pass 2** (2026-10-18)
   - Summary: IMPROVEMENT_LOG.md has a Pass 2 entry: areas covered, findings by severity, the menu, what
     was done with its measured effect, what was deferred and the next pass's focus.
