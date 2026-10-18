@@ -1270,3 +1270,18 @@ def test_yaml_alias_bombs_do_not_hang_the_scan(tmp_path, rel, body):
     t0 = time.perf_counter()
     build_archmap(tmp_path, log=lambda *_: None)
     assert time.perf_counter() - t0 < 5
+
+
+def test_control_characters_never_reach_the_output(repo, tmp_path, capsys):
+    # Agent-written ids are echoed in diagnostics on the terminal: escape codes must not survive.
+    from wirehouse.cli import main
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "enrichment.json").write_text(json.dumps({
+        "add_edges": [{"source": "\x1b]0;owned\x07unit:js:web", "target": "\x1b[2Jres:x\x9b", "evidence": []}],
+    }), encoding="utf-8")
+    assert main(["build", str(repo), "-o", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "\x1b" not in printed and "\x07" not in printed and "\x9b" not in printed
+    assert "\\u001b" not in (out / "archmap.json").read_text(encoding="utf-8")

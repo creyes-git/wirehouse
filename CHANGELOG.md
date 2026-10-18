@@ -212,6 +212,11 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
+- **Terminal escape codes are stripped from the output** (2026-10-18)
+  - Summary: The last redaction pass removes control characters (except tab and newline) from every
+    key and value, so the problems render prints and the files it writes carry none.
+  - Why: an id written into `enrichment.json` is echoed in a diagnostic, and an escape sequence in it
+    could rewrite the terminal title or clear the screen of whoever ran the build.
 - **YAML alias bombs no longer hang the scan** (2026-10-18)
   - Summary: Compose, workflow and Kubernetes values are taken only when they are plain scalars (or
     lists of them), with a length cap, so nested `&anchor`/`*alias` lists are never expanded into text.

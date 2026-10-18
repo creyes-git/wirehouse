@@ -46,6 +46,10 @@ HOME_PATH = re.compile(
     r"|" + _PATH_START + r"(?:/(?:mnt/)?[A-Za-z]/Users|/Users|/(?:var/|export/)?home)/[^/\s\"'<>`]+"
     r"|" + _PATH_START + r"/root(?=[/\s\"'<>`]|$)")
 
+# Control characters (not tab or newline): an id or name holding `\x1b[...` would drive the terminal
+# when diagnostics are printed, and no map text needs them.
+CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
 
 def _walk(value, fix, route=False):
     if isinstance(value, str):
@@ -73,6 +77,7 @@ def scrub(data: dict, *, share: bool = False, root: str | Path | None = None) ->
         out = SECRET_LIKE.sub(REDACTED, text)
         if out != text:
             hits += 1
+        out = CONTROL.sub("", out)
         if share:
             for r in roots:
                 out = out.replace(r + "/", "").replace(r + "\\", "").replace(r, ".")
