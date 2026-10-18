@@ -753,3 +753,90 @@ def test_repo_info_without_git(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", missing)
     assert repo.repo_info(tmp_path) is None
+
+
+def test_long_files_scan_quickly():
+    import time
+
+    from wirehouse.detectors.code import analyze
+    from wirehouse.scan import SourceFile
+
+    text = "import x from 'y'\n" + "export const A = 1\n" * 20_000   # no `from` after the exports: the slow case
+    sf = SourceFile(rel="big.ts", lang="typescript", size=len(text), text=text, sha="0", lines=20_001)
+    t0 = time.perf_counter()
+    facts = analyze(sf)
+    assert time.perf_counter() - t0 < 5   # was ~90 s
+    assert "y" in {i[0] for i in facts.imports}
+
+
+def test_public_api_urls_and_cors_strings_still_connect(tmp_path):
+    _write(tmp_path, {
+        "docker-compose.yml": """
+            services:
+              web:
+                build: ./web
+                environment:
+                  NEXT_PUBLIC_API_URL: http://api:8000
+              api:
+                build: ./api
+        """,
+        "web/package.json": json.dumps({"name": "web", "dependencies": {"next": "15.0.0"}}),
+        "web/lib/api.ts": "export const base = process.env.NEXT_PUBLIC_API_URL;\n",
+        "web/lib/raw.ts": "export const ping = () => fetch('http://api:8000/ping', { mode: 'cors' });\n",
+        "api/requirements.txt": "fastapi\n",
+        "api/main.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+    })
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    calls = {(e["source"], e["target"]) for e in data["edges"]}
+    assert ("file:web/lib/api.ts", "unit:python:api") in calls
+    assert ("file:web/lib/raw.ts", "unit:python:api") in calls
+
+
+def test_urls_in_comments_are_not_calls(tmp_path):
+    _write(tmp_path, {
+        "app/requirements.txt": "httpx\n",
+        "app/main.py": """
+            import httpx
+            # see https://api.openai.com/v1/models
+            # Docs: https://api.weatherstack.com/docs
+            def get():
+                return httpx.get("https://api.github.com/repos")
+        """,
+    })
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    ids = {n["id"] for n in data["nodes"]}
+    assert "ext:api.weatherstack.com" not in ids and "res:openai" not in ids
+    assert any(e["target"] == "res:github" or e["target"].startswith("ext:api.github.com") for e in data["edges"])
+
+
+def test_detector_details(tmp_path):
+    from wirehouse.detectors.code import URL_RE, _next_route
+    from wirehouse.detectors.schema import sql_columns
+
+    _write(tmp_path, {
+        "lib/requirements.txt": "pyyaml\n",
+        "lib/domain.py": "class Order: ...\n",
+        "svc/setup.cfg": "[options]\ninstall_requires =\n    fastapi>=0.110\n    psycopg2\n",
+        "svc/app.py": "from fastapi import FastAPI\napp = FastAPI()\n",
+        "pkg/setup.py": "from setuptools import setup\nsetup(install_requires=['flask'], version='1.0')\n",
+        "pkg/app.py": "import flask\n",
+        "db/schema.sql": "CREATE TABLE users (\n  -- the user's id\n  id INT PRIMARY KEY,\n  email TEXT\n);\n",
+        "docker/Dockerfile": "FROM --platform=linux/amd64 python:3.12\nCMD [\"python\", \"main.py\"]\n",
+        ".github/workflows/ci.yml": "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pytest tests/test_renderer.py --project=firefly\n",
+    })
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    nodes = {n["id"]: n for n in data["nodes"]}
+    assert nodes["unit:python:lib"]["kind"] == "library"
+    assert nodes["unit:python:svc"]["framework"] == "FastAPI"
+    assert nodes["unit:python:pkg"]["framework"] == "Flask"
+    assert nodes["unit:python:db"]["framework"] == "Database schema" and "Python" not in nodes["unit:python:db"]["tech"]
+    ci = next(n for n in data["nodes"] if n.get("path") == ".github/workflows/ci.yml" or n["name"] == "CI")
+    assert "Deploys to" not in ci.get("description", "")
+    from wirehouse.detectors.infra import detect_infra
+    from wirehouse.scan import scan
+
+    assert detect_infra(scan(tmp_path)).dockerfiles["docker/Dockerfile"].base == "python:3.12"
+    sql = (tmp_path / "db/schema.sql").read_text(encoding="utf-8")
+    assert [c["name"] for c in sql_columns(sql, 0)] == ["id", "email"]
+    assert _next_route("web/app/pages/index.vue") == ("page", "/")
+    assert URL_RE.search("https://john.doe:s3cret@api.acme.io/v1").group(1) == "api.acme.io"

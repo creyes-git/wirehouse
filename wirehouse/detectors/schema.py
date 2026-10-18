@@ -25,18 +25,25 @@ def _unquote(name: str) -> str:
     return name.split(".")[-1]
 
 
-def _balanced(text: str, start: int, open_ch: str = "(", close_ch: str = ")") -> str | None:
+def _balanced(text: str, start: int, open_ch: str = "(", close_ch: str = ")", comment: str | None = None) -> str | None:
+    """The text between a bracket and its partner. `comment` starts a line comment to skip, so an
+    apostrophe in `-- the user's id` does not open a string that never closes."""
     """Text between the bracket at `start` and its match, or None."""
     if start >= len(text) or text[start] != open_ch:
         return None
     depth, quote = 0, None
-    for i in range(start, min(len(text), start + 200_000)):
+    end = min(len(text), start + 200_000)
+    i = start
+    while i < end:
         c = text[i]
         if quote:
             if c == quote:
                 quote = None
+        elif comment and text.startswith(comment, i):
+            nl = text.find("\n", i)
+            i = end if nl < 0 else nl
             continue
-        if c in "'\"`":
+        elif c in "'\"`":
             quote = c
         elif c == open_ch:
             depth += 1
@@ -44,6 +51,7 @@ def _balanced(text: str, start: int, open_ch: str = "(", close_ch: str = ")") ->
             depth -= 1
             if depth == 0:
                 return text[start + 1:i]
+        i += 1
     return None
 
 
@@ -90,7 +98,7 @@ def sql_columns(text: str, offset: int) -> list[dict]:
     m = re.compile(r"CREATE\s+[^(;]*?\(", re.I).search(text, offset)
     if not m or m.start() - offset > 400:
         return []
-    body = _balanced(text, m.end() - 1)
+    body = _balanced(text, m.end() - 1, comment="--")
     if body is None:
         return []
     cols, pks, fks = [], set(), {}
@@ -135,7 +143,7 @@ PRISMA_FIELD = re.compile(r"^\s*(\w+)\s+(\w+)(\[\])?(\?)?(.*)$")
 
 def prisma_columns(text: str, offset: int, models: set[str]) -> list[dict]:
     brace = text.find("{", offset)
-    body = _balanced(text, brace, "{", "}") if brace >= 0 else None
+    body = _balanced(text, brace, "{", "}", "//") if brace >= 0 else None
     if body is None:
         return []
     cols, rel_fk, pks = [], {}, set()
@@ -256,7 +264,7 @@ DRIZZLE_COL = re.compile(r"^\s*(\w+)\s*:\s*(\w+)\(\s*(?:['\"](\w+)['\"])?")
 
 def drizzle_columns(text: str, offset: int, var_tables: dict[str, str]) -> list[dict]:
     brace = text.find("{", offset)
-    body = _balanced(text, brace, "{", "}") if brace >= 0 else None
+    body = _balanced(text, brace, "{", "}", "//") if brace >= 0 else None
     if body is None:
         return []
     cols = []
@@ -277,7 +285,7 @@ TYPEORM_PROP = re.compile(r"\s*(?:@\w+(?:\([^)]*\))?\s*)*(\w+)\s*[!?]?\s*:\s*([\
 
 def typeorm_columns(text: str, offset: int) -> list[dict]:
     brace = text.find("{", offset)
-    body = _balanced(text, brace, "{", "}") if brace >= 0 else None
+    body = _balanced(text, brace, "{", "}", "//") if brace >= 0 else None
     if body is None:
         return []
     cols = []

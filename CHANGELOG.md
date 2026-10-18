@@ -7,6 +7,27 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Long JavaScript files scan in a blink** (2026-10-18)
+  - Summary: The import pattern stops at `=` or `(`, so a file of many `export const` lines no longer
+    makes it search to the end of the file each time.
+  - Why: a 20,000-line file took about 90 seconds; it now takes well under one.
+- **Frontends reach their API through `NEXT_PUBLIC_API_URL`** (2026-10-18)
+  - Summary: `PUBLIC_..._URL` variables count as outgoing addresses again, and lines are judged by their
+    code, not their strings, so `fetch('http://api:8000', {mode: 'cors'})` keeps its connection.
+  - Why: the usual way a Next.js or Vite app points at its backend drew no pipe at all.
+- **URLs in comments are not calls** (2026-10-18)
+  - Summary: A URL on a commented line (`#`, `//`, `/*`, `*`, `--`) is skipped, and the word `api` inside
+    the URL itself no longer makes the line look like a request.
+  - Why: `# see https://api.openai.com/...` drew a "found in code" connection, against truth before
+    spectacle.
+- **Smaller detector mistakes** (2026-10-18)
+  - Summary: `domain.py` is not taken for a CLI entry point; `setup.cfg` dependencies are read and
+    `setup.py` reads only `install_requires`; `FROM --platform=...` finds the real base image; an
+    apostrophe in a SQL or Prisma comment keeps the table's columns; a folder of only SQL or Prisma
+    files is a "Database schema", not a Python package; "Deploys to" matches whole words only (no
+    "Render" from `test_renderer.py`); Nuxt 4 `app/pages` are found; and `user:pass@` in a URL is skipped
+    so the host is right and the password is never kept.
+  - Why: each one put a wrong label, a wrong connection or a missing block on the map.
 - **`.gitignore` is followed the way git follows it** (2026-10-18)
   - Summary: `!pattern` re-includes files, `.gitignore` files in subfolders apply below them, `**/name`
     also matches at the top, and ignored config files (compose overrides, `appsettings.Development.json`,

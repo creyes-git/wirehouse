@@ -156,7 +156,8 @@ def _parse_dockerfile(scan: ScanResult, rel: str, infra: Infra) -> None:
         s = raw.strip()
         up = s.upper()
         if up.startswith("FROM "):
-            df.base = s.split()[1]
+            words = [w for w in s.split()[1:] if not w.startswith("--")]   # FROM --platform=linux/amd64 python:3.12
+            df.base = words[0] if words else ""
         elif up.startswith(("CMD ", "ENTRYPOINT ")):
             body = s.split(None, 1)[1] if " " in s else ""
             try:
@@ -272,7 +273,8 @@ def _parse_workflow(scan: ScanResult, rel: str, infra: Infra) -> None:
             triggers = ", ".join(map(str, on)) if isinstance(on, (dict, list)) else str(on)
         except yaml.YAMLError:
             pass
-    deploys = sorted({label for hint, label in DEPLOY_HINTS if hint in text.lower()})
+    # whole words only: test_renderer.py is not Render, --project=firefly is not Fly.io
+    deploys = sorted({label for hint, label in DEPLOY_HINTS if re.search(rf"(?<![\w-]){re.escape(hint)}(?![\w-])", text.lower())})
     detail = f"Triggers: {triggers or 'unknown'}. Jobs: {', '.join(jobs) or 'n/a'}."
     if deploys:
         detail += f" Deploys to: {', '.join(deploys)}."

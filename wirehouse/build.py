@@ -39,8 +39,12 @@ RES_EDGE_KIND = {"database": "data", "cache": "data", "storage": "data", "search
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "host.docker.internal", "[::1]"}
 CALLISH = re.compile(r"fetch|axios|request|httpx|requests\.|urlopen|HttpClient|ENDPOINT|BASE_URL|_URL|baseURL|baseUrl|api|ky\.|got\(|\.post\(|\.get\(", re.I)
 # Env vars that describe *this* app's own address or allowed callers, not outgoing calls.
-SELF_URL_VARS = re.compile(r"CORS|ORIGIN|ALLOWED|REDIRECT|CALLBACK|PUBLIC_.*URL|APP_URL|SITE_URL|BASE_PATH|NEXTAUTH_URL|AUTH_URL|TRUSTED"
+# (NEXT_PUBLIC_API_URL and friends are how a frontend finds its API, so PUBLIC_ alone says nothing.)
+SELF_URL_VARS = re.compile(r"CORS|ORIGIN|ALLOWED|REDIRECT|CALLBACK|APP_URL|SITE_URL|BASE_PATH|NEXTAUTH_URL|AUTH_URL|TRUSTED"
                            r"|FRONTEND_(?:HOST|URL|ORIGIN|BASE)|CLIENT_URL|UI_URL|WEB_URL|DASHBOARD_URL", re.I)
+STRING_LITERAL = re.compile(r"'[^'\n]*'|\"[^\"\n]*\"|`[^`]*`")
+URL_ANY = re.compile(r"\b[a-z][\w+.-]*://\S+", re.I)
+COMMENT_START = re.compile(r"(?:^|\s)(?:#|//|/\*|\*|--)")
 JS_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro"]
 
 
@@ -543,7 +547,8 @@ class Builder:
                         self.note_via(target, f"env var `{var}`")
             src_lines = sf.text.splitlines()
             for host, port, line in ff.service_urls:
-                if SELF_URL_VARS.search(src_lines[line - 1] if line <= len(src_lines) else ""):
+                # judge the code on the line, not its strings: `{mode: 'cors'}` is not a CORS setting
+                if SELF_URL_VARS.search(STRING_LITERAL.sub("", src_lines[line - 1] if line <= len(src_lines) else "")):
                     continue
                 target = None
                 if host in self.service_target:
@@ -554,9 +559,14 @@ class Builder:
                     self.add_edge(src, target, self._edge_kind_for(target), evidence=[loc(rel, line)],
                                   description=f"HTTP to {host}:{port}")
             lines = sf.text.splitlines()
-            for host, line, url in ff.urls:
+            for host, line in ff.urls:
                 sigs = [s for s in match_host(host) if s.role == "block"]
-                ctx = " ".join(lines[max(0, line - 2): line])
+                own = lines[line - 1] if line <= len(lines) else ""
+                at = own.find("://")
+                if at >= 0 and COMMENT_START.search(own[:at]):
+                    continue   # a URL in a comment documents, it does not call
+                # "api" inside the URL itself (api.openai.com) must not make the line look like a request
+                ctx = URL_ANY.sub(" ", " ".join(lines[max(0, line - 2): line]))
                 if sigs:
                     # Only count it as a call when the code around it looks like a request,
                     # not when it is an href, a link in a comment or a URL in a data file.

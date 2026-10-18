@@ -23,7 +23,7 @@ class FileFacts:
     py_from_names: dict[str, list[str]] = field(default_factory=dict)     # "from X import a, b" -> X: [a, b]
     env: list[tuple[str, int]] = field(default_factory=list)              # explicit env var reads
     upper_literals: list[tuple[str, int]] = field(default_factory=list)   # 'SOME_NAME' string literals
-    urls: list[tuple[str, int, str]] = field(default_factory=list)        # host, line, full url
+    urls: list[tuple[str, int]] = field(default_factory=list)             # host, line
     service_urls: list[tuple[str, int, int]] = field(default_factory=list)  # bare host (api, localhost), port, line
     code_hits: list[tuple[str, int]] = field(default_factory=list)        # signature id, line
     symbols: list[dict] = field(default_factory=list)
@@ -45,7 +45,9 @@ class _Lines:
 # ── imports ──────────────────────────────────────────────────────────────────
 PY_IMPORT = re.compile(r"^[ \t]*import[ \t]+([\w.]+(?:[ \t]*,[ \t]*[\w.]+)*)", re.M)
 PY_FROM = re.compile(r"^[ \t]*from[ \t]+(\.*[\w.]*)[ \t]+import[ \t]+(\([^)]*\)|[^\n]+)", re.M)
-JS_FROM = re.compile(r"\b(?:import|export)\s[^'\";]*?\bfrom\s*['\"]([^'\"]+)['\"]")
+# An import clause never holds "=" or "(": without that stop, every `export const x = 1` scanned to the
+# end of the file looking for a `from` (quadratic on long files).
+JS_FROM = re.compile(r"\b(?:import|export)\s[^'\";=(]{0,2000}?\bfrom\s*['\"]([^'\"]+)['\"]")
 JS_SIDE = re.compile(r"\bimport\s*['\"]([^'\"]+)['\"]")
 JS_REQ = re.compile(r"\b(?:require|import)\s*\(\s*['\"]([^'\"]+)['\"]\s*\)")
 CS_USING = re.compile(r"^[ \t]*(?:global[ \t]+)?using[ \t]+(?:static[ \t]+)?([\w.]+)[ \t]*;", re.M)
@@ -73,7 +75,7 @@ ENV_PATTERNS = {
 }
 UPPER_LITERAL = re.compile(r"['\"]([A-Z][A-Z0-9]*_[A-Z0-9_]+)['\"]")
 
-URL_RE = re.compile(r"https?://([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?::\d+)?([^\s'\"`)<>]*)")
+URL_RE = re.compile(r"https?://(?:[^\s/@'\"`<>]+@)?([A-Za-z0-9.-]+\.[A-Za-z]{2,})(?::\d+)?")   # user:pass@ is skipped, never kept
 SERVICE_URL_RE = re.compile(r"(?:https?|grpc|ws)://([A-Za-z0-9_-]+|\d+\.\d+\.\d+\.\d+)(?::(\d+))")
 
 NOISE_HOSTS = (
@@ -172,6 +174,8 @@ def _next_route(rel: str) -> tuple[str, str] | None:
         if anchor in parts[:-1]:
             i = parts.index(anchor)  # first one: works for repo-root, src/ and monorepo apps (web/app/...)
             segs = parts[i + 1:]
+            if anchor == "app" and "pages" in segs[:-1]:
+                continue   # Nuxt 4 keeps pages under app/pages
             if not segs:
                 return None
             fname = segs[-1]
@@ -242,7 +246,7 @@ def analyze(sf: SourceFile) -> FileFacts:
             f.upper_literals.append((m.group(1), L.line(m.start())))
         for m in URL_RE.finditer(text):
             host = m.group(1).lower().rstrip(".")
-            f.urls.append((host, L.line(m.start()), m.group(0)))
+            f.urls.append((host, L.line(m.start())))
         for m in SERVICE_URL_RE.finditer(text):
             f.service_urls.append((m.group(1).lower(), int(m.group(2)), L.line(m.start())))
         for sig in _CODE_SIGS:

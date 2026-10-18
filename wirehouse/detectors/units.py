@@ -7,6 +7,7 @@ contains it. Units become the big top-level blocks in the warehouse.
 
 from __future__ import annotations
 
+import configparser
 import json
 import re
 import tomllib
@@ -116,9 +117,22 @@ def _parse_python_manifest(scan: ScanResult, rel: str, u: Unit) -> None:
             if m and m.group(1).lower() not in u.deps:
                 u.deps[m.group(1).lower()] = Dep(m.group(1), rel, _line_of(text, m.group(1)), dev)
         return
-    if low.endswith("setup.py") or low.endswith("setup.cfg"):
-        for m in re.finditer(r"['\"]([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:[<>=~!][^'\"]*)?['\"]", text):
-            if "install_requires" in text and m.group(1).lower() not in u.deps and m.start() > text.find("install_requires"):
+    if low.endswith("setup.cfg"):
+        cfg = configparser.ConfigParser(interpolation=None)
+        try:
+            cfg.read_string(text)
+        except configparser.Error:
+            return
+        for spec in cfg.get("options", "install_requires", fallback="").splitlines():
+            m = _REQ_LINE.match(spec)
+            if m and m.group(1).lower() not in u.deps:
+                u.deps[m.group(1).lower()] = Dep(m.group(1), rel, _line_of(text, m.group(1)))
+        return
+    if low.endswith("setup.py"):
+        # only the strings inside install_requires=[...], not version="1.0" further down
+        block = re.search(r"install_requires\s*=\s*\[(.*?)\]", text, re.S)
+        for m in re.finditer(r"['\"]([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:[<>=~!;\[][^'\"]*)?['\"]", block.group(1) if block else ""):
+            if m.group(1).lower() not in u.deps:
                 u.deps[m.group(1).lower()] = Dep(m.group(1), rel, _line_of(text, m.group(0)))
 
 
@@ -212,11 +226,16 @@ def _classify(u: Unit) -> None:
                   "celery": ("worker", "Celery worker"), "streamlit": ("frontend", "Streamlit")}
             if imports_fw:
                 u.kind, u.framework = fw[imports_fw]
-            elif any(f.rel.endswith(("__main__.py", "/cli.py", "cli.py", "main.py")) or "if __name__ ==" in f.text for f in u.files if not f.is_test):
+            elif any(f.rel.rsplit("/", 1)[-1] in ("__main__.py", "cli.py", "main.py") or "if __name__ ==" in f.text for f in u.files if not f.is_test):
                 u.kind, u.framework = "worker", "Python job / CLI"
             else:
                 u.kind, u.framework = "library", "Python package"
-        u.tech.append("Python")
+        if u.files and not any(f.lang == "python" for f in u.files):
+            # a folder of only SQL or Prisma files lands in the fallback family, but it is not Python
+            u.kind, u.framework = "library", "Database schema"
+            u.tech.append("Prisma" if all(f.lang == "prisma" for f in u.files) else "SQL")
+        else:
+            u.tech.append("Python")
     elif u.family == "dotnet":
         sdk = u.sdk.lower()
         out = u.props.get("OutputType", "").lower()
