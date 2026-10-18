@@ -61,6 +61,12 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **Repeated parts are drawn in one go** (2026-10-18)
+  - Summary: Container ribs, rack posts, shelves and beams and cabinet lights are one instanced mesh per
+    material; the lights blink by dimming their instance colour. They are decorative and never picked,
+    so clicking works as before.
+  - Why: each rib, rack part and light was its own draw call, up to 22 per container, 10 per rack and
+    18 per cabinet.
 - **An idle view draws half as often, and panels lose their blur** (2026-10-18)
   - Summary: After 5 seconds with no input, no walking and no playing tour, the 3D view draws every
     other frame until something happens. The panels no longer blur what is behind them.

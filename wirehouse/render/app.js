@@ -412,6 +412,43 @@
     return m;
   }
 
+  // Repeated decorative parts (container ribs, rack frames, cabinet lights) are drawn as one
+  // InstancedMesh per material instead of one mesh each. They are never picked, so nothing is lost,
+  // and a busy floor drops from hundreds of draw calls to a few.
+  let INST = new Map();
+  const ORIGIN = new THREE.Vector3();
+  function instBox(w, h, d, m, x, y, z, parent, o) {   // y is the bottom, like box()
+    o = o || {};
+    const key = m.uuid + (o.cast ? '|cast' : '');
+    let b = INST.get(key);
+    if (!b) { b = { m, cast: !!o.cast, mats: [], colors: [], phase: [] }; INST.set(key, b); }
+    const at = parent ? parent.position : ORIGIN;
+    b.mats.push(new THREE.Matrix4().compose(new THREE.Vector3(at.x + x, at.y + y + h / 2, at.z + z), new THREE.Quaternion(), new THREE.Vector3(w, h, d)));
+    if (o.color != null) { b.colors.push(new THREE.Color(o.color)); b.phase.push(o.phase || 0); }
+  }
+  function flushInstances() {
+    if (!INST.size) return;
+    const unit = geo(new THREE.BoxGeometry(1, 1, 1));
+    INST.forEach((b) => {
+      const im = new THREE.InstancedMesh(unit, b.m, b.mats.length);
+      b.mats.forEach((M, i) => im.setMatrixAt(i, M));
+      b.colors.forEach((c, i) => im.setColorAt(i, c));
+      im.frustumCulled = false;   // the bounding sphere is the unit box's, not the instances'
+      im.castShadow = T.shadows && b.cast;
+      im.receiveShadow = !!T.shadows;
+      world.add(im);
+      if (b.phase.length) {
+        // cabinet lights blink by dimming their instance colour, not by hiding meshes
+        const dim = new THREE.Color();
+        ANIM.push((t) => {
+          b.colors.forEach((c, i) => im.setColorAt(i, Math.sin(t * 3 + b.phase[i] * 1.7) > -0.6 ? c : dim.copy(c).multiplyScalar(0.15)));
+          im.instanceColor.needsUpdate = true;
+        });
+      }
+    });
+    INST = new Map();
+  }
+
   // text → canvas textures
   // Cached by text so walking back into a room is instant, but only for the last few rooms:
   // each texture can be a 1400px canvas on the GPU, and a big repo has many rooms.
@@ -500,10 +537,11 @@
       } else {
         box(w, h, d, col, 0, 0, 0, g, { bright: S === 'dock' });
         const ribs = Math.max(4, Math.floor(w / 0.9));
+        const ribM = mat(col, { noEdges: true, emissive: 0.25, bright: true });
         for (let i = 1; i < ribs; i++) {
           const rx = -w / 2 + (w * i) / ribs;
-          noCast(box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, d / 2 + 0.03, g, { noEdges: true, emissive: 0.25, bright: true }));
-          noCast(box(0.08, h * 0.86, 0.06, col, rx, h * 0.07, -d / 2 - 0.03, g, { noEdges: true, emissive: 0.25, bright: true }));
+          instBox(0.08, h * 0.86, 0.06, ribM, rx, h * 0.07, d / 2 + 0.03, g);
+          instBox(0.08, h * 0.86, 0.06, ribM, rx, h * 0.07, -d / 2 - 0.03, g);
         }
         box(0.06, h * 0.9, d * 0.46, 0x1a1f28, w / 2 + 0.03, h * 0.05, -d * 0.24, g, { noEdges: true });
         box(0.06, h * 0.9, d * 0.46, 0x1a1f28, w / 2 + 0.03, h * 0.05, d * 0.24, g, { noEdges: true });
@@ -576,12 +614,10 @@
       ANIM.push((t) => { bar.rotation.z = Math.max(0, Math.sin(t * 0.6)) * 0.9; });
     } else if (S === 'cabinet') {
       box(w, h, d, col, 0, 0, 0, g);
-      const leds = [];
+      const ledM = mat(0xffffff, { basic: true });
       for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++) {
-        const led = noCast(mesh(new THREE.BoxGeometry(0.16, 0.08, 0.04), mat((r + c) % 3 ? 0x4ade80 : 0xfbbf24, { basic: true }), -w / 4 + c * (w / 4), h * 0.2 + r * (h * 0.11), d / 2 + 0.03, g));
-        leds.push(led);
+        instBox(0.16, 0.08, 0.04, ledM, -w / 4 + c * (w / 4), h * 0.2 + r * (h * 0.11) - 0.04, d / 2 + 0.03, g, { color: (r + c) % 3 ? 0x4ade80 : 0xfbbf24, phase: r * 3 + c });
       }
-      ANIM.push((t) => leds.forEach((l, i) => { l.visible = Math.sin(t * 3 + i * 1.7) > -0.6; }));
       const sign = decal([shortName(n.name, 16)], w * 0.86, { bg: false, ink: T.glow ? css(col) : '#ffffff', big: 60 });
       sign.position.set(0, h * 0.9, d / 2 + 0.05);
       g.add(sign);
@@ -625,12 +661,13 @@
     g.position.set(rk.x, 0, rk.z);
     const steel = T.glow ? 0x3b5b94 : 0x2f6db5;
     const beam = T.glow ? 0xffb23f : 0xf28c28;
-    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => box(0.1, rk.h, 0.1, steel, sx * (rk.w / 2), 0, sz * (rk.d / 2), g, { noEdges: true, emissive: 0.4 }));
+    const steelM = mat(steel, { noEdges: true, emissive: 0.4 }), beamM = mat(beam, { noEdges: true, emissive: 0.4 });
+    const shelfM = mat(T.glow ? 0x121b30 : 0x9aa1a8, { noEdges: true });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => instBox(0.1, rk.h, 0.1, steelM, sx * (rk.w / 2), 0, sz * (rk.d / 2), g, { cast: true }));
     for (let l = 0; l < SLOT_LEVELS; l++) {
-      box(rk.w, 0.07, rk.d, T.glow ? 0x121b30 : 0x9aa1a8, 0, 0.25 + l * 1.2, 0, g, { noEdges: true });
-      box(rk.w, 0.1, 0.08, beam, 0, 0.25 + l * 1.2, rk.d / 2, g, { noEdges: true, emissive: 0.4 });
+      instBox(rk.w, 0.07, rk.d, shelfM, 0, 0.25 + l * 1.2, 0, g, { cast: true });
+      instBox(rk.w, 0.1, 0.08, beamM, 0, 0.25 + l * 1.2, rk.d / 2, g);
     }
-    world.add(g);
   }
 
   function makeSlot(it) {
@@ -1009,6 +1046,7 @@
       if ((o.isSprite || o.isMesh || o.isLine) && o.material && !shared.has(o.material)) o.material.dispose();
       if (o.isLine && o.geometry) o.geometry.dispose();          // grid and selection boxes
       if (o.isLight && o.dispose) o.dispose();                   // frees the 2048px shadow map
+      if (o.isInstancedMesh && o !== particles) o.dispose();     // frees the per-instance buffers
     });
     texRoom++;
     TEX.forEach((t, k) => { if (t.userData.used < texRoom - TEX_ROOMS) { t.dispose(); TEX.delete(k); } });
@@ -1033,6 +1071,7 @@
     makeShell(room);
     room.racks.forEach(makeRack);
     room.items.forEach((it) => (it.shape === 'slot' ? makeSlot(it) : makeBlock(it)));
+    flushInstances();
     OBST = room.items.filter((it) => it.shape !== 'slot').map((it) => ({ x0: it.x - it.w / 2, x1: it.x + it.w / 2, z0: it.z - it.d / 2, z1: it.z + it.d / 2 }))
       .concat(room.racks.map((r) => ({ x0: r.x - r.w / 2, x1: r.x + r.w / 2, z0: r.z - r.d / 2, z1: r.z + r.d / 2 })));
     const { inner, ports } = roomLinks(R);
@@ -3304,8 +3343,8 @@
     // What one frame costs the GPU, for the performance budget.
     gpu: () => {
       if (!renderer) return null;
-      let casters = 0, meshes = 0;
-      scene.traverseVisible((o) => { if (o.isMesh) { meshes++; if (o.castShadow) casters++; } });
+      let casters = 0, meshes = 0, instanced = 0;
+      scene.traverseVisible((o) => { if (o.isMesh) { meshes++; if (o.castShadow) casters++; if (o.isInstancedMesh) instanced++; } });
       // one frame drawn here with the counters kept across the shadow pass, which render() would reset
       const i = renderer.info;
       i.autoReset = false;
@@ -3313,7 +3352,7 @@
       renderer.render(scene, camera);
       i.autoReset = true;
       return { calls: i.render.calls, triangles: i.render.triangles, textures: i.memory.textures, geometries: i.memory.geometries,
-        programs: (i.programs || []).length, meshes, casters, shadows: renderer.shadowMap.enabled, pixelRatio: renderer.getPixelRatio() };
+        programs: (i.programs || []).length, meshes, instanced, casters, shadows: renderer.shadowMap.enabled, pixelRatio: renderer.getPixelRatio() };
     },
   };
 

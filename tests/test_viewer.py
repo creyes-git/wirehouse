@@ -335,3 +335,16 @@ def test_an_idle_view_slows_down_and_wakes_on_input(browser, html):
     assert js(page, "__wirehouse.idle()") is False
     assert js(page, "getComputedStyle(document.querySelector('#panel')).backdropFilter") in ("none", "")
     assert errors == []
+
+
+def test_repeated_parts_are_instanced_within_the_draw_call_budget(browser, html):
+    page, errors = open_view(browser, html)
+    night = js(page, "__wirehouse.setTheme('night'); __wirehouse.gpu()")
+    day = js(page, "__wirehouse.setTheme('day'); __wirehouse.gpu(); __wirehouse.gpu()")   # steady frame, shadow map already drawn
+    assert night["instanced"] >= 2 and night["calls"] <= 155     # was 167 with one mesh per rib and light
+    assert day["calls"] <= 140                                   # was 273 with the shadow pass every frame
+    js(page, "__wirehouse.enterBlock('unit:python:api')")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    assert js(page, "__wirehouse.gpu().instanced") >= 3           # rack posts, shelves and beams
+    js(page, "__wirehouse.setTheme('night')")
+    assert errors == []
