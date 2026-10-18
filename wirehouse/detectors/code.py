@@ -114,6 +114,12 @@ PY_ROUTE = re.compile(
 PY_ROUTER_PREFIX = re.compile(r"\b(\w+)\s*=\s*(?:APIRouter|Blueprint)\(([^)]{0,1000})\)")
 DJANGO_PATH = re.compile(r"\b(?:re_)?path\(\s*r?['\"]([^'\"]*)['\"]")
 JS_ROUTE = re.compile(r"\b(\w+)\.(get|post|put|patch|delete|all)\(\s*['\"`](/[^'\"`]*)['\"`]")
+# `api.get('/users', config)` in a frontend is a request, not a route. A route either sits in a file that
+# imports a server framework or passes a handler: a function, or for router-like receivers a named one.
+JS_SERVER_IMPORTS = ("express", "fastify", "koa", "@koa/router", "koa-router", "hono", "elysia", "restify", "polka", "h3",
+                     "@hapi/hapi", "router", "@fastify/", "itty-router", "worktop")
+JS_HANDLER_FN = re.compile(r"\s*,\s*(?:async\b|function\b|\([^()]{0,200}\)\s*=>|[A-Za-z_$][\w$]*\s*=>)")
+JS_HANDLER_NAME = re.compile(r"\s*,\s*[A-Za-z_$][\w$.]*\s*[,)]")
 NEXT_METHOD = re.compile(r"^export[ \t]+(?:async[ \t]+)?(?:function[ \t]+|const[ \t]+)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b", re.M)
 NEST_CONTROLLER = re.compile(r"@Controller\(\s*(?:['\"]([^'\"]*)['\"])?")
 NEST_ROUTE = re.compile(r"@(Get|Post|Put|Patch|Delete|All)\(\s*(?:['\"]([^'\"]*)['\"])?\s*\)")
@@ -347,10 +353,15 @@ def _endpoints(sf: SourceFile, f: FileFacts, L: _Lines) -> None:
                     f.endpoints.append({"method": meth, "path": path, "line": L.line(mm.start()) if mm else 1})
             else:
                 f.endpoints.append({"method": "PAGE", "path": path, "line": 1})
+        server = any(spec == x or spec.startswith(x if x.endswith("/") else x + "/") for spec, _ in f.imports for x in JS_SERVER_IMPORTS)
         for m in JS_ROUTE.finditer(text):
-            obj = m.group(1)
-            if obj in ("app", "router", "server", "api", "routes", "r") or obj.endswith(("Router", "router", "App", "app")):
-                f.endpoints.append({"method": m.group(2).upper(), "path": m.group(3), "line": L.line(m.start())})
+            obj, path = m.group(1), m.group(3)
+            routerish = obj in ("app", "router", "server", "routes", "r") or obj.endswith(("Router", "router", "App", "app"))
+            if not (routerish or obj == "api") or "${" in path:
+                continue   # a path built at run time is a request URL
+            handler = JS_HANDLER_FN.match(text, m.end()) or (routerish and JS_HANDLER_NAME.match(text, m.end()))
+            if server or handler:
+                f.endpoints.append({"method": m.group(2).upper(), "path": path, "line": L.line(m.start())})
         cm = NEST_CONTROLLER.search(text)
         if cm:
             base = "/" + (cm.group(1) or "").strip("/")

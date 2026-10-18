@@ -1304,3 +1304,35 @@ def test_app_yaml_is_app_engine_only_when_it_says_so(tmp_path):
     gae = [n for n in nodes.values() if n["name"] == "Google App Engine"]
     assert len(gae) == 1 and all("gae/app.yaml" in json.dumps(n) for n in gae)
     assert "misc/app.yaml" not in json.dumps(list(nodes.values()))
+
+
+def test_client_requests_are_not_served_endpoints(tmp_path):
+    _write(tmp_path, {
+        "web/package.json": json.dumps({"name": "web", "dependencies": {"react": "19.0.0", "axios": "1.0.0"}}),
+        "web/src/users.ts": """
+            import axios from "axios";
+            const api = axios.create({ baseURL: "/api" });
+            export const user = (id: string) => api.get(`/users/${id}`);
+            export const list = () => api.get("/users", { params: { page: 1 } });
+            export const save = (u: object) => api.post("/users", u);
+        """,
+        "server/package.json": json.dumps({"name": "server", "dependencies": {"express": "4.0.0"}}),
+        "server/src/app.ts": """
+            import express from "express";
+            const app = express();
+            app.get("/health", (req, res) => res.send("ok"));
+        """,
+        "server/src/routes/users.ts": """
+            import { listUsers, saveUser } from "../handlers";
+            export function mount(router) {
+              router.get("/users", listUsers);
+              router.post("/users", auth, saveUser);
+              router.delete("/users/:id", async (req, res) => {});
+            }
+        """,
+    })
+    nodes = {n["id"]: n for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
+    assert not nodes["file:web/src/users.ts"].get("endpoints")
+    assert {(e["method"], e["path"]) for e in nodes["file:server/src/app.ts"]["endpoints"]} == {("GET", "/health")}
+    assert {(e["method"], e["path"]) for e in nodes["file:server/src/routes/users.ts"]["endpoints"]} == {
+        ("GET", "/users"), ("POST", "/users"), ("DELETE", "/users/:id")}

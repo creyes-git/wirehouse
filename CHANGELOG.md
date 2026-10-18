@@ -147,6 +147,12 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Requests from a frontend are not drawn as served endpoints** (2026-10-18)
+  - Summary: `x.get('/path')` counts as a route only in a file that imports a server framework (Express,
+    Fastify, Koa, Hono, ...) or when the call passes a handler (a function, or a named handler on a
+    router-like object). Paths built at run time (`` `/users/${id}` ``) are never routes.
+  - Why: client calls such as `api.get(`/users/${id}`)` in a React app were listed as endpoints the
+    frontend serves, which put a wrong claim in the room and in the auto quests.
 - **A Kubernetes `app.yaml` is not Google App Engine** (2026-10-18)
   - Summary: `app.yaml` counts as App Engine only when it has a `runtime:` line and no `apiVersion` or
     `kind`; otherwise it is read as a Kubernetes manifest when it sits in a `k8s`, `deploy`, `helm` or
