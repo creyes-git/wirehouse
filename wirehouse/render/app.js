@@ -1066,7 +1066,9 @@
   const cam = { yaw: 0, pitch: 0.5, dist: 17, target: new THREE.Vector3(), follow: false };
   const keys = new Set();
   const canvas = renderer ? renderer.domElement : null;
-  const ptr = { x: 0, y: 0, down: false, sx: 0, sy: 0, drag: false, moved: false };
+  const ptr = { x: 0, y: 0, down: false, sx: 0, sy: 0, drag: false, moved: false, inside: false };
+  const touches = new Map();   // pointerId -> {x, y} for pinch zoom
+  let pinch = 0;
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -1090,14 +1092,28 @@
   }
 
   if (canvas) {
+    const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
     canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size === 2) { pinch = spread(); ptr.drag = true; return; }   // a pinch is never a click
+      }
       ptr.down = true; ptr.drag = false; ptr.sx = e.clientX; ptr.sy = e.clientY; ptr.x = e.clientX; ptr.y = e.clientY;
       canvas.setPointerCapture(e.pointerId);
       canvas.focus({ preventScroll: true });
     });
     canvas.addEventListener('pointermove', (e) => {
+      if (touches.has(e.pointerId)) {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size === 2) {
+          const d = spread();
+          if (pinch > 0 && d > 0) cam.dist = clamp(cam.dist * (pinch / d), 3.2, 70);
+          pinch = d;
+          return;
+        }
+      }
       const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
-      ptr.x = e.clientX; ptr.y = e.clientY; ptr.moved = true;
+      ptr.x = e.clientX; ptr.y = e.clientY; ptr.moved = true; ptr.inside = true;
       if (!ptr.down) return;
       if (!ptr.drag && Math.hypot(e.clientX - ptr.sx, e.clientY - ptr.sy) > 5) { ptr.drag = true; canvas.classList.add('dragging'); }
       if (ptr.drag) {
@@ -1106,12 +1122,17 @@
         cam.follow = false;
       }
     });
-    canvas.addEventListener('pointerup', (e) => {
+    const release = (e, click) => {
       canvas.classList.remove('dragging');
-      if (ptr.down && !ptr.drag) onClick(e.clientX, e.clientY);
-      ptr.down = false;
-    });
-    canvas.addEventListener('pointerleave', () => { if (hovered) { hovered = null; applyFocus(); } $('#tooltip').hidden = true; });
+      if (click && ptr.down && !ptr.drag && touches.size < 2) onClick(e.clientX, e.clientY);
+      touches.delete(e.pointerId);
+      if (touches.size < 2) pinch = 0;
+      if (touches.size === 1) { const t = touches.values().next().value; ptr.x = t.x; ptr.y = t.y; }   // the finger left keeps turning, without a jump
+      if (!touches.size) ptr.down = false;
+    };
+    canvas.addEventListener('pointerup', (e) => release(e, true));
+    canvas.addEventListener('pointercancel', (e) => release(e, false));
+    canvas.addEventListener('pointerleave', () => { ptr.inside = false; if (hovered) { hovered = null; applyFocus(); } $('#tooltip').hidden = true; });
     canvas.addEventListener('dblclick', (e) => {
       const hit = pickAt(e.clientX, e.clientY);
       if (hit && hit.info && hit.info.type === 'node' && enterable(hit.info.id)) enterBlock(hit.info.id);
@@ -1503,19 +1524,22 @@
     }
     return best;
   }
-  function updatePrompt() {
-    const el = $('#prompt');
-    if (planOn || transitioning || !$('#bar').hidden) { el.hidden = true; return; }
+  function promptHtml() {
+    if (planOn || transitioning || !$('#bar').hidden) return '';
     if (room.R && W8.pos.z > room.D / 2 - 3 && Math.abs(W8.pos.x) < 2.5) {
-      el.innerHTML = `Keep walking to go back to ${esc(parentOf(room.R) ? N.get(parentOf(room.R)).name : 'the main floor')}`;
-      el.hidden = false;
-      return;
+      return `Keep walking to go back to ${esc(parentOf(room.R) ? N.get(parentOf(room.R)).name : 'the main floor')}`;
     }
     const it = nearest();
-    if (!it) { el.hidden = true; return; }
+    if (!it) return '';
     const n = N.get(it.id);
-    el.innerHTML = enterable(n.id) ? `<kbd>E</kbd> Walk into ${esc(n.name)}` : `<kbd>E</kbd> Inspect ${esc(n.name)}`;
-    el.hidden = false;
+    return enterable(n.id) ? `<kbd>E</kbd> Walk into ${esc(n.name)}` : `<kbd>E</kbd> Inspect ${esc(n.name)}`;
+  }
+  let promptLast = null;
+  function updatePrompt() {
+    // runs several times a second, and rewriting the same text still restyles the page
+    const el = $('#prompt'), h = promptHtml();
+    if (h !== promptLast) { promptLast = h; if (h) el.innerHTML = h; }
+    if (el.hidden !== !h) el.hidden = !h;
   }
 
   // ── info panel ───────────────────────────────────────────────────────────
@@ -1689,10 +1713,10 @@
     panel.hidden = false;
     bindPanel(n);
     $('#announce').textContent = `${n.name}, ${kindTxt}${isOutside ? ', outside this room' : ''}`;
-    SELECT_HOOKS.forEach((f) => f(id));
+    SELECT_HOOKS.forEach((f) => f(id, opts));
     syncHash();
   }
-  const SELECT_HOOKS = [];   // later sections: (id) => void after a node is inspected
+  const SELECT_HOOKS = [];   // later sections: (id, opts) => void after a node is inspected
 
   function selectLink(info) {
     selected = { type: 'link', info };
@@ -1741,9 +1765,13 @@
   }
 
   // ── hover tooltip ────────────────────────────────────────────────────────
+  const lastPick = new THREE.Vector3(Infinity, 0, 0);
   function updateHover() {
-    if (!ptr.moved || ptr.drag || !canvas) return;
+    if (ptr.drag || !canvas) return;
+    const camMoved = ptr.inside && lastPick.distanceToSquared(camera.position) > 1e-4;
+    if (!ptr.moved && !(camMoved && frameNo % 3 === 0)) return;
     ptr.moved = false;
+    lastPick.copy(camera.position);
     const hit = pickAt(ptr.x, ptr.y);
     const info = hit && hit.info;
     const tip = $('#tooltip');
@@ -2134,7 +2162,7 @@
       if (!player || player.i !== i) return;
       if (player.kind !== 'route') {
         const port = room.ports.find((p) => p.rep === st.id);
-        select(st.id, port && !itemsById.has(st.id) ? { port } : {});
+        select(st.id, port && !itemsById.has(st.id) ? { port, tour: true } : { tour: true });
       }
       refreshMarks();
       drawBar();
@@ -2281,7 +2309,7 @@
     if (!t) return;
     toggleClip(false);
     if (t.route) {
-      startRoute(t.route[0], t.route[1]);
+      if (!startRoute(t.route[0], t.route[1])) return;
       if (!trace || !trace.path) { toast('This tour has no recorded path to walk with the current pipe filter', 3000); return; }
       startJourney(i || 0, playing, { title: t.title, tourId: t.id });
       return;
@@ -2299,12 +2327,12 @@
       clipCount();
     }
   });
-  SELECT_HOOKS.push((id) => {
+  SELECT_HOOKS.push((id, opts) => {
     const top = topOf(id);
     let changed = false;
     if (top && !PROG.seen.includes(top)) { PROG.seen.push(top); changed = true; }
     const ch = chain(id);
-    QUESTS.forEach((q) => {
+    if (!(opts && opts.tour)) QUESTS.forEach((q) => {
       if (PROG.found.includes(q.id) || !q.answer.some((a) => ch.includes(a))) return;
       PROG.found.push(q.id);
       changed = true;
@@ -2818,7 +2846,8 @@
   function drawMinimap() {
     const dpr = window.devicePixelRatio || 1;
     const cw = mm.clientWidth, ch = mm.clientHeight;
-    if (mm.width !== cw * dpr) { mm.width = cw * dpr; mm.height = ch * dpr; }
+    const pw = Math.round(cw * dpr), ph = Math.round(ch * dpr);
+    if (mm.width !== pw || mm.height !== ph) { mm.width = pw; mm.height = ph; }
     mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     mctx.clearRect(0, 0, cw, ch);
     const pad = 8, s = Math.min((cw - pad * 2) / room.W, (ch - pad * 2) / room.D);
@@ -3017,6 +3046,7 @@
       marked ? !marked.has(g.dataset.id) : !!(f || sl) && !related.has(g.dataset.id) && g.dataset.id !== f));
   }
   function setPlan(on) {
+    on = on || !renderer;
     planOn = on;
     plan.toggleAttribute('hidden', !on); // SVG elements have no .hidden property
     stage.style.visibility = on ? 'hidden' : 'visible';
@@ -3101,7 +3131,7 @@
   let frameNo = 0;
   function resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    if (renderer) renderer.setSize(w, h);
+    if (renderer) { renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); renderer.setSize(w, h); }
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     if (planOn && room) { fitPlan(); setViewBox(); }
@@ -3188,6 +3218,7 @@
     } catch (e) { /* fall back to system fonts */ }
     resize();
     buildWorker();
+    if (!renderer) { $('#view3d').disabled = true; $('#view3d').title = 'This browser could not start WebGL'; setPlan(true); }
     const startHash = location.hash;
     applyHash(parseHash(startHash));
     const tops = kidsOf(ROOT).length, links = roomLinks(ROOT).inner.length;

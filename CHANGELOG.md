@@ -143,6 +143,30 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **The minimap keeps its size on scaled displays** (2026-10-18)
+  - Summary: At 125% or 200% display scaling the minimap grew with every redraw until it covered the view;
+    it now has a fixed size, and the 3D view also follows browser zoom and moves to another monitor.
+  - Why: most Windows laptops run at 125% or more, so the page became unusable there within seconds.
+- **Phones and touch screens can drive the viewer** (2026-10-18)
+  - Summary: Dragging on the 3D view turns the camera and a pinch zooms it, instead of the browser taking over
+    the gesture; on a phone the tour, route and trace bar sits above the inventory panel, so Back, Next and Done
+    can be tapped.
+  - Why: a running tour could not be paused or stopped on a phone, and a cancelled touch left the camera
+    turning with the mouse.
+- **Tours no longer answer quests, and the hover follows the camera** (2026-10-18)
+  - Summary: A tour stop counts as seen but no longer ticks off the quest it shows; the hover highlight and
+    tooltip update while the camera moves under a still pointer; the walk prompt is only rewritten when its
+    text changes.
+  - Why: playing a tour could complete quests the reader never found, and the highlight stayed on a block the
+    pointer had left.
+- **Without WebGL the page opens on the floor plan** (2026-10-18)
+  - Summary: When the browser cannot start WebGL, the viewer starts on the floor plan and the Walk view is
+    switched off, so tours and routes step through it.
+  - Why: tours and routes waited forever for a worker that could not walk.
+- **A tour route from a block into its own contents is rejected** (2026-10-18)
+  - Summary: `render` reports `tour/nested-route` for a tour whose route goes from a block to something inside
+    it, and the viewer never plays the route that was on screen before under that tour's name.
+  - Why: the page showed an unrelated route as the tour and counted the tour as walked.
 - **Brand kit text uses plain punctuation** (2026-10-18)
   - Summary: The brand kit README, snippets and the titles of the README banners and social images use a
     colon where they had a long dash.

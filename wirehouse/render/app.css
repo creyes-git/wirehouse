@@ -63,7 +63,7 @@ kbd {
 }
 
 #stage, #plan { position: fixed; inset: 0; }
-#stage canvas { display: block; outline: none; cursor: grab; }
+#stage canvas { display: block; outline: none; cursor: grab; touch-action: none; }   /* drags turn the camera, pinches zoom it */
 #stage canvas.dragging { cursor: grabbing; }
 #stage canvas.pointing { cursor: pointer; }
 #glMsg { position: absolute; top: 90px; left: 16px; right: 16px; max-width: 60ch; padding: 14px 16px; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--shadow); }
@@ -210,7 +210,7 @@ button.primary {
 
 /* ── minimap, key, prompt, tooltip ─────────────────────── */
 #minimapWrap { position: fixed; left: 12px; bottom: 12px; z-index: 8; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
-#minimap { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow); cursor: crosshair; }
+#minimap { display: block; width: 220px; height: 160px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow); cursor: crosshair; }
 #keyBtn { background: var(--surface); }
 #key {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
@@ -432,6 +432,8 @@ button.link { border: 0; background: none; padding: 0; cursor: pointer; color: v
   #clip { top: auto; bottom: 12px; max-height: 60vh; }
   #panel { top: auto; height: 55vh; }
   #bar, #panel:not([hidden]) ~ #bar { left: 12px; right: 12px; bottom: 12px; }
+  /* the panel fills the bottom of a phone: the bar sits above it so a tour stays in reach */
+  #panel:not([hidden]) ~ #bar { bottom: calc(55vh + 20px); max-height: calc(45vh - 150px); }
   #minimap { width: 150px; height: 110px; }
 }
 

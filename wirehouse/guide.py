@@ -108,9 +108,20 @@ class Evidence:
         return out[:3]
 
 
+def _holds(parent: dict, outer: str, inner: str) -> bool:
+    seen = set()
+    while inner is not None and inner not in seen:
+        if inner == outer:
+            return True
+        seen.add(inner)
+        inner = parent.get(inner)
+    return False
+
+
 def validate(data: dict, enrichment: dict) -> tuple[list, list, list]:
     """The agent's tours and quests -> (tours, quests, diagnostics). Invalid parts are dropped, not guessed."""
     nodes = {n["id"] for n in data["nodes"]}
+    parent = {n["id"]: n.get("parent") for n in data["nodes"]}
     ev = Evidence(data)
     diags: list[dict] = []
     tours, seen = [], set()
@@ -127,8 +138,13 @@ def validate(data: dict, enrichment: dict) -> tuple[list, list, list]:
         if t.get("route"):
             r = t["route"]
             if isinstance(r, list) and len(r) == 2 and all(x in nodes for x in r) and r[0] != r[1]:
-                tour["route"] = list(r)
-                tours.append(tour)
+                if _holds(parent, r[0], r[1]) or _holds(parent, r[1], r[0]):
+                    diags.append(diag("tour/nested-route", subject, f"route {r!r} goes from a block to something inside it",
+                                      "a route needs two places outside each other; use stops for a walk inside one block",
+                                      "error"))
+                else:
+                    tour["route"] = list(r)
+                    tours.append(tour)
             else:
                 diags.append(diag("tour/unknown-node", subject, f"route {r!r} needs two different known node ids",
                                   "use [from_id, to_id] with ids from archmap.json", "error"))

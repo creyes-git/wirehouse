@@ -360,7 +360,8 @@ def test_tours_and_quests_are_checked(repo, archmap):
             {"node": "file:web/lib/payments.ts", "text": f"Built with {SECRET}.", "evidence": [{"file": "web/lib/payments.ts", "line": 99}]},
             {"node": "res:nope", "text": "Ghost."},
             {"node": "res:stripe", "text": "Takes the money.", "evidence": [{"file": "../outside.txt", "line": 1}, {"file": "docker-compose.yml", "line": 3}]},
-        ]}, {"title": "Broken", "route": ["actor:users", "res:missing"]}],
+        ]}, {"title": "Broken", "route": ["actor:users", "res:missing"]},
+            {"title": "Nested", "route": ["unit:python:api", "file:api/db.py"]}],
         "quests": [{"question": "Where is Stripe set up?", "answer": "file:web/lib/payments.ts"}, {"question": "Bad", "answer": ["res:ghost"]}],
     }
     data = guide.apply(merge(data, enrichment), enrichment)
@@ -370,6 +371,7 @@ def test_tours_and_quests_are_checked(repo, archmap):
     assert ("evidence/file-not-found", "tours[pay].stops[3]") in codes
     assert ("guide/secret-like-text", "tours[pay].stops[1]") in codes
     assert ("tour/unknown-node", "tours[broken]") in codes
+    assert ("tour/nested-route", "tours[nested]") in codes   # one inside the other: no route to walk
     assert ("quest/invalid", "quests[bad]") in codes
     [tour] = data["tours"]
     assert [s["node"] for s in tour["stops"]] == ["unit:js:web", "file:web/lib/payments.ts", "res:stripe"]

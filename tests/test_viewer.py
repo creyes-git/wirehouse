@@ -68,9 +68,11 @@ def close_pages():
             page.close()
 
 
-def open_view(browser, html, hash_="#nowelcome"):
-    page = browser.new_page(viewport={"width": 1280, "height": 800}, accept_downloads=True)
+def open_view(browser, html, hash_="#nowelcome", init_script=None, **page_kw):
+    page = browser.new_page(**{"viewport": {"width": 1280, "height": 800}, "accept_downloads": True, **page_kw})
     PAGES.append(page)
+    if init_script:
+        page.add_init_script(init_script)
     errors = []
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -245,3 +247,56 @@ def test_changes_show_on_the_floor(browser, tmp_path):
     page.click("#changesMenu [data-go='unit:python:jobs']")
     assert js(page, "__wirehouse.state().selected.id") == "unit:python:jobs"
     assert errors == []
+
+
+def test_minimap_keeps_its_size_on_a_scaled_display(browser, html):
+    # at 125% display scaling every redraw used to make the minimap bigger, until it covered the view
+    page, errors = open_view(browser, html, device_scale_factor=1.25)
+    page.wait_for_timeout(600)
+    assert js(page, "document.querySelector('#minimap').getBoundingClientRect().width") == 220
+    assert js(page, "document.querySelector('#minimap').width") == 273   # 218px inside the 1px border, times 1.25
+    assert errors == []
+
+
+def test_a_tour_stop_is_seen_but_does_not_answer_a_quest(browser, tmp_path):
+    root = tmp_path / "shop"
+    for rel, body in FILES.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
+    enrichment = {"tours": [{"title": "Api", "stops": [{"node": "unit:python:api", "text": "The API."}]}],
+                  "quests": [{"question": "Which block serves the orders?", "answer": "unit:python:api"}]}
+    data = guide.apply(build_archmap(root, log=lambda *_: None), enrichment)
+    page, errors = open_view(browser, write_html(data, root / "wirehouse.html"))
+    js(page, "localStorage.clear(); __wirehouse.startTour('api', 0, false)")
+    page.wait_for_function("__wirehouse.progress().seen.includes('unit:python:api')")
+    assert js(page, "__wirehouse.progress().found") == []
+    js(page, "__wirehouse.select('unit:python:api')")      # finding it yourself still counts
+    assert js(page, "__wirehouse.progress().found") == ["which-block-serves-the-orders"]
+    assert errors == []
+
+
+def test_tour_controls_stay_reachable_on_a_phone(browser, html):
+    page, errors = open_view(browser, html, viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    js(page, "__wirehouse.startTour('main-floor', 0, false)")
+    assert js(page, "!document.querySelector('#panel').hidden")
+    on_bar = js(page, """(() => { const b = document.querySelector('#bar [data-b=next]').getBoundingClientRect();
+      return !!document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2).closest('#bar'); })()""")
+    assert on_bar
+    assert js(page, "getComputedStyle(document.querySelector('#stage canvas')).touchAction") == "none"
+    assert errors == []
+
+
+NO_WEBGL = """(() => { const real = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (k, o) { return /webgl/.test(k) ? null : real.call(this, k, o); }; })()"""
+
+
+def test_without_webgl_the_floor_plan_runs_tours(browser, html):
+    page, errors = open_view(browser, html, init_script=NO_WEBGL)
+    assert js(page, "!document.querySelector('#plan').hasAttribute('hidden')")
+    assert js(page, "document.querySelector('#view3d').disabled")
+    js(page, "__wirehouse.startTour('main-floor', 0, true)")
+    page.wait_for_function("__wirehouse.player() && __wirehouse.player().arrived")
+    js(page, "__wirehouse.setPlan(false)")                 # there is no 3D view to go back to
+    assert js(page, "!document.querySelector('#plan').hasAttribute('hidden')")
+    assert [e for e in errors if "Error creating WebGL context" not in e] == []   # three.js says so itself
