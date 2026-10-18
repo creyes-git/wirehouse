@@ -6,35 +6,69 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
-### Fixed
-- **The installed skill matches how Wirehouse was installed** (2026-10-18)
-  - Summary: The "install from a source checkout" line is left out of the installed `SKILL.md` unless
-    Wirehouse really runs from one; the skill now mentions `--share` before a page is published, and its
-    JSON check accepts a byte-order mark.
-  - Why: after a normal `pip install` the skill told agents to `pip install -e` the site-packages folder,
-    and nothing reminded them to leave local paths out of shared pages.
-- **A floor plan link opens on a fresh page** (2026-10-18)
-  - Summary: Opening a link with `plan=1` in a new tab shows the floor plan instead of a blank page.
-  - Why: the plan was drawn before the first room existed, which stopped the viewer from starting.
-- **Upstream traces and routes claim only what the map records** (2026-10-18)
-  - Summary: An upstream trace no longer counts every file inside a block that reaches the target as a
-    whole, and a route between a block and something inside it is refused (it needs no connection)
-    instead of being shown as "the shortest path through recorded connections". A link to such a route
-    clears the old trace. Floor badges on a route are numbered like the bar's stops.
-  - Why: upstream reach was larger than downstream reach for the same connections, and badge 2 could
-    point at a different block than stop 2, against truth before spectacle.
-- **The viewer frees GPU memory as you walk** (2026-10-18)
-  - Summary: Day-shift shadow maps, the night grid, selection boxes and the old worker figure are freed
-    when a room or theme changes, and label textures are kept for the last three rooms only.
-  - Why: walking in and out of rooms kept adding GPU memory (each shadow map is 2048 x 2048), which can
-    end in a lost WebGL context on large repositories.
-- **Smaller viewer fixes** (2026-10-18)
-  - Summary: Room changes asked for during the fade are queued instead of dropped (which could freeze the
-    address bar); Tab moves through every button of the welcome card; nothing behind the schema diagram
-    reacts to keys; `E` does nothing on the floor plan; exporting without WebGL pictures the floor plan
-    and an empty picture is reported instead of failing; the trace bar follows the theme; corrupt saved
-    progress starts fresh, and progress is kept per project (name and blocks), not per name.
-  - Why: each one left a control dead, acted on something hidden, or threw an error.
+### Added
+- **IMPROVEMENT_LOG.md** (2026-10-18)
+  - Summary: Records each improvement pass: the audit, the menu offered, what was done, deferred and
+    rejected.
+  - Why: later passes build on earlier ones instead of repeating them.
+- **Change review with `--against`** (2026-10-18)
+  - Summary: `wirehouse build` and `render` take `--against <earlier archmap.json>`. The page gets a
+    **Changes** panel (`V`) listing new, changed and removed blocks, connections and files, and **Show on
+    the floor** badges them in every room and lights the new pipes (`#changes=1` in links). `wirehouse
+    export` adds a Changes section.
+  - Why: "what did this change touch?" is a core review question, and change review was the first
+    roadmap item; blocks count as changed only when their code did, so the answer stays evidence-based.
+- **Go support** (2026-10-18)
+  - Summary: Each `go.mod` becomes a block, classified by its framework (Gin, Echo, chi, Fiber,
+    gorilla/mux, gRPC, `net/http`, cobra). Go files get imports (internal packages link to the package's
+    files), `os.Getenv` reads, routes (including Go 1.22 `"GET /path"`), symbols and the package comment.
+    About thirty drivers and SDKs map to blocks (pgx, go-redis, the AWS SDK, stripe-go, ...); `// indirect`
+    requirements do not.
+  - Why: Go led the roadmap's "more stacks" list, and Go services did not show up on the map at all.
+- **`wirehouse export`: the map as Markdown and Mermaid** (2026-10-18)
+  - Summary: Writes `architecture.md` next to the page: a Mermaid flowchart of the top-level blocks by
+    zone, a list of blocks, and a table of every connection with its file and line (commit-pinned links
+    when the repository has a known code host). `--format mermaid` writes only the diagram.
+  - Why: text can go into a README or a pull request and shows up in diffs, which a 1 MB HTML file
+    cannot; it follows the same "recorded connections only" rule as the page.
+- **Checks in the page and `--strict`** (2026-10-18)
+  - Summary: When the checks left something out (an unknown node in a tour, an added connection with no
+    evidence, a wrongly shaped entry), a **Checks** button in the top bar lists each problem with its fix.
+    `wirehouse render --strict` (and `build --strict`) still writes the page but exits with an error.
+  - Why: the diagnostics were computed and embedded but never shown, so a reader could not tell a missing
+    part from one that was never written, and CI or an agent had no exit code to stop on.
+- **A "nasty repository" test** (2026-10-18)
+  - Summary: `tests/test_nasty_repo.py` maps one repository full of past failure cases (secrets in every
+    format, BOM files, oddly shaped configs, comment URLs, a 20,000-line file, malformed enrichment) with
+    `--share`, and checks that it finishes quickly and that no secret or local path reaches any output.
+  - Why: the focused tests guard each bug; this one guards the invariants together, so a new field or
+    parser cannot quietly reopen a leak.
+- **TODO.md** (2026-10-17)
+  - Summary: Lists deferred work, starting with creating the GitHub repository and the first push.
+  - Why: the repository is not created yet, so the published links do not resolve until then.
+- **`wirehouse install` reaches any coding agent** (2026-10-16)
+  - Summary: The skill is written to the shared `~/.agents/skills` folder and to the skills folder of
+    every agent found in the home folder (Claude Code, Codex, Cursor, OpenCode, Gemini CLI,
+    Antigravity, GitHub Copilot). `--agent` picks agents, `--dir` adds any other folder, `--print`
+    prints the instructions for agents without skills support.
+  - Why: Wirehouse is built for any agent, not one vendor's; installing only for one left everyone
+    else to copy files by hand.
+
+### Changed
+- **Viewer tests close their pages** (2026-10-18)
+  - Summary: An autouse fixture closes every page a viewer test opened.
+  - Why: open WebGL pages kept rendering in the background and later tests timed out at random; the
+    suite now runs in about 15 seconds instead of over two minutes.
+- **Repository links and author filled in** (2026-10-17)
+  - Summary: Links now point at `github.com/creyes-git/wirehouse` and its GitHub Pages demo; the
+    license and package name Carlos Reyes as the author.
+  - Why: the placeholders were kept until the GitHub account was known, so the README, badges,
+    install command and issue links work once the repository is published.
+- **Agent-neutral wording** (2026-10-16)
+  - Summary: The README, docs, banner tagline ("Built for your agents"), skill and brief no longer
+    name one agent; enrichment written by an agent is tagged `"source": "agent"`.
+  - Why: the skill uses the open `SKILL.md` format and works with any agent that can read files
+    and run commands.
 
 ### Removed
 - **Unused scanner code** (2026-10-18)
@@ -108,62 +142,35 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: these gaps silently dropped links, marked changed files as clean, or ran repository-configured
     commands during a scan.
 
-### Changed
-- **Viewer tests close their pages** (2026-10-18)
-  - Summary: An autouse fixture closes every page a viewer test opened.
-  - Why: open WebGL pages kept rendering in the background and later tests timed out at random; the
-    suite now runs in about 15 seconds instead of over two minutes.
-
-### Added
-- **Change review with `--against`** (2026-10-18)
-  - Summary: `wirehouse build` and `render` take `--against <earlier archmap.json>`. The page gets a
-    **Changes** panel (`V`) listing new, changed and removed blocks, connections and files, and **Show on
-    the floor** badges them in every room and lights the new pipes (`#changes=1` in links). `wirehouse
-    export` adds a Changes section.
-  - Why: "what did this change touch?" is the question reviewers ask most, and it was the top roadmap
-    item; blocks count as changed only when their code did, so the answer stays evidence-based.
-- **Go support** (2026-10-18)
-  - Summary: Each `go.mod` becomes a block, classified by its framework (Gin, Echo, chi, Fiber,
-    gorilla/mux, gRPC, `net/http`, cobra). Go files get imports (internal packages link to the package's
-    files), `os.Getenv` reads, routes (including Go 1.22 `"GET /path"`), symbols and the package comment.
-    About thirty drivers and SDKs map to blocks (pgx, go-redis, the AWS SDK, stripe-go, ...); `// indirect`
-    requirements do not.
-  - Why: Go was the most requested missing stack on the roadmap, and Go services were invisible on the map.
-- **`wirehouse export`: the map as Markdown and Mermaid** (2026-10-18)
-  - Summary: Writes `architecture.md` next to the page: a Mermaid flowchart of the top-level blocks by
-    zone, a list of blocks, and a table of every connection with its file and line (commit-pinned links
-    when the repository has a known code host). `--format mermaid` writes only the diagram.
-  - Why: text can go into a README or a pull request and shows up in diffs, which a 1 MB HTML file
-    cannot; it follows the same "recorded connections only" rule as the page.
-- **Checks in the page and `--strict`** (2026-10-18)
-  - Summary: When the checks left something out (an unknown node in a tour, an added connection with no
-    evidence, a wrongly shaped entry), a **Checks** button in the top bar lists each problem with its fix.
-    `wirehouse render --strict` (and `build --strict`) still writes the page but exits with an error.
-  - Why: the diagnostics were computed and embedded but never shown, so a reader could not tell a missing
-    part from one that was never written, and CI or an agent had no exit code to stop on.
-- **A "nasty repository" test** (2026-10-18)
-  - Summary: `tests/test_nasty_repo.py` maps one repository full of past failure cases (secrets in every
-    format, BOM files, oddly shaped configs, comment URLs, a 20,000-line file, malformed enrichment) with
-    `--share`, and checks that it finishes quickly and that no secret or local path reaches any output.
-  - Why: the focused tests guard each bug; this one guards the invariants together, so a new field or
-    parser cannot quietly reopen a leak.
-- **TODO.md** (2026-10-17)
-  - Summary: Lists deferred work, starting with creating the GitHub repository and the first push.
-  - Why: the repository is not created yet, so the published links do not resolve until then.
-- **`wirehouse install` reaches any coding agent** (2026-10-16)
-  - Summary: The skill is written to the shared `~/.agents/skills` folder and to the skills folder of
-    every agent found in the home folder (Claude Code, Codex, Cursor, OpenCode, Gemini CLI,
-    Antigravity, GitHub Copilot). `--agent` picks agents, `--dir` adds any other folder, `--print`
-    prints the instructions for agents without skills support.
-  - Why: Wirehouse is built for any agent, not one vendor's; installing only for one left everyone
-    else to copy files by hand.
-
-### Changed
-- **Repository links and author filled in** (2026-10-17)
-  - Summary: Links now point at `github.com/creyes-git/wirehouse` and its GitHub Pages demo; the
-    license and package name Carlos Reyes as the author.
-  - Why: the placeholders were kept until the GitHub account was known, so the README, badges,
-    install command and issue links work once the repository is published.
+### Fixed
+- **The installed skill matches how Wirehouse was installed** (2026-10-18)
+  - Summary: The "install from a source checkout" line is left out of the installed `SKILL.md` unless
+    Wirehouse really runs from one; the skill now mentions `--share` before a page is published, and its
+    JSON check accepts a byte-order mark.
+  - Why: after a normal `pip install` the skill told agents to `pip install -e` the site-packages folder,
+    and nothing reminded them to leave local paths out of shared pages.
+- **A floor plan link opens on a fresh page** (2026-10-18)
+  - Summary: Opening a link with `plan=1` in a new tab shows the floor plan instead of a blank page.
+  - Why: the plan was drawn before the first room existed, which stopped the viewer from starting.
+- **Upstream traces and routes claim only what the map records** (2026-10-18)
+  - Summary: An upstream trace no longer counts every file inside a block that reaches the target as a
+    whole, and a route between a block and something inside it is refused (it needs no connection)
+    instead of being shown as "the shortest path through recorded connections". A link to such a route
+    clears the old trace. Floor badges on a route are numbered like the bar's stops.
+  - Why: upstream reach was larger than downstream reach for the same connections, and badge 2 could
+    point at a different block than stop 2, against truth before spectacle.
+- **The viewer frees GPU memory as you walk** (2026-10-18)
+  - Summary: Day-shift shadow maps, the night grid, selection boxes and the old worker figure are freed
+    when a room or theme changes, and label textures are kept for the last three rooms only.
+  - Why: walking in and out of rooms kept adding GPU memory (each shadow map is 2048 x 2048), which can
+    end in a lost WebGL context on large repositories.
+- **Smaller viewer fixes** (2026-10-18)
+  - Summary: Room changes asked for during the fade are queued instead of dropped (which could freeze the
+    address bar); Tab moves through every button of the welcome card; nothing behind the schema diagram
+    reacts to keys; `E` does nothing on the floor plan; exporting without WebGL pictures the floor plan
+    and an empty picture is reported instead of failing; the trace bar follows the theme; corrupt saved
+    progress starts fresh, and progress is kept per project (name and blocks), not per name.
+  - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
 - **One last redaction pass over everything written** (2026-10-18)
@@ -193,13 +200,6 @@ All notable changes to Wirehouse are listed here. The format follows
 - **Ignore local `.env` files** (2026-10-16)
   - Summary: `.gitignore` now excludes `.env` and `.env.*` (keeping `.env.example`).
   - Why: contributors who keep keys in a local `.env` while testing should never commit it by accident.
-
-### Changed
-- **Agent-neutral wording** (2026-10-16)
-  - Summary: The README, docs, banner tagline ("Built for your agents"), skill and brief no longer
-    name one agent; enrichment written by an agent is tagged `"source": "agent"`.
-  - Why: the skill uses the open `SKILL.md` format and works with any agent that can read files
-    and run commands.
 
 ## [0.2.0] - 2026-10-16
 
