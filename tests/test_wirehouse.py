@@ -1291,3 +1291,16 @@ def test_k8s_metadata_of_the_wrong_shape_does_not_stop_the_scan(tmp_path):
     _write(tmp_path, {"k8s/svc.yaml": "apiVersion: v1\nkind: Service\nmetadata: [1, 2]\n"})
     nodes = {n["name"] for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
     assert "Service (Service)" in nodes
+
+
+def test_app_yaml_is_app_engine_only_when_it_says_so(tmp_path):
+    _write(tmp_path, {
+        "k8s/app.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: shop\n",
+        "gae/app.yaml": "runtime: python312\nentrypoint: gunicorn main:app\n",
+        "misc/app.yaml": "title: not a deployment\n",
+    })
+    nodes = {n["name"]: n for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
+    assert "shop (Deployment)" in nodes
+    gae = [n for n in nodes.values() if n["name"] == "Google App Engine"]
+    assert len(gae) == 1 and all("gae/app.yaml" in json.dumps(n) for n in gae)
+    assert "misc/app.yaml" not in json.dumps(list(nodes.values()))

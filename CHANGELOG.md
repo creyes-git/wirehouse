@@ -147,6 +147,12 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **A Kubernetes `app.yaml` is not Google App Engine** (2026-10-18)
+  - Summary: `app.yaml` counts as App Engine only when it has a `runtime:` line and no `apiVersion` or
+    `kind`; otherwise it is read as a Kubernetes manifest when it sits in a `k8s`, `deploy`, `helm` or
+    similar folder, and skipped elsewhere.
+  - Why: every `app.yaml` was taken for App Engine before the Kubernetes check, so a Deployment in
+    `k8s/app.yaml` showed up as a hosting platform and its workload was missing.
 - **Kubernetes files with odd `metadata` are read** (2026-10-18)
   - Summary: A manifest whose `metadata` is not a mapping (`metadata: [1, 2]`) is named after its kind
     instead of stopping the scan.
