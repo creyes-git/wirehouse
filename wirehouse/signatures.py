@@ -2,6 +2,7 @@
 
 Each signature can match on:
 - npm / pypi / nuget: dependency names in manifests (npm entries ending in "/" are scope prefixes)
+- go: Go module paths, matched as prefixes (`github.com/jackc/pgx` covers `.../pgx/v5/pgxpool`)
 - py: Python import roots; js: JS import specifiers (defaults to npm); ns: C# namespace prefixes
 - code: regexes that indicate use inside a source file (e.g. a connection call)
 - hosts: hostnames found in URLs inside code or config
@@ -28,6 +29,7 @@ class Signature:
     py: list[str] = field(default_factory=list)
     nuget: list[str] = field(default_factory=list)
     ns: list[str] = field(default_factory=list)
+    go: list[str] = field(default_factory=list)
     code: list[str] = field(default_factory=list)
     hosts: list[str] = field(default_factory=list)
     images: list[str] = field(default_factory=list)
@@ -234,9 +236,47 @@ SIGNATURES: list[Signature] = [
     S("sqlalchemy", "SQLAlchemy", "orm", pypi=["sqlalchemy", "sqlmodel"], py=["sqlalchemy", "sqlmodel"], role="orm"),
     S("django_orm", "Django ORM", "orm", py=["django.db"], role="orm"),
     S("efcore", "Entity Framework Core", "orm", nuget=["Microsoft.EntityFrameworkCore"], ns=["Microsoft.EntityFrameworkCore"], role="orm"),
+    S("gorm", "GORM", "orm", go=["gorm.io/gorm"], role="orm"),
+    S("ent", "ent", "orm", go=["entgo.io/ent"], role="orm"),
 ]
 
 BY_ID = {s.id: s for s in SIGNATURES}
+
+# Go module paths, kept apart so the table above stays one line per ecosystem.
+GO_MODULES = {
+    "postgres": ["github.com/jackc/pgx", "github.com/lib/pq"],
+    "mysql": ["github.com/go-sql-driver/mysql"],
+    "sqlite": ["github.com/mattn/go-sqlite3", "modernc.org/sqlite"],
+    "mongodb": ["go.mongodb.org/mongo-driver"],
+    "dynamodb": ["github.com/aws/aws-sdk-go-v2/service/dynamodb"],
+    "firestore": ["cloud.google.com/go/firestore"],
+    "bigquery": ["cloud.google.com/go/bigquery"],
+    "elasticsearch": ["github.com/elastic/go-elasticsearch"],
+    "redis": ["github.com/redis/go-redis", "github.com/go-redis/redis", "github.com/gomodule/redigo"],
+    "rabbitmq": ["github.com/rabbitmq/amqp091-go", "github.com/streadway/amqp"],
+    "kafka": ["github.com/segmentio/kafka-go", "github.com/confluentinc/confluent-kafka-go", "github.com/IBM/sarama", "github.com/Shopify/sarama"],
+    "sqs": ["github.com/aws/aws-sdk-go-v2/service/sqs"],
+    "pubsub": ["cloud.google.com/go/pubsub"],
+    "nats": ["github.com/nats-io/nats.go"],
+    "s3": ["github.com/aws/aws-sdk-go-v2/service/s3"],
+    "azureblob": ["github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"],
+    "gcs": ["cloud.google.com/go/storage"],
+    "minio": ["github.com/minio/minio-go"],
+    "clerk": ["github.com/clerk/clerk-sdk-go"],
+    "jwt": ["github.com/golang-jwt/jwt"],
+    "anthropic": ["github.com/anthropics/anthropic-sdk-go"],
+    "openai": ["github.com/sashabaranov/go-openai", "github.com/openai/openai-go"],
+    "stripe": ["github.com/stripe/stripe-go"],
+    "twilio": ["github.com/twilio/twilio-go"],
+    "sendgrid": ["github.com/sendgrid/sendgrid-go"],
+    "slack": ["github.com/slack-go/slack"],
+    "sentry": ["github.com/getsentry/sentry-go"],
+    "datadog": ["github.com/DataDog/dd-trace-go", "gopkg.in/DataDog/dd-trace-go.v1"],
+    "otel": ["go.opentelemetry.io/otel"],
+    "prometheus": ["github.com/prometheus/client_golang"],
+}
+for _sid, _mods in GO_MODULES.items():
+    BY_ID[_sid].go += _mods
 
 
 def _norm_pkg(name: str) -> str:
@@ -261,6 +301,10 @@ def match_pypi(pkg: str) -> list[Signature]:
 def match_nuget(pkg: str) -> list[Signature]:
     low = pkg.lower()
     return [s for s in SIGNATURES if any(p.lower() == low for p in s.nuget)]
+
+
+def match_go(module: str) -> list[Signature]:
+    return [s for s in SIGNATURES if any(module == p or module.startswith(p + "/") for p in s.go)]
 
 
 def match_py_import(module: str) -> list[Signature]:

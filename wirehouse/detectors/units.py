@@ -135,6 +135,20 @@ def _parse_python_manifest(scan: ScanResult, rel: str, u: Unit) -> None:
                 u.deps[m.group(1).lower()] = Dep(m.group(1), rel, _line_of(text, m.group(0)))
 
 
+_GO_REQUIRE = re.compile(r"^\s*(?:require\s+)?([\w.~-]+(?:/[\w.~+-]+)+)\s+v[\w.+-]+(\s*//\s*indirect)?", re.M)
+
+
+def _parse_go_mod(scan: ScanResult, rel: str, u: Unit) -> None:
+    text = scan.read(rel)
+    m = re.search(r"^module\s+(\S+)", text, re.M)
+    if m:
+        u.pkg_name = u.pkg_name or m.group(1).strip('"')
+    for m in _GO_REQUIRE.finditer(text):
+        name = m.group(1)
+        if name not in u.deps:   # "// indirect" deps come in through other modules: they say nothing about this one
+            u.deps[name] = Dep(name, rel, text.count("\n", 0, m.start()) + 1, bool(m.group(2)))
+
+
 def _parse_csproj(scan: ScanResult, rel: str, u: Unit) -> None:
     text = scan.read(rel)
     try:
@@ -179,6 +193,12 @@ JS_FRAMEWORKS = [
     ("firebase-functions", "function", "Firebase Functions"), ("@azure/functions", "function", "Azure Functions"),
     ("vue", "frontend", "Vue"), ("svelte", "frontend", "Svelte"), ("solid-js", "frontend", "Solid"),
     ("react-dom", "frontend", "React"), ("bullmq", "worker", "BullMQ worker"),
+]
+GO_FRAMEWORKS = [
+    ("github.com/gin-gonic/gin", "service", "Gin"), ("github.com/labstack/echo", "service", "Echo"),
+    ("github.com/go-chi/chi", "service", "chi"), ("github.com/gofiber/fiber", "service", "Fiber"),
+    ("github.com/gorilla/mux", "service", "gorilla/mux"), ("google.golang.org/grpc", "service", "gRPC"),
+    ("github.com/spf13/cobra", "worker", "Go CLI"), ("github.com/urfave/cli", "worker", "Go CLI"),
 ]
 PY_FRAMEWORKS = [
     ("fastapi", "service", "FastAPI"), ("django", "service", "Django"), ("flask", "service", "Flask"),
@@ -257,6 +277,19 @@ def _classify(u: Unit) -> None:
         else:
             u.kind, u.framework = "library", ".NET class library"
         u.tech.append("C#")
+    elif u.family == "go":
+        hit = next(((kind, label) for dep, kind, label in GO_FRAMEWORKS
+                    if any(d == dep or d.startswith(dep + "/") for d in deps)), None)
+        code = [f for f in u.files if not f.is_test]
+        if hit:
+            u.kind, u.framework = hit
+        elif any("http.ListenAndServe" in f.text for f in code):
+            u.kind, u.framework = "service", "net/http"
+        elif any(re.search(r"^package[ \t]+main\b", f.text, re.M) for f in code):
+            u.kind, u.framework = "worker", "Go program"
+        else:
+            u.kind, u.framework = "library", "Go module"
+        u.tech.append("Go")
     if u.framework and u.framework not in u.tech:
         u.tech.insert(0, u.framework)
     for f in u.files:
@@ -289,6 +322,10 @@ def detect_units(scan: ScanResult) -> list[Unit]:
         u = get(_parent_dir(rel), "dotnet")
         u.manifests.append(rel)
         _parse_csproj(scan, rel, u)
+    for rel in scan.configs.get("go_mod", []):
+        u = get(_parent_dir(rel), "go")
+        u.manifests.append(rel)
+        _parse_go_mod(scan, rel, u)
 
     # Assign files to the deepest unit of the same family; collect orphans.
     by_family: dict[str, list[Unit]] = {}

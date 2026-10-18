@@ -22,7 +22,7 @@ from wirehouse.redact import scrub
 from wirehouse.repo import repo_info
 from wirehouse.scan import MAX_FILE_BYTES, ScanResult, SourceFile, as_dict, scan
 from wirehouse.signatures import (
-    BY_ID, Signature, match_cs_namespace, match_host, match_image, match_npm, match_nuget, match_py_import,
+    BY_ID, Signature, match_cs_namespace, match_go, match_host, match_image, match_npm, match_nuget, match_py_import,
     match_pypi, match_value,
 )
 
@@ -260,7 +260,8 @@ class Builder:
         low = (cmd + " " + (df.base if df else "")).lower()
         fam = "js" if re.search(r"\b(node|npm|pnpm|yarn|bun|next|nuxt)\b", low) else \
               "python" if re.search(r"python|uvicorn|gunicorn|celery|hypercorn|daphne", low) else \
-              "dotnet" if "dotnet" in low else None
+              "dotnet" if "dotnet" in low else \
+              "go" if re.search(r"\bgo (?:run|build)\b|golang", low) else None
         cands = [u for u in self.units if fam is None or u.family == fam]
         df_dir = _dirname(dockerfile) if dockerfile else None
         if df_dir and df_dir != base:
@@ -288,7 +289,7 @@ class Builder:
             taken[u.name] += 1
         for u in self.units:
             if taken[u.name] > 1:
-                u.name = f"{u.name} ({ {'js': 'JS', 'python': 'Python', 'dotnet': '.NET'}[u.family] })"
+                u.name = f"{u.name} ({ {'js': 'JS', 'python': 'Python', 'dotnet': '.NET', 'go': 'Go'}[u.family] })"
         for u in self.units:
             n = node(u.id, u.name, u.kind, tech=list(dict.fromkeys(u.tech)), path=u.dir or ".", family=u.family,
                      framework=u.framework, compose=u.compose_services, ports=sorted(set(u.ports)),
@@ -357,6 +358,7 @@ class Builder:
     def _internal_imports(self):
         py_index = self._python_module_index()
         alias_maps = self._ts_aliases()
+        go_index = self._go_package_index()
         for rel, ff in self.facts.items():
             sf = self.files[rel]
             src = f"file:{rel}"
@@ -369,9 +371,25 @@ class Builder:
                 elif sf.lang in ("typescript", "javascript"):
                     t = self._resolve_js(rel, spec, alias_maps)
                     targets = [t] if t else []
+                elif sf.lang == "go":
+                    targets = go_index.get(spec, [])[:8]   # a Go import names a package: every file in its folder
                 for t in targets:
                     if t != rel and f"file:{t}" in self.nodes:
                         self.add_edge(src, f"file:{t}", "imports", evidence=[loc(rel, line)])
+
+    def _go_package_index(self) -> dict[str, list[str]]:
+        """Import path -> the non-test files of that package, for packages inside this repo's Go modules."""
+        out: dict[str, list[str]] = defaultdict(list)
+        for u in self.units:
+            if u.family != "go" or not u.pkg_name:
+                continue
+            for sf in u.files:
+                if sf.lang != "go" or sf.is_test:
+                    continue
+                d = _dirname(sf.rel)
+                sub = d[len(u.dir):].strip("/") if u.dir else d
+                out[u.pkg_name + ("/" + sub if sub else "")].append(sf.rel)
+        return out
 
     def _python_module_index(self) -> dict[str, str]:
         roots = {""} | {u.dir for u in self.units if u.family == "python"}
@@ -614,6 +632,9 @@ class Builder:
                 elif sf.lang == "csharp":
                     for s in match_cs_namespace(spec):
                         hits.append((s, line, f"using `{spec}`"))
+                elif sf.lang == "go":
+                    for s in match_go(spec):
+                        hits.append((s, line, f"import `{spec}`"))
             for sid, line in ff.code_hits:
                 hits.append((BY_ID[sid], line, "code pattern"))
             for sig, line, why in hits:
@@ -630,7 +651,7 @@ class Builder:
             for dep in u.deps.values():
                 if dep.dev:
                     continue
-                matcher = {"js": match_npm, "python": match_pypi, "dotnet": match_nuget}[u.family]
+                matcher = {"js": match_npm, "python": match_pypi, "dotnet": match_nuget, "go": match_go}[u.family]
                 for sig in matcher(dep.name):
                     if sig.role != "block":
                         if sig.role == "orm" and sig.name not in self.nodes[u.id]["tech"]:

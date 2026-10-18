@@ -102,7 +102,7 @@
     imports: 'imports code', calls: 'calls', data: 'reads and writes', auth: 'signs in with',
     publishes: 'sends messages', depends_on: 'starts after', provisions: 'provisions', uses: 'uses', references: 'references',
   };
-  const LANG = { typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', csharp: 'C#', sql: 'SQL', prisma: 'Prisma' };
+  const LANG = { typescript: 'TypeScript', javascript: 'JavaScript', python: 'Python', csharp: 'C#', go: 'Go', sql: 'SQL', prisma: 'Prisma' };
 
   // ── themes ───────────────────────────────────────────────────────────────
   const THEMES = {

@@ -257,7 +257,7 @@ flowchart LR
 1. **Scan** walks the repo, honours `.gitignore`, skips build output and dependency folders, and
    never opens real `.env` files (templates like `.env.example` are fine).
 2. **Detectors** find imports, env var reads, URLs, HTTP endpoints (FastAPI, Flask, Django, Express,
-   NestJS, Next.js, ASP.NET), tables and columns, apps and packages, and infrastructure.
+   NestJS, Next.js, ASP.NET, Go routers), tables and columns, apps and packages, and infrastructure.
 3. **Build** maps about 115 technology signatures to blocks. Env values wire things together:
    `API_URL=http://api:8000` links the code that reads it to the `api` service, and
    `DATABASE_URL=postgresql://...@db/...` links it to the Postgres container. Connections are kept
@@ -284,6 +284,9 @@ flowchart LR
 - **Python**: FastAPI, Flask, Django, Starlette, Litestar, Celery, RQ, Streamlit and more.
 - **.NET**: ASP.NET Core, Worker services, Azure Functions, Blazor, WPF, MAUI; EF Core and
   connection strings.
+- **Go**: modules from `go.mod`, Gin, Echo, chi, Fiber, gorilla/mux, gRPC, `net/http` (including Go 1.22
+  `"GET /path"` patterns), cobra CLIs; GORM and ent; drivers and SDKs for the databases, queues and
+  providers below.
 - **Data**: Postgres, MySQL, SQL Server, SQLite, MongoDB, Redis, queues, object storage and search,
   with tables and columns from SQL, Prisma, SQLAlchemy, SQLModel, Django, Drizzle and TypeORM.
 - **Infra**: docker-compose (including override files), Dockerfiles, Terraform (AWS, Azure, GCP),
@@ -316,7 +319,7 @@ See [SECURITY.md](SECURITY.md) to report a problem.
 
 - **Change review**: compare two scans (or a branch against `main`) and walk the differences.
 - **History**: a timeline of how each block changed, from git.
-- More stacks: Go, Java/Kotlin (Spring), Ruby on Rails, PHP (Laravel).
+- More stacks: Java/Kotlin (Spring), Ruby on Rails, PHP (Laravel).
 - Bigger repos: instanced rendering for rooms with thousands of files.
 
 Ideas welcome in [Discussions](https://github.com/creyes-git/wirehouse/discussions).

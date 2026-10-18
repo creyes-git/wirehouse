@@ -920,3 +920,93 @@ def test_mermaid_labels_cannot_break_the_diagram():
     assert 'n0 -->|"reads and writes"| n1' in text
     repo = {"provider": "github", "web": "https://github.com/o/r", "revision": "abc", "prefix": ""}
     assert web_link(repo, "a b.py", 3) == "https://github.com/o/r/blob/abc/a%20b.py#L3"
+
+
+GO_FILES = {
+    "docker-compose.yml": """
+        services:
+          api:
+            build: ./api
+            environment:
+              DATABASE_URL: postgres://app:pw@db:5432/app
+          db:
+            image: postgres:16
+    """,
+    "api/go.mod": """
+        module example.com/shop/api
+
+        go 1.22
+
+        require (
+        	github.com/gin-gonic/gin v1.10.0
+        	github.com/jackc/pgx/v5 v5.6.0
+        	github.com/redis/go-redis/v9 v9.5.1 // indirect
+        )
+    """,
+    "api/main.go": """
+        // Package main serves the shop API.
+        package main
+
+        import (
+        	"os"
+
+        	"example.com/shop/api/internal/store"
+        	"github.com/gin-gonic/gin"
+        )
+
+        func main() {
+        	db := store.Open(os.Getenv("DATABASE_URL"))
+        	r := gin.Default()
+        	r.GET("/orders", func(c *gin.Context) { c.JSON(200, db.Orders()) })
+        	r.POST("/orders/:id/pay", func(c *gin.Context) {})
+        	r.Run()
+        }
+    """,
+    "api/internal/store/store.go": """
+        package store
+
+        import "github.com/jackc/pgx/v5/pgxpool"
+
+        type Store struct{ pool *pgxpool.Pool }
+
+        func Open(url string) *Store { return &Store{} }
+    """,
+    "api/internal/store/store_test.go": """
+        package store
+
+        import "testing"
+
+        func TestOpen(t *testing.T) {}
+    """,
+    "tools/go.mod": "module example.com/shop/tools\n\ngo 1.22\n",
+    "tools/main.go": """
+        package main
+
+        import "net/http"
+
+        func main() {
+        	http.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {})
+        	http.ListenAndServe(":8080", nil)
+        }
+    """,
+}
+
+
+def test_go_modules_become_blocks(tmp_path):
+    _write(tmp_path, GO_FILES)
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    nodes, links = _index(data)
+    api = nodes["unit:go:api"]
+    assert api["kind"] == "service" and api["framework"] == "Gin" and "Go" in api["tech"]
+    assert nodes["unit:go:tools"]["framework"] == "net/http"
+    eps = {(e["method"], e["path"]) for e in nodes["file:api/main.go"]["endpoints"]}
+    assert eps == {("GET", "/orders"), ("POST", "/orders/:id/pay")}
+    assert {(e["method"], e["path"]) for e in nodes["file:tools/main.go"]["endpoints"]} == {("GET", "/health")}
+    assert nodes["file:api/main.go"]["doc"].startswith("Package main serves")
+    imports = {(e["source"], e["target"]) for e in data["edges"] if e["kind"] == "imports"}
+    assert ("file:api/main.go", "file:api/internal/store/store.go") in imports
+    assert ("file:api/main.go", "file:api/internal/store/store_test.go") not in imports
+    assert ("unit:go:api", "res:postgres", "data") in links
+    assert ("file:api/internal/store/store.go", "res:postgres") in {(e["source"], e["target"]) for e in data["edges"]}
+    assert "res:redis" not in nodes                       # an indirect dependency is not this module's own
+    assert nodes["file:api/internal/store/store_test.go"].get("test")

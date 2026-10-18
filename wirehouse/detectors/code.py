@@ -51,6 +51,9 @@ JS_FROM = re.compile(r"\b(?:import|export)\s[^'\";=(]{0,2000}?\bfrom\s*['\"]([^'
 JS_SIDE = re.compile(r"\bimport\s*['\"]([^'\"]+)['\"]")
 JS_REQ = re.compile(r"\b(?:require|import)\s*\(\s*['\"]([^'\"]+)['\"]\s*\)")
 CS_USING = re.compile(r"^[ \t]*(?:global[ \t]+)?using[ \t]+(?:static[ \t]+)?([\w.]+)[ \t]*;", re.M)
+GO_IMPORT_ONE = re.compile(r'^[ \t]*import[ \t]+(?:[\w.]+[ \t]+)?"([^"]+)"', re.M)
+GO_IMPORT_BLOCK = re.compile(r"^[ \t]*import[ \t]*\(([^)]*)\)", re.M)
+GO_IMPORT_SPEC = re.compile(r'^[ \t]*(?:[\w.]+[ \t]+)?"([^"]+)"', re.M)
 
 # ── env vars ─────────────────────────────────────────────────────────────────
 ENV_PATTERNS = {
@@ -65,6 +68,9 @@ ENV_PATTERNS = {
         re.compile(r"(?:os\.)?environ\.get\(\s*['\"]([A-Za-z0-9_]+)['\"]"),
         re.compile(r"getenv\(\s*['\"]([A-Za-z0-9_]+)['\"]"),
         re.compile(r"\benv(?:\.str|\.int|\.bool|\.url)?\(\s*['\"]([A-Z][A-Z0-9_]+)['\"]"),
+    ],
+    "go": [
+        re.compile(r"os\.(?:Getenv|LookupEnv)\(\s*\"([A-Za-z0-9_]+)\""),
     ],
     "csharp": [
         re.compile(r"GetEnvironmentVariable\(\s*\"([A-Za-z0-9_]+)\""),
@@ -98,6 +104,8 @@ CS_SYMBOL = re.compile(
     r"^[ \t]*(?:\[[^\]]*\][ \t]*)*(?:public|internal)[ \t]+(?:(?:static|sealed|abstract|partial|readonly)[ \t]+)*"
     r"(class|interface|record|struct|enum)[ \t]+(\w+)", re.M)
 
+GO_SYMBOL = re.compile(r"^(?:func[ \t]+(?:\([^)]*\)[ \t]*)?([A-Z]\w*)|type[ \t]+([A-Z]\w*)[ \t]+(struct|interface))", re.M)
+
 # ── endpoints ────────────────────────────────────────────────────────────────
 PY_ROUTE = re.compile(
     r"@(\w+)\.(get|post|put|patch|delete|options|head|api_route|route|websocket)\(\s*(?:path\s*=\s*)?['\"]([^'\"]*)['\"]([^\n]*)")
@@ -107,6 +115,8 @@ JS_ROUTE = re.compile(r"\b(\w+)\.(get|post|put|patch|delete|all)\(\s*['\"`](/[^'
 NEXT_METHOD = re.compile(r"^export[ \t]+(?:async[ \t]+)?(?:function[ \t]+|const[ \t]+)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b", re.M)
 NEST_CONTROLLER = re.compile(r"@Controller\(\s*(?:['\"]([^'\"]*)['\"])?")
 NEST_ROUTE = re.compile(r"@(Get|Post|Put|Patch|Delete|All)\(\s*(?:['\"]([^'\"]*)['\"])?\s*\)")
+# gin/echo/fiber (GET), chi (Get), net/http and gorilla/mux (HandleFunc, with Go 1.22's "GET /path")
+GO_ROUTE = re.compile(r'\b(\w+)\.(GET|POST|PUT|PATCH|DELETE|Any|Get|Post|Put|Patch|Delete|Handle|HandleFunc)\(\s*"((?:[A-Z]+[ \t]+)?/[^"]*)"')
 CS_CLASS_ROUTE = re.compile(r"\[Route\(\s*\"([^\"]*)\"\s*\)\][\s\S]{0,400}?class[ \t]+(\w+)")
 CS_HTTP = re.compile(r"\[Http(Get|Post|Put|Patch|Delete)(?:\(\s*\"([^\"]*)\"[^\]]*\))?\]")
 CS_MINIMAL = re.compile(r"\.Map(Get|Post|Put|Patch|Delete|Methods)\(\s*\"([^\"]*)\"")
@@ -165,6 +175,16 @@ def _cs_doc(text: str) -> str:
     inner = re.sub(r"^[ \t]*///[ \t]?", "", m.group(1), flags=re.M)
     inner = re.sub(r"<[^>]+>", "", inner)
     return _first_paragraph(inner)
+
+
+def _go_doc(text: str) -> str:
+    m = re.search(r"((?:^//[^\n]*\n)+)package[ \t]", text, re.M)
+    if not m:
+        return ""
+    lines = [s[2:].strip() for s in m.group(1).splitlines()]
+    if lines and re.match(r"(?i)(copyright|\+build|go:build|code generated)", lines[0]):
+        return ""
+    return _first_paragraph("\n".join(lines))
 
 
 def _next_route(rel: str) -> tuple[str, str] | None:
@@ -235,6 +255,17 @@ def analyze(sf: SourceFile) -> FileFacts:
         for m in CS_SYMBOL.finditer(text):
             f.symbols.append({"name": m.group(2), "kind": m.group(1), "line": L.line(m.start())})
         env_key = "csharp"
+    elif lang == "go":
+        L0 = _Lines(text)
+        for m in GO_IMPORT_ONE.finditer(text):
+            f.imports.append((m.group(1), L0.line(m.start())))
+        for m in GO_IMPORT_BLOCK.finditer(text):
+            for s in GO_IMPORT_SPEC.finditer(m.group(1)):
+                f.imports.append((s.group(1), L0.line(m.start(1) + s.start(1))))
+        f.doc = _go_doc(text)
+        for m in GO_SYMBOL.finditer(text):
+            f.symbols.append({"name": m.group(1) or m.group(2), "kind": "func" if m.group(1) else m.group(3), "line": L0.line(m.start())})
+        env_key = "go"
     else:
         env_key = None
 
@@ -307,6 +338,15 @@ def _endpoints(sf: SourceFile, f: FileFacts, L: _Lines) -> None:
                 sub = (m.group(2) or "").strip("/")
                 f.endpoints.append({"method": m.group(1).upper(), "path": (base.rstrip("/") + "/" + sub).rstrip("/") or "/",
                                     "line": L.line(m.start())})
+    elif sf.lang == "go":
+        for m in GO_ROUTE.finditer(text):
+            verb, target = m.group(2), m.group(3)
+            pm = re.match(r"([A-Z]+)[ \t]+(/.*)", target)
+            if pm:
+                method, path = pm.groups()
+            else:
+                method, path = ("ANY" if verb in ("Handle", "HandleFunc", "Any") else verb.upper()), target
+            f.endpoints.append({"method": method, "path": path, "line": L.line(m.start())})
     elif sf.lang == "csharp":
         cm = CS_CLASS_ROUTE.search(text)
         base = ""

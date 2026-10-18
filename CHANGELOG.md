@@ -115,6 +115,13 @@ All notable changes to Wirehouse are listed here. The format follows
     suite now runs in about 15 seconds instead of over two minutes.
 
 ### Added
+- **Go support** (2026-10-18)
+  - Summary: Each `go.mod` becomes a block, classified by its framework (Gin, Echo, chi, Fiber,
+    gorilla/mux, gRPC, `net/http`, cobra). Go files get imports (internal packages link to the package's
+    files), `os.Getenv` reads, routes (including Go 1.22 `"GET /path"`), symbols and the package comment.
+    About thirty drivers and SDKs map to blocks (pgx, go-redis, the AWS SDK, stripe-go, ...); `// indirect`
+    requirements do not.
+  - Why: Go was the most requested missing stack on the roadmap, and Go services were invisible on the map.
 - **`wirehouse export`: the map as Markdown and Mermaid** (2026-10-18)
   - Summary: Writes `architecture.md` next to the page: a Mermaid flowchart of the top-level blocks by
     zone, a list of blocks, and a table of every connection with its file and line (commit-pinned links

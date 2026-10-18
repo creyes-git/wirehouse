@@ -29,6 +29,7 @@ SOURCE_EXT = {
     ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
     ".vue": "javascript", ".svelte": "javascript", ".astro": "javascript",
     ".cs": "csharp",
+    ".go": "go",
     ".sql": "sql", ".prisma": "prisma",
 }
 
@@ -55,6 +56,8 @@ def lang_family(lang: str | None) -> str | None:
         return "python"
     if lang == "csharp":
         return "dotnet"
+    if lang == "go":
+        return "go"
     return None
 
 
@@ -150,6 +153,7 @@ def _is_test(rel: str) -> bool:
         or ".test." in name
         or ".spec." in name
         or name.endswith("tests.cs")
+        or name.endswith("_test.go")
         or name == "conftest.py"
     )
 
@@ -165,6 +169,8 @@ def _config_category(rel: str, name: str) -> str | None:
         return "python_manifest"
     if low.endswith(".csproj") or low.endswith(".fsproj"):
         return "csproj"
+    if low == "go.mod":
+        return "go_mod"
     if (low.startswith("docker-compose") or low.startswith("compose")) and low.endswith((".yml", ".yaml")):
         return "compose"
     if low == "dockerfile" or low.startswith("dockerfile.") or low.endswith(".dockerfile"):
