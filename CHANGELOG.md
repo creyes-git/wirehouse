@@ -55,6 +55,11 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **CI uses the current major versions of its actions** (2026-10-18)
+  - Summary: `actions/checkout`, `setup-python`, `setup-node` and `upload-artifact` move to v7 and
+    `download-artifact` to v8 in the CI and release workflows.
+  - Why: the v4 and v5 lines run on a Node version GitHub is retiring from its runners, and the
+    upload and download actions must stay on matching artifact versions.
 - **Viewer tests close their pages** (2026-10-18)
   - Summary: An autouse fixture closes every page a viewer test opened.
   - Why: open WebGL pages kept rendering in the background and later tests timed out at random; the
@@ -147,6 +152,10 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **A release is created only after PyPI publishing works** (2026-10-18)
+  - Summary: The release workflow's GitHub release job now waits for the PyPI job as well as the build.
+  - Why: the workflow's own comment says nothing ships until PyPI publishing is set up, but the GitHub
+    release ran in parallel and was created even when publishing failed.
 - **Go files say "Go file"** (2026-10-18)
   - Summary: Go files and Go blocks name their language in the rule-based description.
   - Why: the language table had no Go entry, so a Go file read " file, 12 lines." and a Go block listed
