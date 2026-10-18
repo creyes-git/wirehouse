@@ -39,6 +39,15 @@ ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template", ".env.dist", ".
 MAX_FILE_BYTES = 400_000
 
 
+def as_dict(value) -> dict:
+    """A parsed config section when it has the expected shape, else empty: odd files must not stop a scan."""
+    return value if isinstance(value, dict) else {}
+
+
+def as_list(value) -> list:
+    return value if isinstance(value, list) else []
+
+
 def lang_family(lang: str | None) -> str | None:
     if lang in JS_LANGS:
         return "js"
@@ -74,38 +83,59 @@ class ScanResult:
 
     def read(self, rel: str) -> str:
         try:
-            return (self.root / rel).read_text(encoding="utf-8", errors="replace")
+            return (self.root / rel).read_text(encoding="utf-8-sig", errors="replace")
         except OSError:
             return ""
 
 
-def _load_gitignore(root: Path) -> list[str]:
-    pats: list[str] = []
-    gi = root / ".gitignore"
+@dataclass(frozen=True)
+class IgnoreRule:
+    base: str          # folder of the .gitignore that holds the rule ("" for the root)
+    pattern: str
+    negate: bool
+    dir_only: bool
+    anchored: bool
+
+
+def _load_gitignore(root: Path, rel_dir: str = "") -> list[IgnoreRule]:
+    rules: list[IgnoreRule] = []
+    gi = root / rel_dir / ".gitignore"
     if gi.is_file():
-        for raw in gi.read_text(encoding="utf-8", errors="replace").splitlines():
+        for raw in gi.read_text(encoding="utf-8-sig", errors="replace").splitlines():
             line = raw.strip()
-            if not line or line.startswith("#") or line.startswith("!"):
+            if not line or line.startswith("#"):
                 continue
-            pats.append(line)
-    return pats
+            negate = line.startswith("!")
+            line = line[1:] if negate else line
+            dir_only = line.endswith("/")
+            pat = line.rstrip("/")
+            if pat:
+                rules.append(IgnoreRule(rel_dir, pat.lstrip("/"), negate, dir_only, pat.startswith("/") or "/" in pat))
+    return rules
 
 
-def _ignored(rel: str, is_dir: bool, patterns: list[str]) -> bool:
-    name = rel.rsplit("/", 1)[-1]
-    for p in patterns:
-        dir_only = p.endswith("/")
-        pat = p.rstrip("/")
-        if dir_only and not is_dir:
+def _rule_matches(rule: IgnoreRule, rel: str) -> bool:
+    sub = rel[len(rule.base) + 1:] if rule.base else rel
+    name = sub.rsplit("/", 1)[-1]
+    pat = rule.pattern
+    if pat.startswith("**/"):   # "**/x" matches x at any depth, the top included
+        return fnmatch.fnmatch(sub, pat) or fnmatch.fnmatch(name, pat[3:]) or fnmatch.fnmatch(sub, pat[3:])
+    if rule.anchored:
+        return fnmatch.fnmatch(sub, pat) or fnmatch.fnmatch(sub, pat + "/**")
+    return fnmatch.fnmatch(name, pat)
+
+
+def _ignored(rel: str, is_dir: bool, rules: list[IgnoreRule]) -> bool:
+    """Git's rule: the last pattern that matches decides, and `!pattern` re-includes."""
+    hit = False
+    for rule in rules:
+        if rule.dir_only and not is_dir:
             continue
-        anchored = pat.startswith("/") or "/" in pat
-        pat = pat.lstrip("/")
-        if anchored:
-            if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(rel, pat + "/**"):
-                return True
-        elif fnmatch.fnmatch(name, pat):
-            return True
-    return False
+        if rule.base and not rel.startswith(rule.base + "/"):
+            continue
+        if _rule_matches(rule, rel):
+            hit = not rule.negate
+    return hit
 
 
 def _is_test(rel: str) -> bool:
@@ -165,11 +195,13 @@ def _config_category(rel: str, name: str) -> str | None:
 
 def scan(root: Path) -> ScanResult:
     root = root.resolve()
-    patterns = _load_gitignore(root)
     result = ScanResult(root=root)
+    rules_for: dict[str, list[IgnoreRule]] = {}
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         rel_dir = "" if rel_dir == "." else rel_dir
+        # each folder's .gitignore applies below it, after the rules of the folders above
+        patterns = rules_for.pop(rel_dir, []) + _load_gitignore(root, rel_dir)
         keep = []
         for d in dirnames:
             rd = f"{rel_dir}/{d}" if rel_dir else d
@@ -178,17 +210,18 @@ def scan(root: Path) -> ScanResult:
             if _ignored(rd, True, patterns):
                 continue
             keep.append(d)
+            rules_for[rd] = patterns
         dirnames[:] = sorted(keep)
         for fn in sorted(filenames):
             rel = f"{rel_dir}/{fn}" if rel_dir else fn
+            if _ignored(rel, False, patterns):
+                continue
             cat = _config_category(rel, fn)
             if cat:
                 result.configs.setdefault(cat, []).append(rel)
             ext = os.path.splitext(fn)[1].lower()
             lang = SOURCE_EXT.get(ext)
             if not lang or fn.endswith(".d.ts") or fn.endswith(".min.js"):
-                continue
-            if _ignored(rel, False, patterns):
                 continue
             full = Path(dirpath) / fn
             try:
@@ -199,7 +232,7 @@ def scan(root: Path) -> ScanResult:
                 raw = full.read_bytes()
             except OSError:
                 continue
-            text = raw.decode("utf-8", errors="replace")
+            text = raw.decode("utf-8-sig", errors="replace")   # editors on Windows often write a BOM
             result.sources.append(
                 SourceFile(
                     rel=rel,

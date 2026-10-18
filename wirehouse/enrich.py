@@ -13,20 +13,93 @@ from collections import defaultdict
 from pathlib import Path
 
 from wirehouse.guide import Evidence, _clean, diag
-from wirehouse.model import EDGE_KINDS, KINDS
+from wirehouse.model import EDGE_KINDS, KINDS, LAYERS
+
+LAYER_IDS = {layer["id"] for layer in LAYERS}
 
 BRIEF_NAME = "enrich-brief.md"
 ENRICH_NAME = "enrichment.json"
 
 
-def load_enrichment(out_dir: Path) -> dict:
+def load_enrichment(out_dir: Path) -> tuple[dict, list[dict]]:
+    """enrichment.json -> (entries with the expected shape, diagnostics for the ones left out)."""
     p = out_dir / ENRICH_NAME
     if not p.is_file():
-        return {}
+        return {}, []
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        raw = json.loads(p.read_text(encoding="utf-8-sig"))   # PowerShell writes UTF-8 with a BOM
     except ValueError as exc:
         raise SystemExit(f"error: {p} is not valid JSON ({exc}). Fix it or delete it and re-run.")
+    if not isinstance(raw, dict):
+        raise SystemExit(f'error: {p} must hold one JSON object ({{"nodes": ..., "tours": ...}}), not a {type(raw).__name__}.')
+    return normalize(raw)
+
+
+# The shape agents are asked to write (see the brief). Anything else is reported and left out, so one
+# wrong entry costs that entry, not the render.
+SECTIONS = {"nodes": dict, "links": dict, "add_nodes": list, "add_edges": list, "remove_nodes": list,
+            "remove_edges": list, "tours": list, "quests": list}
+TEXT_FIELDS = {"id", "name", "kind", "layer", "parent", "description", "purpose", "hash", "reason", "source", "target",
+               "node", "title", "intro", "text", "question", "hint", "explain"}
+CITATION_FIELDS = {"evidence", "locations"}
+
+
+def _shape(entry, subject: str, diags: list) -> dict | None:
+    if not isinstance(entry, dict):
+        diags.append(diag("enrichment/wrong-shape", subject, f"expected an object, found {type(entry).__name__}",
+                          "write this entry as {...} like the example in the brief", "error"))
+        return None
+    out = {}
+    for key, value in entry.items():
+        bad = None
+        if key in TEXT_FIELDS and value is not None and not isinstance(value, str):
+            bad = "text"
+        elif key in CITATION_FIELDS:
+            value = [value] if isinstance(value, dict) else value
+            bad = None if isinstance(value, list) else "a list of citations"
+        elif key in ("tech", "route") and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
+            bad = "a list of strings"
+        elif key == "answer" and not (isinstance(value, str) or isinstance(value, list) and all(isinstance(v, str) for v in value)):
+            bad = "a node id or a list of node ids"
+        elif key == "stops":
+            if isinstance(value, list):
+                value = [st for j, s in enumerate(value) if (st := _shape(s, f"{subject}.stops[{j}]", diags)) is not None]
+            else:
+                bad = "a list of stops"
+        if bad:
+            diags.append(diag("enrichment/wrong-shape", f"{subject}.{key}", f"`{key}` should be {bad}; it was left out",
+                              "fix the value's type, see the example in the brief", "error"))
+            continue
+        out[key] = value
+    return out
+
+
+def normalize(raw: dict) -> tuple[dict, list[dict]]:
+    diags: list[dict] = []
+    out: dict = {}
+    for key, value in raw.items():
+        want = SECTIONS.get(key)
+        if want is None:
+            out[key] = value   # version and unknown keys are ignored downstream
+            continue
+        if not isinstance(value, want):
+            diags.append(diag("enrichment/wrong-shape", key, f"`{key}` should be {'an object' if want is dict else 'a list'}; it was left out",
+                              "see the example in the brief", "error"))
+            continue
+        if key == "links":
+            # a bare string is a likely shorthand for {"description": ...}
+            value = {k: {"description": v} if isinstance(v, str) else v for k, v in value.items()}
+        if key == "remove_nodes":
+            out[key] = [v for v in value if isinstance(v, str)]
+            if len(out[key]) < len(value):
+                diags.append(diag("enrichment/wrong-shape", key, "only node ids (strings) can be removed; other entries were left out",
+                                  'write ["<node id>", ...]', "error"))
+            continue
+        if want is dict:
+            out[key] = {k: e for k, v in value.items() if (e := _shape(v, f"{key}[{k}]", diags)) is not None}
+        else:
+            out[key] = [e for i, v in enumerate(value) if (e := _shape(v, f"{key}[{i}]", diags)) is not None]
+    return out, diags
 
 
 def _index(data: dict):
@@ -233,7 +306,7 @@ def merge(data: dict, enrichment: dict) -> dict:
         kind = an.get("kind") if an.get("kind") in KINDS else "external"
         parent = an.get("parent") if an.get("parent") in nodes else None
         n = {"id": an["id"], "name": _clean(an.get("name") or an["id"], 120, subject, diags), "kind": kind,
-             "layer": an.get("layer") or KINDS.get(kind), "parent": parent,
+             "layer": an.get("layer") if an.get("layer") in LAYER_IDS else KINDS.get(kind), "parent": parent,
              "description": _clean(an.get("description"), 2000, subject, diags), "purpose": _clean(an.get("purpose"), 2000, subject, diags),
              "tech": [_clean(t, 60, subject, diags) for t in an.get("tech") or [] if isinstance(t, str)],
              "locations": ev.check(an.get("locations"), subject, diags), "source": "agent"}
@@ -269,7 +342,7 @@ def merge(data: dict, enrichment: dict) -> dict:
             n["tech"] = list(dict.fromkeys(list(n.get("tech", [])) + list(patch["tech"])))
         if patch.get("kind") in KINDS and n["parent"] is None:
             n["kind"] = patch["kind"]
-            n["layer"] = patch.get("layer") or KINDS[patch["kind"]] or n["layer"]
+            n["layer"] = (patch.get("layer") if patch.get("layer") in LAYER_IDS else None) or KINDS[patch["kind"]] or n["layer"]
         n["source"] = "agent"
         if patch.get("hash") and patch["hash"] != n.get("hash"):
             n["stale"] = True

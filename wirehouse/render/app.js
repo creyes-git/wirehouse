@@ -1527,6 +1527,7 @@
     if (!href) return null;
     let title = `View on ${REPO.host_name} at commit ${REPO.short}`, warn = false;
     if (DIRTY.has(file)) { title = `This file has local changes that are not in commit ${REPO.short}, so ${REPO.host_name} shows the older version`; warn = true; }
+    else if (REPO.dirty_complete === false) { title = `Wirehouse could not list every file with local changes, so this file may differ from commit ${REPO.short}`; warn = true; }
     else if (REPO.pushed === false) { title = `Commit ${REPO.short} is not on ${REPO.host_name} yet, so this link may not open until it is pushed`; warn = true; }
     return { href, title, warn };
   }

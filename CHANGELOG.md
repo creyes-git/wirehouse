@@ -6,6 +6,37 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **`.gitignore` is followed the way git follows it** (2026-10-18)
+  - Summary: `!pattern` re-includes files, `.gitignore` files in subfolders apply below them, `**/name`
+    also matches at the top, and ignored config files (compose overrides, `appsettings.Development.json`,
+    env templates) are no longer read.
+  - Why: only source files were checked, so ignored config files still fed the map, and `.env*` with
+    `!.env.example` dropped the template the map needs.
+- **Odd config files no longer stop the scan** (2026-10-18)
+  - Summary: A `package.json`, compose file, workflow, `tsconfig.json`, `appsettings.json` or
+    `pyproject.toml` with an unexpected shape (a list where an object belongs, a string for
+    `environment`) is read as far as it makes sense instead of raising.
+  - Why: one odd fixture file anywhere in a repository crashed the whole scan (11 cases found).
+- **Files with a byte-order mark are read** (2026-10-18)
+  - Summary: Source and config files, `enrichment.json` and `archmap.raw.json` are decoded as UTF-8 with
+    an optional BOM.
+  - Why: Visual Studio and Windows PowerShell write one, so a Next.js app was taken for a library and an
+    agent's `enrichment.json` was rejected as invalid JSON.
+- **Malformed enrichment is reported, not a crash** (2026-10-18)
+  - Summary: Entries of the wrong type (a string where an object belongs, `"answer": 5`, a non-text
+    `name`, `"line": Infinity`) are left out with `error [enrichment/wrong-shape] ...`, a bare string link
+    note is accepted as its description, and an enrichment file that is not an object gets a clear error.
+    An unknown `layer` falls back to the kind's zone.
+  - Why: the agent got a Python traceback instead of the one-line problem report it is told to fix.
+- **Git details are checked more carefully** (2026-10-18)
+  - Summary: SHA-256 repositories get code links, the scan turns off `core.fsmonitor` (a command a
+    checkout's config can name), and when git cannot list every changed file the page says links may show
+    older code. A corrupt `archmap.raw.json` gets a clear error, and citations are checked against the
+    project folder even when the raw map has no root.
+  - Why: these gaps silently dropped links, marked changed files as clean, or ran repository-configured
+    commands during a scan.
+
 ### Added
 - **TODO.md** (2026-10-17)
   - Summary: Lists deferred work, starting with creating the GitHub repository and the first push.

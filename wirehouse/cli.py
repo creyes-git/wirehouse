@@ -38,7 +38,7 @@ def cmd_scan(project: Path, out_dir: Path) -> dict:
     _log(f"wirehouse {__version__}: scanning {project}")
     data = build_archmap(project, log=_log)
     (out_dir / RAW_NAME).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
-    brief, n_nodes, n_links = write_brief(data, load_enrichment(out_dir), out_dir)
+    brief, n_nodes, n_links = write_brief(data, load_enrichment(out_dir)[0], out_dir)
     _log(f"  wrote {out_dir / RAW_NAME}")
     if n_nodes or n_links:
         _log(f"  enrichment needed: {n_nodes} blocks/folders and {n_links} connections, see {brief}")
@@ -56,10 +56,16 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False)
     raw = out_dir / RAW_NAME
     if not raw.is_file():
         raise SystemExit(f"error: {raw} not found. Run `wirehouse scan {project}` first.")
-    data = json.loads(raw.read_text(encoding="utf-8"))
-    enrichment = load_enrichment(out_dir)
+    try:
+        data = json.loads(raw.read_text(encoding="utf-8-sig"))
+    except ValueError as exc:
+        raise SystemExit(f"error: {raw} is not valid JSON ({exc}). Run `wirehouse scan {project}` again.")
+    if not data.get("project", {}).get("root"):
+        data.setdefault("project", {})["root"] = str(project)   # citations are checked against this folder
+    enrichment, shape_problems = load_enrichment(out_dir)
     data = merge(data, enrichment)
     data = guide.apply(data, enrichment)
+    data["diagnostics"] = shape_problems + data["diagnostics"]
     root = data["project"].get("root") or str(project)
     if share:
         # For publishing: no absolute paths of this machine (they name the user) and no list of
@@ -67,6 +73,7 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False)
         data["project"].pop("root", None)
         if data.get("repo"):
             data["repo"].pop("dirty", None)
+            data["repo"].pop("dirty_complete", None)
     data, redacted = scrub(data, share=share, root=root)
     if redacted:
         _log(f"  warning: removed {redacted} credential-looking value(s) from the output")

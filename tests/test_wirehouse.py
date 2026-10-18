@@ -656,3 +656,100 @@ def test_agent_text_is_redacted_everywhere(repo, tmp_path):
         text = (out / name).read_text(encoding="utf-8")
         for leak in ("abcd1234efgh", "hunter22xx", "hunter33yy", "someone"):
             assert leak not in text, (name, leak)
+
+
+def test_gitignore_rules_follow_git(tmp_path):
+    from wirehouse.scan import scan
+
+    _write(tmp_path, {
+        ".gitignore": ".env*\n!.env.example\n**/generated\nappsettings.Development.json\n",
+        ".env.example": "API_URL=http://api:8000\n",
+        ".env.local": "API_URL=http://secret\n",
+        "generated/x.py": "import os\n",
+        "app/generated/y.py": "import os\n",
+        "app/main.py": "import os\n",
+        "app/.gitignore": "scratch.py\n",
+        "app/scratch.py": "import os\n",
+        "other/scratch.py": "import os\n",
+        "src/Api/appsettings.json": "{}",
+        "src/Api/appsettings.Development.json": '{"ConnectionStrings": {"Main": "Server=db;Password=x"}}',
+    })
+    res = scan(tmp_path)
+    assert sorted(s.rel for s in res.sources) == ["app/main.py", "other/scratch.py"]
+    assert res.configs["env_template"] == [".env.example"]                 # re-included by "!"
+    assert res.configs["appsettings"] == ["src/Api/appsettings.json"]      # ignored config files are not read
+
+
+def test_files_with_a_byte_order_mark_are_read(tmp_path):
+    from wirehouse.enrich import load_enrichment
+
+    bom = "﻿"
+    _write(tmp_path, {"web/package.json": bom + json.dumps({"name": "web", "dependencies": {"next": "15.0.0"}}),
+                      "web/app/page.tsx": "export default function Home() { return null }\n"})
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    assert next(n for n in data["nodes"] if n["id"] == "unit:js:web")["kind"] == "frontend"
+    (tmp_path / "enrichment.json").write_text(bom + '{"nodes": {}}', encoding="utf-8")
+    assert load_enrichment(tmp_path) == ({"nodes": {}}, [])
+
+
+@pytest.mark.parametrize("rel,body", [
+    ("package.json", "[]"),
+    ("package.json", '{"name": "x", "scripts": ["build"], "dependencies": ["react"]}'),
+    ("docker-compose.yml", "services:\n  - web\n"),
+    ("docker-compose.yml", "just a string\n"),
+    ("docker-compose.yml", "services:\n  web:\n    environment: FOO\n    depends_on: db\n    profiles: dev\n"),
+    (".github/workflows/ci.yml", "- step\n"),
+    (".github/workflows/ci.yml", "jobs:\n  - test\n"),
+    ("tsconfig.json", "[]"),
+    ("tsconfig.json", '{"compilerOptions": {"baseUrl": 5, "paths": {"@/*": "./src/*"}}}'),
+    ("appsettings.json", "[]"),
+    ("pyproject.toml", 'project = "x"\n'),
+])
+def test_odd_config_shapes_do_not_stop_the_scan(tmp_path, rel, body):
+    _write(tmp_path, {rel: body, "src/index.ts": "export const x = 1;\n"})
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    assert data["nodes"]
+
+
+def test_wrong_enrichment_shapes_become_diagnostics(repo, tmp_path):
+    from wirehouse.cli import main
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "enrichment.json").write_text(json.dumps({
+        "nodes": {"unit:js:web": {"name": 5, "description": "The storefront."}, "unit:python:api": "text"},
+        "links": {"unit:js:web->unit:python:api": "Order reads and writes."},
+        "add_edges": ["web->api"],
+        "remove_edges": "all",
+        "add_nodes": [{"id": "table:x", "kind": "table"}],
+        "tours": [{"title": "Broken", "route": [["a"], "b"]}, {"title": "Stops", "stops": [{"node": ["x"]}, "y"]}],
+        "quests": [{"question": "Where?", "answer": 5}, {"question": "Infinite?", "answer": "unit:js:web",
+                                                          "evidence": [{"file": "api/main.py", "line": float("inf")}]}],
+    }), encoding="utf-8")
+    assert main(["build", str(repo), "-o", str(out)]) == 0
+    data = json.loads((out / "archmap.json").read_text(encoding="utf-8"))
+    codes = [d["code"] for d in data["diagnostics"]]
+    assert codes.count("enrichment/wrong-shape") >= 7
+    nodes = {n["id"]: n for n in data["nodes"]}
+    assert nodes["unit:js:web"]["description"] == "The storefront."
+    assert data["link_notes"]["unit:js:web->unit:python:api"] == "Order reads and writes."
+
+
+def test_enrichment_must_be_an_object(tmp_path):
+    from wirehouse.enrich import load_enrichment
+
+    (tmp_path / "enrichment.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(SystemExit, match="one JSON object"):
+        load_enrichment(tmp_path)
+
+
+def test_repo_info_without_git(tmp_path, monkeypatch):
+    import subprocess
+
+    from wirehouse import repo
+
+    def missing(*_a, **_k):
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(subprocess, "run", missing)
+    assert repo.repo_info(tmp_path) is None

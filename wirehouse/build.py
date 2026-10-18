@@ -20,7 +20,7 @@ from wirehouse.detectors.units import Unit, detect_units
 from wirehouse.model import EDGE_KINDS, LAYERS, SCHEMA_VERSION, edge, loc, node
 from wirehouse.redact import scrub
 from wirehouse.repo import repo_info
-from wirehouse.scan import ScanResult, SourceFile, lang_family, scan
+from wirehouse.scan import ScanResult, SourceFile, as_dict, lang_family, scan
 from wirehouse.signatures import (
     BY_ID, Signature, match_cs_namespace, match_host, match_image, match_npm, match_nuget, match_py_import,
     match_pypi, match_value,
@@ -417,15 +417,15 @@ class Builder:
         out = []
         for rel in self.scan.configs.get("tsconfig", []):
             try:
-                data = json.loads(_strip_jsonc(self.scan.read(rel)))
+                data = as_dict(json.loads(_strip_jsonc(self.scan.read(rel))))
             except ValueError:
                 continue
-            co = data.get("compilerOptions") or {}
+            co = as_dict(data.get("compilerOptions"))
             base = _dirname(rel)
-            base_url = co.get("baseUrl")
+            base_url = co.get("baseUrl") if isinstance(co.get("baseUrl"), str) else None
             root = os.path.normpath(os.path.join(base, base_url)).replace("\\", "/") if base_url else base
             root = "" if root == "." else root
-            paths = [(k, v) for k, v in (co.get("paths") or {}).items()]
+            paths = [(k, [t for t in v if isinstance(t, str)]) for k, v in as_dict(co.get("paths")).items() if isinstance(v, list)]
             out.append((base, paths, root))
         out.sort(key=lambda x: -len(x[0]))
         return out

@@ -95,7 +95,7 @@ class Evidence:
             line = ev.get("line")
             try:
                 line = int(line) if line is not None else None
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):   # json accepts Infinity
                 line = None
             if line is not None and (line < 1 or line > count):
                 diags.append(diag("evidence/line-out-of-range", subject, f"`{rel}` has {count} lines, cited line {line}",
@@ -274,7 +274,7 @@ def auto_quests(data: dict) -> list[dict]:
         quests.append({"id": "find-provider", "question": "Find a third-party service this system calls", "answer": [n["id"] for n in ext],
                        "hint": "Outside providers wait at the loading dock, at the back of the floor.",
                        "explain": f"Third parties called from the code: {names(ext)}."})
-    tables = [n for n in data["nodes"] if n.get("kind") == "table"]
+    tables = [n for n in data["nodes"] if n.get("kind") == "table" and n["parent"]]
     if tables:
         t = sorted(tables, key=lambda n: n["name"])[0]
         quests.append({"id": "find-table", "question": f"Find the {t['name']} table", "answer": [t["id"]],

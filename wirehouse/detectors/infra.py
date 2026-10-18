@@ -12,7 +12,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from wirehouse.scan import ScanResult
+from wirehouse.scan import ScanResult, as_dict, as_list
 
 try:
     import yaml
@@ -108,11 +108,11 @@ def _parse_compose(scan: ScanResult, rel: str, infra: Infra) -> None:
         return
     text = scan.read(rel)
     try:
-        data = yaml.safe_load(text) or {}
+        data = as_dict(yaml.safe_load(text))
     except yaml.YAMLError:
         return
     base = rel.rsplit("/", 1)[0] if "/" in rel else ""
-    for name, svc in (data.get("services") or {}).items():
+    for name, svc in as_dict(data.get("services")).items():
         if not isinstance(svc, dict):
             continue
         cs = ComposeService(name=name, file=rel, line=_line_of(text, f"\n  {name}:") + 1 if f"\n  {name}:" in text else _line_of(text, f"{name}:"))
@@ -130,13 +130,14 @@ def _parse_compose(scan: ScanResult, rel: str, infra: Infra) -> None:
         cs.command = " ".join(map(str, cmd)) if isinstance(cmd, list) else str(cmd)
         cs.ports = _ports(svc.get("ports")) + _ports(svc.get("expose"))
         dep = svc.get("depends_on") or []
-        cs.depends_on = list(dep.keys()) if isinstance(dep, dict) else [str(d) for d in dep]
+        cs.depends_on = list(dep.keys()) if isinstance(dep, dict) else [str(d) for d in as_list(dep)]
         env = svc.get("environment") or {}
         if isinstance(env, list):
             env = dict(e.split("=", 1) if "=" in e else (e, "") for e in map(str, env))
-        cs.env = {str(k): "" if v is None else str(v) for k, v in env.items()}
-        cs.profiles = [str(p) for p in svc.get("profiles") or []]
+        cs.env = {str(k): "" if v is None else str(v) for k, v in as_dict(env).items()}
+        cs.profiles = [str(p) for p in as_list(svc.get("profiles"))]
         labels = svc.get("labels") or {}
+        labels = labels if isinstance(labels, dict) else as_list(labels)
         keys = [str(k) for k in labels] if isinstance(labels, dict) else [str(x).split("=", 1)[0] for x in labels]
         values = {str(k): str(v) for k, v in labels.items()} if isinstance(labels, dict) else dict(
             str(x).split("=", 1) if "=" in str(x) else (str(x), "") for x in labels)
@@ -191,10 +192,10 @@ def _parse_env_template(scan: ScanResult, rel: str, infra: Infra) -> None:
 def _parse_appsettings(scan: ScanResult, rel: str, infra: Infra) -> None:
     text = scan.read(rel)
     try:
-        data = json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M))
+        data = as_dict(json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M)))
     except ValueError:
         return
-    for k, v in (data.get("ConnectionStrings") or {}).items():
+    for k, v in as_dict(data.get("ConnectionStrings")).items():
         infra.env.append(EnvVar(k, str(v), rel, _line_of(text, f'"{k}"')))
         infra.env.append(EnvVar(f"ConnectionStrings:{k}", str(v), rel, _line_of(text, f'"{k}"')))
 
@@ -264,11 +265,11 @@ def _parse_workflow(scan: ScanResult, rel: str, infra: Infra) -> None:
     triggers = ""
     if yaml is not None:
         try:
-            data = yaml.safe_load(text) or {}
+            data = as_dict(yaml.safe_load(text))
             name = str(data.get("name") or name)
-            jobs = list((data.get("jobs") or {}).keys())
+            jobs = [str(j) for j in as_dict(data.get("jobs"))]
             on = data.get(True) or data.get("on") or {}
-            triggers = ", ".join(on.keys()) if isinstance(on, dict) else (", ".join(on) if isinstance(on, list) else str(on))
+            triggers = ", ".join(map(str, on)) if isinstance(on, (dict, list)) else str(on)
         except yaml.YAMLError:
             pass
     deploys = sorted({label for hint, label in DEPLOY_HINTS if hint in text.lower()})

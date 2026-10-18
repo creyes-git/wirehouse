@@ -13,7 +13,7 @@ import tomllib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
-from wirehouse.scan import ScanResult, SourceFile, lang_family
+from wirehouse.scan import ScanResult, SourceFile, as_dict, as_list, lang_family
 
 
 @dataclass
@@ -60,19 +60,19 @@ def _parent_dir(rel: str) -> str:
 def _parse_package_json(scan: ScanResult, rel: str, u: Unit) -> None:
     text = scan.read(rel)
     try:
-        data = json.loads(text)
+        data = as_dict(json.loads(text))
     except ValueError:
         return
     u.pkg_name = u.pkg_name or str(data.get("name") or "")
     for section, dev in (("dependencies", False), ("devDependencies", True), ("peerDependencies", False), ("optionalDependencies", False)):
-        for name in (data.get(section) or {}):
+        for name in as_dict(data.get(section)):
             if name not in u.deps or (u.deps[name].dev and not dev):
                 u.deps[name] = Dep(name, rel, _line_of(text, f'"{name}"'), dev)
     if data.get("bin"):
         u.props["bin"] = "1"
     if data.get("workspaces"):
         u.props["workspaces"] = "1"
-    scripts = data.get("scripts") or {}
+    scripts = as_dict(data.get("scripts"))
     for key in ("start", "dev", "serve"):
         m = re.search(r"(?:--port|-p|PORT=)\s*(\d{2,5})", str(scripts.get(key, "")))
         if m:
@@ -101,18 +101,18 @@ def _parse_python_manifest(scan: ScanResult, rel: str, u: Unit) -> None:
         except tomllib.TOMLDecodeError:
             return
         names: list[tuple[str, bool]] = []
-        proj = data.get("project") or {}
+        proj = as_dict(data.get("project"))
         u.pkg_name = u.pkg_name or str(proj.get("name") or "")
-        names += [(d, False) for d in proj.get("dependencies") or []]
-        for group in (proj.get("optional-dependencies") or {}).values():
-            names += [(d, True) for d in group]
-        poetry = ((data.get("tool") or {}).get("poetry")) or {}
+        names += [(d, False) for d in as_list(proj.get("dependencies"))]
+        for group in as_dict(proj.get("optional-dependencies")).values():
+            names += [(d, True) for d in as_list(group)]
+        poetry = as_dict(as_dict(data.get("tool")).get("poetry"))
         u.pkg_name = u.pkg_name or str(poetry.get("name") or "")
-        names += [(d, False) for d in (poetry.get("dependencies") or {}) if d.lower() != "python"]
-        names += [(d, False) for d in (data.get("packages") or {})]  # Pipfile
-        names += [(d, True) for d in (data.get("dev-packages") or {})]
+        names += [(d, False) for d in as_dict(poetry.get("dependencies")) if d.lower() != "python"]
+        names += [(d, False) for d in as_dict(data.get("packages"))]  # Pipfile
+        names += [(d, True) for d in as_dict(data.get("dev-packages"))]
         for spec, dev in names:
-            m = _REQ_LINE.match(spec)
+            m = _REQ_LINE.match(spec) if isinstance(spec, str) else None
             if m and m.group(1).lower() not in u.deps:
                 u.deps[m.group(1).lower()] = Dep(m.group(1), rel, _line_of(text, m.group(1)), dev)
         return

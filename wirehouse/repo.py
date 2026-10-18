@@ -53,7 +53,8 @@ def parse_remote(url: str) -> dict | None:
 def _git(root: Path, *args: str) -> str | None:
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
     try:
-        r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8",
+        # core.fsmonitor would run a command named by the scanned repo's own config: never for a scan
+        r = subprocess.run(["git", "-c", "core.fsmonitor=false", "-C", str(root), *args], capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=15, env=env)
     except (OSError, subprocess.SubprocessError):
         return None
@@ -64,7 +65,7 @@ def repo_info(root: Path) -> dict | None:
     """What the viewer needs to build web links for files under `root`, or None outside a git checkout."""
     top = _git(root, "rev-parse", "--show-toplevel")
     rev = _git(root, "rev-parse", "HEAD")
-    if not top or not rev or not re.fullmatch(r"[0-9a-f]{40}", rev.strip()):
+    if not top or not rev or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", rev.strip()):
         return None
     rev = rev.strip()
     try:
@@ -83,8 +84,9 @@ def repo_info(root: Path) -> dict | None:
         info.update(remote, host_name=PROVIDERS[remote["provider"]])
         info["pushed"] = bool((_git(root, "branch", "-r", "--contains", rev) or "").strip())
     # Files whose working copy differs from the commit: their web link shows older code.
-    status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all") or ""
-    dirty, entries = [], status.split("\0")
+    status = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    dirty, entries = [], (status or "").split("\0")
+    complete = status is not None
     i = 0
     while i < len(entries):
         e = entries[i]
@@ -100,6 +102,8 @@ def repo_info(root: Path) -> dict | None:
             path = path[len(prefix) + 1:]
         dirty.append(path)
         if len(dirty) >= MAX_DIRTY:
+            complete = False
             break
     info["dirty"] = sorted(dirty)
+    info["dirty_complete"] = complete   # False: git failed or the list was cut, so a file missing from it may still be changed
     return info
