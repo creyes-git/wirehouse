@@ -60,10 +60,17 @@ def _load_map(path: Path) -> dict:
     return data
 
 
+def _tracked_by_git(path: Path) -> bool:
+    from wirehouse.repo import _git
+
+    return _git(path.parent, "ls-files", "--error-unmatch", "--", path.name) is not None
+
+
 def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False, strict: bool = False,
                against: Path | None = None) -> Path:
     from wirehouse import guide
-    from wirehouse.enrich import load_enrichment, merge
+    from wirehouse.enrich import ENRICH_NAME, load_enrichment, merge
+    from wirehouse.guide import diag
     from wirehouse.redact import scrub
     from wirehouse.render.html import write_html
 
@@ -77,6 +84,15 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False,
     if not data.get("project", {}).get("root"):
         data.setdefault("project", {})["root"] = str(project)   # citations are checked against this folder
     enrichment, shape_problems = load_enrichment(out_dir)
+    if enrichment and _tracked_by_git(out_dir / ENRICH_NAME):
+        # Someone else wrote it: a cloned repository can ship one that hides blocks or connections.
+        # It is still applied (that is how teams share descriptions), but never silently.
+        _log(f"  WARNING: {out_dir / ENRICH_NAME} is checked into the repository, so it was written by whoever "
+             "committed it, not by you or your agent. It is applied: review it, especially remove_nodes and "
+             "remove_edges (each removal is listed under Checks).")
+        shape_problems.append(diag("enrichment/from-repository", ENRICH_NAME,
+                                   "this enrichment.json is checked into the repository and was applied as written",
+                                   "review remove_nodes and remove_edges before trusting what the page leaves out"))
     data = merge(data, enrichment)
     data = guide.apply(data, enrichment)
     data["diagnostics"] = shape_problems + data["diagnostics"]

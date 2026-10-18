@@ -202,6 +202,13 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
+- **Enrichment that came with the repository is never applied silently** (2026-10-18)
+  - Summary: When `wirehouse-out/enrichment.json` is tracked by git, render prints a warning and adds
+    an `enrichment/from-repository` check. Every `remove_nodes` and `remove_edges` entry that removed
+    something adds an `enrichment/removed-node` or `enrichment/removed-edge` check, so the Checks panel
+    lists what the scan found and the page leaves out. The file is still applied.
+  - Why: a cloned repository can ship its own enrichment, and `"remove_nodes": ["ext:evil-exfil.io"]`
+    hid an exfiltration endpoint from the map without a trace.
 - **`--share` keeps API routes and finds more home folders** (2026-10-18)
   - Summary: Only real home folders are cut: `C:\Users\<name>` and `C:\Documents and Settings\<name>`
     with a drive letter, and `/Users/<name>`, `/home/<name>`, `/var/home/<name>`, `/export/home/<name>`,
