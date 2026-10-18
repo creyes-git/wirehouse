@@ -24,3 +24,13 @@ Known gaps and deferred work. Each entry: date, what, where, and the suggested f
   4. Follow the GitHub setup checklist: CI green, About and topics, social preview, Pages
      (`main` / `docs`), Discussions, the `detection` label, private vulnerability reporting,
      a ruleset for `main`, and the `pypi` environment.
+
+## Viewer tests can time out on a slow machine
+
+- **Date:** 2026-10-18
+- **What:** `tests/test_viewer.py` opens a new page per test and the older tests never close theirs, so
+  every WebGL page keeps rendering. On this machine a full run sometimes hit Playwright's 30 s load
+  timeout in a later test, then passed on a rerun.
+- **Where:** `tests/test_viewer.py`, the tests before `test_a_floor_plan_link_opens_on_a_fresh_page`.
+- **Suggested fix:** close each page at the end of its test (or yield pages from a fixture that closes
+  them), as the newer tests do.

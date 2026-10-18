@@ -109,6 +109,12 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Added
+- **A "nasty repository" test** (2026-10-18)
+  - Summary: `tests/test_nasty_repo.py` maps one repository full of past failure cases (secrets in every
+    format, BOM files, oddly shaped configs, comment URLs, a 20,000-line file, malformed enrichment) with
+    `--share`, and checks that it finishes quickly and that no secret or local path reaches any output.
+  - Why: the focused tests guard each bug; this one guards the invariants together, so a new field or
+    parser cannot quietly reopen a leak.
 - **TODO.md** (2026-10-17)
   - Summary: Lists deferred work, starting with creating the GitHub repository and the first push.
   - Why: the repository is not created yet, so the published links do not resolve until then.
