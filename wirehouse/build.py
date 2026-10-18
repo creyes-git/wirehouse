@@ -956,7 +956,7 @@ class Builder:
                 talks[cur].add(nodes[tt]["name"])
                 cur = nodes[cur]["parent"]
 
-        lang_names = {"typescript": "TypeScript", "javascript": "JavaScript", "python": "Python", "csharp": "C#", "sql": "SQL", "prisma": "Prisma"}
+        lang_names = {"typescript": "TypeScript", "javascript": "JavaScript", "python": "Python", "csharp": "C#", "sql": "SQL", "prisma": "Prisma", "go": "Go"}
         for n in nodes.values():
             langs = n.pop("_langs", Counter())
             lang_txt = ", ".join(lang_names.get(l, str(l)) for l, _ in langs.most_common(3) if l)

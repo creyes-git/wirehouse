@@ -1364,3 +1364,10 @@ def test_monorepo_imports_reach_their_packages(tmp_path):
     assert ("file:apps/admin/app/page.tsx", "file:libs/utils/src/index.ts") in imports
     _, links = _index(data)
     assert ("unit:js:apps/web", "unit:js:packages/ui", "imports") in links
+
+
+def test_go_files_are_described_as_go(tmp_path):
+    _write(tmp_path, {"svc/go.mod": "module example.com/svc\n\ngo 1.22\n", "svc/main.go": "package main\n\nfunc main() {}\n"})
+    nodes = {n["id"]: n for n in build_archmap(tmp_path, log=lambda *_: None)["nodes"]}
+    assert nodes["file:svc/main.go"]["description"].startswith("Go file")
+    assert "Go" in nodes["unit:go:svc"]["description"]

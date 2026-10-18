@@ -147,6 +147,10 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Go files say "Go file"** (2026-10-18)
+  - Summary: Go files and Go blocks name their language in the rule-based description.
+  - Why: the language table had no Go entry, so a Go file read " file, 12 lines." and a Go block listed
+    `go` instead of Go.
 - **Monorepo imports connect their packages** (2026-10-18)
   - Summary: An import of a workspace package by name (`import { Button } from "@mono/ui"`, with
     `workspace:*`) links to that package's files, through its `source`/`module`/`main`/`exports` entry or
