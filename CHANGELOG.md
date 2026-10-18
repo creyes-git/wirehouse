@@ -108,6 +108,12 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: these gaps silently dropped links, marked changed files as clean, or ran repository-configured
     commands during a scan.
 
+### Changed
+- **Viewer tests close their pages** (2026-10-18)
+  - Summary: An autouse fixture closes every page a viewer test opened.
+  - Why: open WebGL pages kept rendering in the background and later tests timed out at random; the
+    suite now runs in about 15 seconds instead of over two minutes.
+
 ### Added
 - **Checks in the page and `--strict`** (2026-10-18)
   - Summary: When the checks left something out (an unknown node in a tour, an added connection with no

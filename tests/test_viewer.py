@@ -55,8 +55,22 @@ def browser():
         b.close()
 
 
+PAGES = []
+
+
+@pytest.fixture(autouse=True)
+def close_pages():
+    # every open WebGL page keeps rendering, and a pile of them slows later tests into timeouts
+    yield
+    while PAGES:
+        page = PAGES.pop()
+        if not page.is_closed():
+            page.close()
+
+
 def open_view(browser, html, hash_="#nowelcome"):
     page = browser.new_page(viewport={"width": 1280, "height": 800}, accept_downloads=True)
+    PAGES.append(page)
     errors = []
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
     page.on("pageerror", lambda e: errors.append(str(e)))
@@ -146,7 +160,6 @@ def test_a_floor_plan_link_opens_on_a_fresh_page(browser, html):
     assert js(page, "!document.querySelector('#plan').hasAttribute('hidden')")
     assert js(page, "document.querySelectorAll('#plan .blk').length") > 0
     assert errors == []
-    page.close()
 
 
 def test_traces_and_routes_claim_only_recorded_reach(browser, html):
@@ -159,7 +172,6 @@ def test_traces_and_routes_claim_only_recorded_reach(browser, html):
     page.evaluate("location.hash = '#route=unit%3Apython%3Aapi~file%3Aapi%2Fdb.py'")
     page.wait_for_function("__wirehouse.trace() === null")
     assert errors == []
-    page.close()
 
 
 def test_the_schema_diagram_is_modal(browser, html):
@@ -172,7 +184,6 @@ def test_the_schema_diagram_is_modal(browser, html):
     assert js(page, "__wirehouse.state().room") == "unit:python:api"
     assert "plan=1" not in js(page, "location.hash")
     assert errors == []
-    page.close()
 
 
 def test_corrupt_saved_progress_starts_fresh(browser, html):
@@ -185,7 +196,6 @@ def test_corrupt_saved_progress_starts_fresh(browser, html):
     page.wait_for_function("window.__wirehouse && __wirehouse.state().items > 0")
     assert js(page, "__wirehouse.progress().found") == []
     assert errors == []
-    page.close()
 
 
 def test_checks_list_what_was_left_out(browser, tmp_path):
@@ -204,11 +214,9 @@ def test_checks_list_what_was_left_out(browser, tmp_path):
     page.keyboard.press("Escape")
     assert js(page, "document.querySelector('#checksMenu').hidden")
     assert errors == []
-    page.close()
 
 
 def test_checks_stay_hidden_when_everything_passed(browser, html):
     page, errors = open_view(browser, html)
     assert js(page, "document.querySelector('#checksWrap').hidden")
     assert errors == []
-    page.close()
