@@ -348,3 +348,14 @@ def test_repeated_parts_are_instanced_within_the_draw_call_budget(browser, html)
     assert js(page, "__wirehouse.gpu().instanced") >= 3           # rack posts, shelves and beams
     js(page, "__wirehouse.setTheme('night')")
     assert errors == []
+
+
+def test_file_labels_are_readable_on_entering_a_room(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "__wirehouse.goRoom('unit:python:api', {instant: true})")
+    page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
+    page.wait_for_function("__wirehouse.labels().slots > 0")          # seen from the door, before walking up
+    labels = js(page, "__wirehouse.labels()")
+    assert labels["slots"] <= 24
+    assert labels["racks"] and " to " in labels["racks"][0]           # an aisle sign names the first and last file
+    assert errors == []

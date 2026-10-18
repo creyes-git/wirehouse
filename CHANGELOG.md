@@ -61,6 +61,12 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **Room labels are readable from the door** (2026-10-18)
+  - Summary: Each rack carries an aisle sign naming its first and last file and how many it holds. File
+    labels show from 24 units away instead of 13, only the nearest 24 at a time, and fade in and out
+    instead of popping. Block names on the main floor keep a minimum on-screen size of about 14 px.
+  - Why: entering a room the camera starts about 17 units away, so every file label was hidden until the
+    reader walked up to a rack, and far block names shrank to a few pixels.
 - **Repeated parts are drawn in one go** (2026-10-18)
   - Summary: Container ribs, rack posts, shelves and beams and cabinet lights are one instanced mesh per
     material; the lights blink by dimming their instance colour. They are decorative and never picked,
