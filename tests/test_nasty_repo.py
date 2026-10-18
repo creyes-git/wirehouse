@@ -18,6 +18,9 @@ BOM = "\ufeff"
 SECRETS = [
     "sk_live_NASTY_0000000001", "hunter2SECRET", "pw_in_url_secret", "ghp_nastytoken1234567890",
     "AKIANASTYKEY00000000", "agent_pw_secret", "token_in_tech_secret", "remote_pw_secret",
+    # newer formats, built from pieces so this file holds nothing that looks like a live credential
+    "gh" + "s_" + "nastyDocstring0000000000", "sk-" + "proj-" + "nastyWorkflow000000001", "glp" + "at-" + "nastyEndpoint0000001",
+    "eyJ" + "hbGciOiJub25lIn0.eyJ" + "zdWIiOiJuYXN0eSJ9.", "nastyDbPassword9",
 ]
 FILES = {
     # secrets in every format the scanner reads
@@ -31,6 +34,10 @@ FILES = {
     "web/lib/github.ts": f'const token = "{SECRETS[3]}";\nexport const repos = () => fetch("https://api.github.com/user/repos");\n',
     "web/lib/aws.ts": f'export const key = "{SECRETS[4]}";\n',
     "web/lib/creds.ts": f'export const ping = () => fetch("https://deploy:{SECRETS[7]}@api.acme.io/v1");\n',
+    # where code text reaches the page: docstrings, workflow names, endpoint paths
+    "worker/sync.py": f'"""Nightly sync with {SECRETS[8]}.\n\nDB_PASSWORD={SECRETS[12]} token {SECRETS[11]}"""\n'
+                      f'from fastapi import FastAPI\napp = FastAPI()\n@app.get("/hooks/{SECRETS[10]}")\ndef hook():\n    return 1\n',
+    ".github/workflows/deploy.yml": f"name: deploy {SECRETS[9]}\non: push\njobs:\n  ship:\n    runs-on: ubuntu-latest\n",
     # odd shapes
     "docker-compose.yml": "services:\n  - web\n",
     "tools/tsconfig.json": "[]",

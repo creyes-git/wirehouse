@@ -202,6 +202,15 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
+- **More credential formats are redacted** (2026-10-18)
+  - Summary: The last redaction pass now also catches GitHub `gho_`/`ghs_`/`ghu_`/`ghr_` tokens, AWS
+    `ASIA` keys and secret access keys, JWTs, OpenAI and Anthropic `sk-` keys, Google `AIza` keys,
+    GitLab, npm, SendGrid, Hugging Face and Twilio tokens, Slack and Discord webhook URLs, Azure
+    `AccountKey=`, `SharedAccessKey=` and SAS `sig=` values, `Bearer`/`Basic` headers and quoted keys
+    such as `"password": "..."`. Setting names match after an underscore too (`DB_PASSWORD=`,
+    `client_secret=`).
+  - Why: file docstrings, workflow names and endpoint paths reach the page, and these common formats
+    went through even with `--share`.
 - **One last redaction pass over everything written** (2026-10-18)
   - Summary: New `wirehouse/redact.py` scrubs every key and value of the archmap for credential-looking
     text before `archmap.raw.json`, `archmap.json` and `wirehouse.html` are written; with `--share` it

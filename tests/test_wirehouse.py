@@ -1056,3 +1056,38 @@ def test_against_needs_a_real_map(repo, tmp_path):
     bad.write_text('{"not": "a map"}', encoding="utf-8")
     with pytest.raises(SystemExit, match="not a Wirehouse map"):
         main(["build", str(repo), "-o", str(tmp_path / "out"), "--against", str(bad)])
+
+
+# (text, the secret part). Built from pieces so this file never holds a string that looks like a live credential.
+TOKEN_FORMATS = [(t, t) for t in (
+    "gh" + "o_" + "a1B2" * 9, "gh" + "s_" + "c3D4" * 9, "gh" + "u_" + "e5F6" * 9, "gh" + "r_" + "g7H8" * 9,
+    "AS" + "IA" + "QWERTYUIOPASDFGH", "eyJ" + "hbGciOiJIUzI1NiJ9.eyJ" + "zdWIiOiIxMjM0In0.c2lnbmF0dXJl",
+    "sk-" + "Abc123def456ghi789jkl012", "sk-" + "proj-" + "Abc123def456ghi789jkl012", "sk-" + "ant-" + "api03-Abc123def456ghi789",
+    "AI" + "za" + "SyA1234567890abcdefghijklmnopqrstuv", "glp" + "at-" + "abcdefghij1234567890", "np" + "m_" + "Ab1" * 12,
+    "S" + "G." + "a" * 22 + "." + "b" * 43, "h" + "f_" + "Ab1" * 11, "S" + "K" + "0123456789abcdef" * 2,
+    "https://hooks.slack.com/" + "services/T0000/B0000/XXXXXXXX", "https://discord.com/api/" + "webhooks/1234/abc-DEF_123",
+)] + [(prefix + secret, secret) for prefix, secret in (
+    ("aws_secret_access_key = ", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
+    ("DefaultEndpointsProtocol=https;AccountName=acme;AccountKey=", "abc123DEF456ghi789=="),
+    ("Endpoint=sb://acme.servicebus.windows.net/;SharedAccessKey=", "abc123DEF456="),
+    ("https://acme.blob.core.windows.net/c?sv=2022-11-02&sig=", "abcdEFGH1234%2Bxyz"),
+    ("Authorization: Bearer ", "abc123def456ghi789"), ("Authorization: Basic ", "dXNlcjpwYXNzd29yZA=="),
+    ('"password": "', "hunter2xyz"), ("DB_PASSWORD=", "hunter2xyz"), ("client_secret=", "abcd1234wxyz"),
+)]
+
+
+@pytest.mark.parametrize(("text", "secret"), TOKEN_FORMATS)
+def test_common_credential_formats_are_redacted(text, secret):
+    from wirehouse.redact import scrub
+
+    out, hits = scrub({"doc": f"Setup notes: {text} (do not share)"})
+    assert hits == 1 and "[redacted]" in out["doc"] and secret not in out["doc"]
+    assert out["doc"].startswith("Setup notes: ")
+
+
+@pytest.mark.parametrize("text", ["Basic authentication is used", "Bearer token in the header", "sk-loading-spinner-container",
+                                  "secret_manager.get(name)", "see DB_PASSWORD in the vault"])
+def test_ordinary_text_is_not_redacted(text):
+    from wirehouse.redact import scrub
+
+    assert scrub({"doc": text}) == ({"doc": text}, 0)
