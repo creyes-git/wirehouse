@@ -429,3 +429,22 @@ def test_worker_leans_squashes_and_looks_at_the_selection(browser, html):
         for (let i = 0; i < 240; i++) { __wirehouse.tick(1, false); const w = __wirehouse.worker(); m = Math.max(m, Math.abs(w.lean) + Math.abs(w.tilt)); } return m; })()""")
     assert lean > 0.02
     assert errors == []
+
+
+def test_sound_is_off_until_turned_on_and_remembered(browser, html):
+    page, errors = open_view(browser, html)
+    js(page, "localStorage.clear()")
+    js(page, "__wirehouse.select('unit:python:api')")
+    assert js(page, "__wirehouse.sound()") == {"on": False, "played": 0, "stored": "0"}   # silent by default
+    page.click("#helpBtn")
+    page.click("#soundBtn")
+    assert js(page, "document.querySelector('#soundBtn').getAttribute('aria-pressed')") == "true"
+    page.keyboard.press("Escape")
+    played = js(page, "__wirehouse.select('res:postgres'); __wirehouse.sound().played")
+    assert played >= 2                                          # the button's own click, then the selection
+    page.reload()
+    page.wait_for_function("window.__wirehouse && __wirehouse.state().items > 0")
+    assert js(page, "__wirehouse.sound().on") is True           # remembered in this browser
+    page.keyboard.press("m")
+    assert js(page, "__wirehouse.sound()")["stored"] == "0"
+    assert errors == []

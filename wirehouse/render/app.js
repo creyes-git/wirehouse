@@ -1134,6 +1134,9 @@
     W8.moving += ((speed > 0.3 ? 1 : 0) - W8.moving) * Math.min(1, dt * 10);
     W8.phase += dt * (speed * 1.45);
     const swing = Math.sin(W8.phase) * 0.75 * W8.moving;
+    const stepNo = Math.floor(W8.phase / Math.PI);   // one footstep per leg swing, on the ground only
+    if (stepNo !== W8.step && W8.moving > 0.5 && W8.pos.y === 0) sfx.step();
+    W8.step = stepNo;
     w.legs[0].rotation.x = swing;
     w.legs[1].rotation.x = -swing;
     w.arms[0].rotation.x = -swing * 0.8 - 0.25 * (1 - W8.moving);
@@ -1672,6 +1675,7 @@
 
   let arrival = null;
   function arrive() {
+    if (W8.path) sfx.arrive();
     W8.path = null;
     const a = arrival;
     arrival = null;
@@ -1952,6 +1956,7 @@
     selected = { type: 'node', id };
     applyFocus();
     if (!again && BLOCK_OBJ.has(id) && !reduceMotion) FX.bounce = { g: BLOCK_OBJ.get(id), t: 0 };
+    if (!again) sfx.click();
     const col = css(kindHex(n.kind));
     const inRoom = itemsById.has(id);
     const isOutside = !inRoom && !!opts.port;
@@ -3430,6 +3435,66 @@
   }
   $('#theme').addEventListener('click', () => setTheme(themeId === 'night' ? 'day' : 'night'));
 
+  // ── sound ────────────────────────────────────────────────────────────────
+  // Off until the reader turns it on (M or the button on the controls card), remembered per browser.
+  // Everything is synthesised with WebAudio: no audio files ship in the page.
+  const SND = { on: store.get('sound', '0') === '1', ctx: null, noise: null, played: 0 };
+  function audio() {
+    if (!SND.on) return null;
+    if (!SND.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { SND.ctx = new AC(); } catch (e) { return null; }
+      const len = SND.ctx.sampleRate * 0.2, buf = SND.ctx.createBuffer(1, len, SND.ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      SND.noise = buf;
+    }
+    if (SND.ctx.state === 'suspended') SND.ctx.resume();
+    return SND.ctx;
+  }
+  function envelope(ctx, node, t0, peak, dur) {
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    node.connect(g).connect(ctx.destination);
+  }
+  function tone(freq, delay, dur, peak, type) {
+    const ctx = audio();
+    if (!ctx) return;
+    const o = ctx.createOscillator(), t0 = ctx.currentTime + delay;
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t0);
+    envelope(ctx, o, t0, peak, dur);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+    SND.played++;
+  }
+  const sfx = {
+    step() {   // a soft scuff: a burst of low-passed noise
+      const ctx = audio();
+      if (!ctx) return;
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), t0 = ctx.currentTime;
+      src.buffer = SND.noise;
+      f.type = 'lowpass'; f.frequency.value = 520 + Math.random() * 160;
+      src.connect(f);
+      envelope(ctx, f, t0, 0.07, 0.07);
+      src.start(t0, Math.random() * 0.1, 0.09);
+      SND.played++;
+    },
+    click() { tone(1180, 0, 0.05, 0.05, 'triangle'); },
+    arrive() { tone(660, 0, 0.22, 0.06); tone(990, 0.09, 0.3, 0.05); },
+  };
+  function setSound(on) {
+    SND.on = on;
+    store.set('sound', on ? '1' : '0');
+    const b = $('#soundBtn');
+    b.textContent = on ? 'Sound: on' : 'Sound: off';
+    b.setAttribute('aria-pressed', String(on));
+    if (on) sfx.click();   // the press is the gesture that lets the browser start audio
+  }
+  $('#soundBtn').addEventListener('click', () => setSound(!SND.on));
+  KEYS.m = () => { setSound(!SND.on); toast(SND.on ? 'Sound effects on' : 'Sound effects off'); };
+
   // ── welcome card ─────────────────────────────────────────────────────────
   function openWelcome() { $('#welcome').hidden = false; $('#welcomeGo').focus(); }
   function closeWelcome() { $('#welcome').hidden = true; store.set('welcomed', '1'); if (canvas) canvas.focus({ preventScroll: true }); }
@@ -3568,6 +3633,7 @@
       ring: FX.ring ? +FX.ring.mesh.scale.x.toFixed(2) : null, bounce: !!FX.bounce,
       hover: hovBox ? +hovBox.material.opacity.toFixed(2) : null,
     }),
+    sound: () => ({ on: SND.on, played: SND.played, stored: store.get('sound', '0') }),
     worker: () => ({ lean: W8.lean, tilt: W8.tilt, squash: W8.squash, head: W8.look }),
     jump() { W8.vy = 6.5; },
     look(yaw, pitch, dist) { Object.assign(cam.goal, { yaw, pitch, dist }); },
@@ -3600,6 +3666,8 @@
   async function start() {
     $('#theme').textContent = themeId === 'night' ? 'Day shift' : 'Night shift';
     document.documentElement.dataset.theme = themeId;
+    $('#soundBtn').textContent = SND.on ? 'Sound: on' : 'Sound: off';
+    $('#soundBtn').setAttribute('aria-pressed', String(SND.on));
     try {
       await Promise.race([
         Promise.all([document.fonts.load('600 40px "Barlow Condensed"'), document.fonts.load('700 40px "Barlow Condensed"'), document.fonts.load('500 30px "Barlow"')]),

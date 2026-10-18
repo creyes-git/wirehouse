@@ -7,6 +7,12 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Optional sound effects** (2026-10-18)
+  - Summary: Footsteps, a click when a block is selected and a chime on arrival, synthesised in the page
+    with WebAudio (no audio files). Off by default; `M` or the button on the controls card turns them on,
+    and the choice is remembered in this browser.
+  - Why: a little sound makes walking feel physical for readers who want it, without surprising anyone
+    who opens a shared page in a meeting.
 - **Click feedback** (2026-10-18)
   - Summary: Clicking the floor or the minimap drops a ring where the worker is heading, which pulses
     while walking and shrinks away on arrival. A newly selected block gives a 120 ms bounce, and the
