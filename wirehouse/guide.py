@@ -18,6 +18,8 @@ import re
 from collections import defaultdict
 from pathlib import Path, PurePosixPath
 
+from wirehouse.redact import SECRET_LIKE
+
 MAX_STOPS = 12
 MAX_TEXT = 600
 MAX_TITLE = 60
@@ -25,11 +27,7 @@ ZONE_ORDER = ["clients", "edge", "services", "data", "external", "ops"]
 KIND_ORDER = ["user", "frontend", "mobile", "desktop", "gateway", "auth", "service", "function", "worker", "library", "tests",
               "database", "search", "cache", "queue", "storage", "ai", "external", "infra", "ci", "observability"]
 DATA_KINDS = ["database", "cache", "storage", "queue", "search"]
-# Values that look like credentials. Authored text should never carry them; if it does, they are cut out.
-SECRET_LIKE = re.compile(
-    r"\b(?:sk|pk|rk|whsec)_(?:live|test)?_?[A-Za-z0-9_]{8,}|\bghp_[A-Za-z0-9]{10,}|\bgithub_pat_[A-Za-z0-9_]{10,}|\bAKIA[0-9A-Z]{16}\b"
-    r"|\bxox[abpr]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b[a-z]+://[^\s:/@]+:[^\s@]+@"
-    r"|(?i:\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?token|token)\s*[:=]\s*['\"]?[^\s'\",;]{4,})")
+
 
 
 def diag(code: str, subject: str, message: str, fix: str, severity: str = "warning") -> dict:
@@ -80,9 +78,10 @@ class Evidence:
 
     def check(self, items, subject: str, diags: list) -> list[dict]:
         out = []
-        for ev in items or []:
+        for i, ev in enumerate(items or []):
             if not isinstance(ev, dict) or not ev.get("file"):
-                diags.append(diag("evidence/missing-file", subject, f"citation {ev!r} has no file",
+                # the raw value is not echoed: it is agent text and ends up in the page
+                diags.append(diag("evidence/missing-file", subject, f"citation {i + 1} has no file",
                                   'give each citation as {"file": "path/from/project/root", "line": N}'))
                 continue
             rel = str(ev["file"]).replace("\\", "/")
@@ -180,19 +179,6 @@ def validate(data: dict, enrichment: dict) -> tuple[list, list, list]:
         quests.append({"id": qid, "question": question, "answer": known, "hint": _clean(q.get("hint"), 240, subject, diags),
                        "explain": _clean(q.get("explain"), MAX_TEXT, subject, diags), "evidence": ev.check(q.get("evidence"), subject, diags)})
     return tours, quests, diags
-
-
-def check_added_edges(data: dict, enrichment: dict) -> list[dict]:
-    """Every add_edges entry must cite real code."""
-    ev, diags = Evidence(data), []
-    for k, ae in enumerate(enrichment.get("add_edges") or []):
-        subject = f"add_edges[{k}] {ae.get('source')}->{ae.get('target')}"
-        if not ae.get("evidence"):
-            diags.append(diag("edge/without-evidence", subject, "added connection cites no file and line",
-                              'add "evidence": [{"file": ..., "line": ...}]', "error"))
-        else:
-            ev.check(ae.get("evidence"), subject, diags)
-    return diags
 
 
 # ── made by Wirehouse when enrichment has none ─────────────────────────────────
@@ -304,7 +290,6 @@ def apply(data: dict, enrichment: dict) -> dict:
     """Attach tours, quests and diagnostics to a merged archmap."""
     enrichment = enrichment or {}
     tours, quests, diags = validate(data, enrichment)
-    diags += check_added_edges(data, enrichment)
     nodes, out, _ = _block_graph(data)
 
     def top(i):
@@ -332,5 +317,5 @@ def apply(data: dict, enrichment: dict) -> dict:
             data["link_notes"][key] = _clean(note, 2000, f"links[{key}]", diags)
     data["tours"] = tours or auto_tours(data)
     data["quests"] = quests or auto_quests(data)
-    data["diagnostics"] = diags
+    data["diagnostics"] = data.get("diagnostics", []) + diags   # merge() reports added nodes and edges first
     return data

@@ -26,6 +26,30 @@ All notable changes to Wirehouse are listed here. The format follows
     install command and issue links work once the repository is published.
 
 ### Security
+- **One last redaction pass over everything written** (2026-10-18)
+  - Summary: New `wirehouse/redact.py` scrubs every key and value of the archmap for credential-looking
+    text before `archmap.raw.json`, `archmap.json` and `wirehouse.html` are written; with `--share` it
+    also cuts the project folder and home folders (`C:\Users\<name>`, `/home/<name>`) out of every string.
+  - Why: secrets were checked field by field, so each new field was a new way to leak; three leaks of
+    that kind were found in an audit (below).
+- **SQLite and other file databases no longer leak their connection string** (2026-10-18)
+  - Summary: A string like `Data Source=app.sqlite;Password=...` or `sqlite:///C:\Users\me\app.db` now
+    names the block after the file only (`SQLite · app.sqlite`).
+  - Why: the whole string, password and local folder included, became the block's id, name and
+    description.
+- **Connections the agent adds need real evidence** (2026-10-18)
+  - Summary: An `add_edges` entry is drawn only when at least one of its citations points at a real file
+    and line; otherwise it is left out with `edge/without-evidence` or `edge/unknown-endpoint`. Text and
+    locations of `add_nodes`/`add_edges` are checked like tour text.
+  - Why: these edges were drawn even when the check failed, and their descriptions and cited paths went
+    into the page unchecked, so a secret or a local path written by the agent was published even with
+    `--share`.
+- **Problem messages no longer copy the agent's raw input** (2026-10-18)
+  - Summary: Diagnostics name the entry instead of echoing its contents, and the separate `warnings`
+    list is gone (unknown endpoints are diagnostics now). Render counts only the additions and removals
+    it really applied.
+  - Why: the messages are embedded in the page, so they carried whatever the agent wrote, and the
+    counts reported no-op entries as changes.
 - **Ignore local `.env` files** (2026-10-16)
   - Summary: `.gitignore` now excludes `.env` and `.env.*` (keeping `.env.example`).
   - Why: contributors who keep keys in a local `.env` while testing should never commit it by accident.

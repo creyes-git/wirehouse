@@ -59,7 +59,8 @@ How to do it well:
 - **links**: for each top-level connection in the brief, say what flows over it and when
   (for example "Server components fetch quotes and fundamentals through the FastAPI proxy").
 - **Fix the map when the rules got it wrong.** Add a missing block or connection with
-  `add_nodes` / `add_edges` only when you can point at a file and line. Remove false
+  `add_nodes` / `add_edges` only when you can point at a file and line (an added connection
+  whose citations do not check out is left out of the page). Remove false
   positives with `remove_nodes` / `remove_edges` and give each removal a `reason` with
   file:line evidence. Removing a top-level pair drops every connection between those two
   blocks and its `links` entry. Typical false positives: a URL that is only an `href` or a

@@ -12,6 +12,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from wirehouse.guide import Evidence, _clean, diag
 from wirehouse.model import EDGE_KINDS, KINDS
 
 BRIEF_NAME = "enrich-brief.md"
@@ -198,11 +199,13 @@ def merge(data: dict, enrichment: dict) -> dict:
     if not enrichment:
         return data
     nodes, children = _index(data)
-    warnings = []
+    diags: list[dict] = []
+    removed_nodes = 0
 
     for nid in enrichment.get("remove_nodes", []):
         if nid not in nodes:
             continue
+        removed_nodes += 1
         stack, gone = [nid], set()
         while stack:
             cur = stack.pop()
@@ -219,25 +222,41 @@ def merge(data: dict, enrichment: dict) -> dict:
                          if not (_top(nodes, e["source"]) == rm.get("source") and _top(nodes, e["target"]) == rm.get("target"))
                          and not (e["source"] == rm.get("source") and e["target"] == rm.get("target"))]
 
-    for an in enrichment.get("add_nodes", []):
+    # What the agent adds goes through the same checks as tours: cited files must exist, text is
+    # scanned for credentials, and a connection without valid evidence is left out.
+    ev = Evidence(data)
+    added_nodes = added_edges = 0
+    for k, an in enumerate(enrichment.get("add_nodes", [])):
         if not an.get("id") or an["id"] in nodes:
             continue
+        subject = f"add_nodes[{k}] {an['id']}"
         kind = an.get("kind") if an.get("kind") in KINDS else "external"
         parent = an.get("parent") if an.get("parent") in nodes else None
-        n = {"id": an["id"], "name": an.get("name", an["id"]), "kind": kind, "layer": an.get("layer") or KINDS.get(kind),
-             "parent": parent, "description": an.get("description", ""), "purpose": an.get("purpose", ""),
-             "tech": an.get("tech", []), "locations": an.get("locations", []), "source": "agent"}
+        n = {"id": an["id"], "name": _clean(an.get("name") or an["id"], 120, subject, diags), "kind": kind,
+             "layer": an.get("layer") or KINDS.get(kind), "parent": parent,
+             "description": _clean(an.get("description"), 2000, subject, diags), "purpose": _clean(an.get("purpose"), 2000, subject, diags),
+             "tech": [_clean(t, 60, subject, diags) for t in an.get("tech") or [] if isinstance(t, str)],
+             "locations": ev.check(an.get("locations"), subject, diags), "source": "agent"}
         data["nodes"].append(n)
         nodes[n["id"]] = n
+        added_nodes += 1
 
-    for ae in enrichment.get("add_edges", []):
-        if ae.get("source") in nodes and ae.get("target") in nodes:
-            data["edges"].append({"source": ae["source"], "target": ae["target"],
-                                  "kind": ae.get("kind") if ae.get("kind") in EDGE_KINDS else "uses",
-                                  "description": ae.get("description", ""), "evidence": ae.get("evidence", []),
-                                  "confidence": "INFERRED", "count": 1, "source_tag": "agent"})
-        else:
-            warnings.append(f"add_edges: unknown endpoint in {ae}")
+    for k, ae in enumerate(enrichment.get("add_edges", [])):
+        src, dst = ae.get("source"), ae.get("target")
+        subject = f"add_edges[{k}] {src}->{dst}"
+        if src not in nodes or dst not in nodes:
+            diags.append(diag("edge/unknown-endpoint", subject, "the source or the target is not in the map; the connection was left out",
+                              "use node ids from archmap.json", "error"))
+            continue
+        evidence = ev.check(ae.get("evidence"), subject, diags)
+        if not evidence:
+            diags.append(diag("edge/without-evidence", subject, "added connection cites no real file and line; it was left out",
+                              'add "evidence": [{"file": ..., "line": ...}] pointing at the code that makes the connection', "error"))
+            continue
+        data["edges"].append({"source": src, "target": dst, "kind": ae.get("kind") if ae.get("kind") in EDGE_KINDS else "uses",
+                              "description": _clean(ae.get("description"), 2000, subject, diags), "evidence": evidence,
+                              "confidence": "INFERRED", "count": 1, "source_tag": "agent"})
+        added_edges += 1
 
     for nid, patch in (enrichment.get("nodes") or {}).items():
         n = nodes.get(nid)
@@ -260,9 +279,8 @@ def merge(data: dict, enrichment: dict) -> dict:
     data["enrichment_stats"] = {
         "nodes": sum(1 for nid in (enrichment.get("nodes") or {}) if nid in nodes),
         "links": len(data["link_notes"]),
-        "added_nodes": len(enrichment.get("add_nodes", [])), "added_edges": len(enrichment.get("add_edges", [])),
-        "removed_nodes": len(enrichment.get("remove_nodes", [])), "removed_edges": len(removed_pairs),
+        "added_nodes": added_nodes, "added_edges": added_edges,
+        "removed_nodes": removed_nodes, "removed_edges": len(removed_pairs),
     }
-    if warnings:
-        data.setdefault("warnings", []).extend(warnings)
+    data["diagnostics"] = diags
     return data

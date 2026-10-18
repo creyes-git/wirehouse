@@ -50,6 +50,7 @@ def cmd_scan(project: Path, out_dir: Path) -> dict:
 def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False) -> Path:
     from wirehouse import guide
     from wirehouse.enrich import load_enrichment, merge
+    from wirehouse.redact import scrub
     from wirehouse.render.html import write_html
 
     raw = out_dir / RAW_NAME
@@ -59,12 +60,16 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False)
     enrichment = load_enrichment(out_dir)
     data = merge(data, enrichment)
     data = guide.apply(data, enrichment)
+    root = data["project"].get("root") or str(project)
     if share:
         # For publishing: no absolute paths of this machine (they name the user) and no list of
         # uncommitted files. Code-host links keep working; VS Code links are left out.
         data["project"].pop("root", None)
         if data.get("repo"):
             data["repo"].pop("dirty", None)
+    data, redacted = scrub(data, share=share, root=root)
+    if redacted:
+        _log(f"  warning: removed {redacted} credential-looking value(s) from the output")
     stale = sum(1 for n in data["nodes"] if n.get("stale"))
     (out_dir / MAP_NAME).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
     html_path = write_html(data, out_dir / HTML_NAME)
@@ -76,8 +81,6 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False)
              + (f", {stale} stale" if stale else ""))
     else:
         _log("  no enrichment.json yet: descriptions are rule-based")
-    for w in data.get("warnings", []):
-        _log(f"  warning: {w}")
     tours, quests = data.get("tours", []), data.get("quests", [])
     made = " (made by Wirehouse; add your own in enrichment.json)" if tours and all(t.get("auto") for t in tours) else ""
     _log(f"  {len(tours)} tours, {len(quests)} quests{made}")

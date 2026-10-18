@@ -588,3 +588,71 @@ def test_install_reaches_every_agent_found(tmp_path, capsys):
     capsys.readouterr()
     assert main(["install", "--print"]) == 0
     assert "name: wirehouse" in capsys.readouterr().out
+
+
+def _write(root: Path, files: dict) -> None:
+    for rel, body in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
+
+
+def test_file_database_strings_keep_only_the_file_name(tmp_path):
+    # SQLite strings are named by their file; the rest (passwords, local folders) must not reach ids or names.
+    _write(tmp_path, {
+        "src/App/App.csproj": '<Project Sdk="Microsoft.NET.Sdk.Web"><ItemGroup>'
+                              '<PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.0" />'
+                              '</ItemGroup></Project>',
+        "src/App/Program.cs": "var builder = WebApplication.CreateBuilder(args);\n",
+        "src/App/appsettings.json": '{"ConnectionStrings": {"Default": "Data Source=app.sqlite;Password=hunter2SECRET"}}',
+        "worker/requirements.txt": "sqlalchemy>=2\n",
+        "worker/main.py": "import os\nfrom sqlalchemy import create_engine\nengine = create_engine(os.environ['DATABASE_URL'])\n",
+        "worker/.env.example": r"DATABASE_URL=sqlite:///C:\Users\carlos\jobs.db" + "\n",
+    })
+    data = build_archmap(tmp_path, log=lambda *_: None)
+    blob = json.dumps(data)
+    assert "hunter2SECRET" not in blob and "carlos" not in blob
+    assert "res:sqlite:jobs.db" in {n["id"] for n in data["nodes"]}
+    from wirehouse.build import _file_instance
+
+    assert _file_instance("Data Source=app.sqlite;Password=hunter2SECRET") == "app.sqlite"
+    assert _file_instance("sqlite:///./data/app.db?mode=ro") == "app.db"
+
+
+def test_added_connections_need_real_evidence(archmap):
+    from wirehouse import guide
+
+    enrichment = {"add_edges": [
+        {"source": "unit:python:api", "target": "res:stripe", "kind": "calls", "description": "Charges cards.",
+         "evidence": [{"file": "api/main.py", "line": 1}]},
+        {"source": "unit:js:web", "target": "res:redis", "description": "no evidence"},
+        {"source": "unit:js:web", "target": "res:postgres", "evidence": [{"file": "C:/Users/me/notes.py"}, "web/lib/api.ts"]},
+        {"source": "unit:js:web", "target": "res:nowhere", "evidence": [{"file": "web/lib/api.ts", "line": 1}]},
+    ]}
+    data = guide.apply(merge(json.loads(json.dumps(archmap)), enrichment), enrichment)
+    agent = [(e["source"], e["target"]) for e in data["edges"] if e.get("source_tag") == "agent"]
+    assert agent == [("unit:python:api", "res:stripe")]
+    codes = [d["code"] for d in data["diagnostics"]]
+    assert codes.count("edge/without-evidence") == 2 and "edge/unknown-endpoint" in codes
+    assert data["enrichment_stats"]["added_edges"] == 1
+
+
+def test_agent_text_is_redacted_everywhere(repo, tmp_path):
+    # Agent text reaches the page through more than descriptions: added nodes, edges, diagnostics.
+    # None of it may carry a credential, and with --share none of it may name a local folder.
+    from wirehouse.cli import main
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "enrichment.json").write_text(json.dumps({
+        "add_nodes": [{"id": "res:mailer", "name": "Mailer", "tech": ["token=abcd1234efgh"],
+                       "locations": [{"file": "C:/Users/someone/private/mail.py", "line": 1}]}],
+        "add_edges": [{"source": "unit:python:api", "target": "res:mailer", "description": "password=hunter22xx",
+                       "evidence": [{"file": "/home/someone/x.py"}, {"file": "api/main.py", "line": 1}]},
+                      {"source": "password=hunter33yy", "target": "res:mailer", "evidence": []}],
+    }), encoding="utf-8")
+    assert main(["build", str(repo), "-o", str(out), "--share"]) == 0
+    for name in ("wirehouse.html", "archmap.json"):
+        text = (out / name).read_text(encoding="utf-8")
+        for leak in ("abcd1234efgh", "hunter22xx", "hunter33yy", "someone"):
+            assert leak not in text, (name, leak)

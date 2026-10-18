@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 
+from wirehouse.redact import scrub
+
 HERE = Path(__file__).parent
 
 
@@ -16,6 +18,7 @@ def _safe_json(data: dict) -> str:
 
 
 def render_html(data: dict) -> str:
+    data, _ = scrub(data)
     template = (HERE / "template.html").read_text(encoding="utf-8")
     css = (HERE / "app.css").read_text(encoding="utf-8")
     app = (HERE / "app.js").read_text(encoding="utf-8")

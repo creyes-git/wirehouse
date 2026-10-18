@@ -18,6 +18,7 @@ from wirehouse.detectors.code import NOISE_HOSTS, FileFacts, analyze
 from wirehouse.detectors.infra import Infra, detect_infra
 from wirehouse.detectors.units import Unit, detect_units
 from wirehouse.model import EDGE_KINDS, LAYERS, SCHEMA_VERSION, edge, loc, node
+from wirehouse.redact import scrub
 from wirehouse.repo import repo_info
 from wirehouse.scan import ScanResult, SourceFile, lang_family, scan
 from wirehouse.signatures import (
@@ -74,6 +75,19 @@ def _strip_jsonc(text: str) -> str:
 
 def _basename(path: str) -> str:
     return path.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _file_instance(value: str) -> str | None:
+    r"""The file a file-based database string names (`app.db`), never the rest of it.
+
+    `Data Source=app.sqlite;Password=...` keeps only `app.sqlite`, and `sqlite:///C:\Users\me\app.db`
+    only `app.db`: the instance ends up in node ids and names, so credentials and local folders must not.
+    """
+    m = re.search(r"\b(?:data\s*source|datasource|filename)\s*=\s*([^;]+)", value, re.I)
+    v = m.group(1) if m else value
+    v = v.split("?")[0].split(";")[0].strip().strip("'\"")
+    name = re.split(r"[\\/]", v.rstrip("\\/"))[-1]
+    return name or None
 
 
 def _dirname(path: str) -> str:
@@ -469,10 +483,8 @@ class Builder:
                 if host in self.service_target and self.service_target[host].startswith(f"res:{sig.id}"):
                     return self.service_target[host], f"{var} → {sig.name} (compose service `{host}`)"
             inst = None
-            if any(s.startswith(".") for s in sig.schemes) and "://" not in v.replace(":///", "://x"):
-                inst = _basename(v.split("?")[0])
-            elif "sqlite" in v.lower():
-                inst = _basename(v.split("?")[0])
+            if any(s.startswith(".") for s in sig.schemes) and "://" not in v.replace(":///", "://x") or "sqlite" in v.lower():
+                inst = _file_instance(v)
             nid = self.res_node(sig, inst)
             return nid, f"{var} → {sig.name}" + (f" `{inst}`" if inst else "")
         um = re.match(r"(?:https?|wss?|grpc)://([A-Za-z0-9_.-]+)(?::(\d+))?", v)
@@ -914,7 +926,7 @@ def build_archmap(root: Path, log=print) -> dict:
     units = detect_units(res)
     infra = detect_infra(res)
     log(f"  found {len(units)} code units, {len(infra.compose)} compose services, {len(infra.env)} env entries")
-    data = Builder(res, facts, units, infra).run()
+    data, _ = scrub(Builder(res, facts, units, infra).run())
     tops = [n for n in data["nodes"] if n["parent"] is None]
     log(f"  built {len(data['nodes'])} nodes ({len(tops)} top-level blocks) and {len(data['edges'])} edges in {time.time() - t0:.1f}s")
     return data
