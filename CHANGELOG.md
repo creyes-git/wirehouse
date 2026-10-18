@@ -61,6 +61,11 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **An idle view draws half as often, and panels lose their blur** (2026-10-18)
+  - Summary: After 5 seconds with no input, no walking and no playing tour, the 3D view draws every
+    other frame until something happens. The panels no longer blur what is behind them.
+  - Why: a page left open on a laptop kept the GPU busy at full rate for nothing, and the panels are
+    88 to 94 percent opaque, so the blur was invisible but re-filtered the live canvas every frame.
 - **Day-shift shadows are drawn once per room** (2026-10-18)
   - Summary: The shadow map is rendered when a room is built or the theme changes, not every frame,
     with plain PCF filtering. Floors, zone planes, paint lines, container ribs, cabinet lights and moving

@@ -325,3 +325,13 @@ def test_day_shadows_are_drawn_once_per_room_not_every_frame(browser, html):
     assert again["calls"] == steady["calls"]                             # later frames reuse it
     js(page, "__wirehouse.setTheme('night')")
     assert errors == []
+
+
+def test_an_idle_view_slows_down_and_wakes_on_input(browser, html):
+    page, errors = open_view(browser, html)
+    assert js(page, "__wirehouse.idle()") is False
+    page.wait_for_function("__wirehouse.idle()", timeout=12000)          # 5 s without input
+    page.mouse.move(400, 300)
+    assert js(page, "__wirehouse.idle()") is False
+    assert js(page, "getComputedStyle(document.querySelector('#panel')).backdropFilter") in ("none", "")
+    assert errors == []

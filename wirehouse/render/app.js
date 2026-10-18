@@ -3209,14 +3209,26 @@
     if (q.addEventListener) q.addEventListener('change', on, { once: true });
   })();
 
+  // Idle: after 5 s without input, walking or a playing tour, draw every other frame.
+  const IDLE_MS = 5000;
+  let lastInput = performance.now();
+  ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchstart'].forEach((ev) => window.addEventListener(ev, () => { lastInput = performance.now(); }, { passive: true }));
+  function idle(now) {
+    const busy = keys.size || W8.path || ptr.down || transitioning || W8.pos.y > 0 || (player && player.playing);
+    if (busy) lastInput = now;
+    return now - lastInput > IDLE_MS;
+  }
+
   let lastFrame = 0;
   function frame(now) {
     requestAnimationFrame(frame);
     now = now || performance.now();
     frameNo++;
+    const lazy = idle(now);
+    if (lazy && frameNo % 2) return;   // the skipped frame's time goes into the next one's dt
     const dt = Math.min(clock.getDelta(), 0.05);
     const time = clock.elapsedTime;
-    if (lastFrame && !document.hidden) governFrame(now - lastFrame, now);
+    if (lastFrame && !lazy && !document.hidden) governFrame(now - lastFrame, now);
     lastFrame = now;
     if (!room) return;
     if (planOn) {
@@ -3284,6 +3296,7 @@
       reset();
       return renderer && renderer.getPixelRatio();
     },
+    idle: () => idle(performance.now()),
     tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
