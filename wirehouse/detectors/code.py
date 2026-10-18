@@ -52,7 +52,8 @@ JS_SIDE = re.compile(r"\bimport\s*['\"]([^'\"]+)['\"]")
 JS_REQ = re.compile(r"\b(?:require|import)\s*\(\s*['\"]([^'\"]+)['\"]\s*\)")
 CS_USING = re.compile(r"^[ \t]*(?:global[ \t]+)?using[ \t]+(?:static[ \t]+)?([\w.]+)[ \t]*;", re.M)
 GO_IMPORT_ONE = re.compile(r'^[ \t]*import[ \t]+(?:[\w.]+[ \t]+)?"([^"]+)"', re.M)
-GO_IMPORT_BLOCK = re.compile(r"^[ \t]*import[ \t]*\(([^)]*)\)", re.M)
+# `[^()]` not `[^)]`: an unclosed `import (` would otherwise scan to the end of the file, once per line.
+GO_IMPORT_BLOCK = re.compile(r"^[ \t]*import[ \t]*\(([^()]*)\)", re.M)
 GO_IMPORT_SPEC = re.compile(r'^[ \t]*(?:[\w.]+[ \t]+)?"([^"]+)"', re.M)
 
 # ── env vars ─────────────────────────────────────────────────────────────────
@@ -109,7 +110,8 @@ GO_SYMBOL = re.compile(r"^(?:func[ \t]+(?:\([^)]*\)[ \t]*)?([A-Z]\w*)|type[ \t]+
 # ── endpoints ────────────────────────────────────────────────────────────────
 PY_ROUTE = re.compile(
     r"@(\w+)\.(get|post|put|patch|delete|options|head|api_route|route|websocket)\(\s*(?:path\s*=\s*)?['\"]([^'\"]*)['\"]([^\n]*)")
-PY_ROUTER_PREFIX = re.compile(r"(\w+)\s*=\s*(?:APIRouter|Blueprint)\(([^)]*)\)")
+# Anchored at a word start and bounded: a long word or an unclosed call made these scans quadratic.
+PY_ROUTER_PREFIX = re.compile(r"\b(\w+)\s*=\s*(?:APIRouter|Blueprint)\(([^)]{0,1000})\)")
 DJANGO_PATH = re.compile(r"\b(?:re_)?path\(\s*r?['\"]([^'\"]*)['\"]")
 JS_ROUTE = re.compile(r"\b(\w+)\.(get|post|put|patch|delete|all)\(\s*['\"`](/[^'\"`]*)['\"`]")
 NEXT_METHOD = re.compile(r"^export[ \t]+(?:async[ \t]+)?(?:function[ \t]+|const[ \t]+)(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b", re.M)
@@ -127,7 +129,7 @@ SQLMODEL_TABLE = re.compile(r"^class[ \t]+(\w+)\([^)]*\btable\s*=\s*True[^)]*\)\
 DJANGO_MODEL = re.compile(r"^class[ \t]+(\w+)\((?:models\.)?Model\)", re.M)
 PRISMA_MODEL = re.compile(r"^model[ \t]+(\w+)[ \t]*\{", re.M)
 DRIZZLE_TABLE = re.compile(r"\b(?:pgTable|mysqlTable|sqliteTable)\(\s*['\"](\w+)['\"]")
-TYPEORM_ENTITY = re.compile(r"@Entity\(\s*(?:['\"](\w+)['\"])?[^)]*\)\s*(?:export\s+)?class\s+(\w+)")
+TYPEORM_ENTITY = re.compile(r"@Entity\(\s*(?:['\"](\w+)['\"])?[^)]{0,500}\)\s*(?:export\s+)?class\s+(\w+)")
 MONGOOSE_MODEL = re.compile(r"\bmodel(?:<[^>]*>)?\(\s*['\"](\w+)['\"]")
 SQL_TABLE = re.compile(
     r"CREATE\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+)?(TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w.\"`\[\]]+)",
@@ -168,23 +170,42 @@ def _js_doc(text: str) -> str:
     return _first_paragraph("\n".join(lines)) if lines else ""
 
 
+# The two doc readers below go line by line: a pattern over the whole file was quadratic on long runs
+# of comment lines (200 KB of `///` took minutes).
 def _cs_doc(text: str) -> str:
-    m = re.search(r"((?:[ \t]*///[^\n]*\n)+)[ \t]*(?:\[[^\n]*\n[ \t]*)*(?:public|internal)", text)
-    if not m:
-        return ""
-    inner = re.sub(r"^[ \t]*///[ \t]?", "", m.group(1), flags=re.M)
-    inner = re.sub(r"<[^>]+>", "", inner)
-    return _first_paragraph(inner)
+    """The first `///` block directly above a public or internal declaration (attributes may sit between)."""
+    block: list[str] = []
+    attrs = False
+    for raw in text.splitlines():
+        s = raw.lstrip(" \t")
+        if s.startswith("///"):
+            if attrs:
+                block, attrs = [], False
+            block.append(s[4:] if s[3:4] in (" ", "\t") else s[3:])
+        elif block and s.startswith("["):
+            attrs = True
+        elif block and s.startswith(("public", "internal")):
+            return _first_paragraph(re.sub(r"<[^>]+>", "", "\n".join(block)))
+        else:
+            block, attrs = [], False
+    return ""
 
 
 def _go_doc(text: str) -> str:
-    m = re.search(r"((?:^//[^\n]*\n)+)package[ \t]", text, re.M)
-    if not m:
+    """The package comment: the `//` lines right above the package clause."""
+    block: list[str] = []
+    for raw in text.splitlines():
+        if raw.startswith("//"):
+            block.append(raw[2:].strip())
+        elif raw.startswith(("package ", "package\t")):
+            break
+        else:
+            block = []
+    else:
         return ""
-    lines = [s[2:].strip() for s in m.group(1).splitlines()]
-    if lines and re.match(r"(?i)(copyright|\+build|go:build|code generated)", lines[0]):
+    if not block or re.match(r"(?i)(copyright|\+build|go:build|code generated)", block[0]):
         return ""
-    return _first_paragraph("\n".join(lines))
+    return _first_paragraph("\n".join(block))
 
 
 def _next_route(rel: str) -> tuple[str, str] | None:
@@ -256,15 +277,14 @@ def analyze(sf: SourceFile) -> FileFacts:
             f.symbols.append({"name": m.group(2), "kind": m.group(1), "line": L.line(m.start())})
         env_key = "csharp"
     elif lang == "go":
-        L0 = _Lines(text)
         for m in GO_IMPORT_ONE.finditer(text):
-            f.imports.append((m.group(1), L0.line(m.start())))
+            f.imports.append((m.group(1), L.line(m.start())))
         for m in GO_IMPORT_BLOCK.finditer(text):
             for s in GO_IMPORT_SPEC.finditer(m.group(1)):
-                f.imports.append((s.group(1), L0.line(m.start(1) + s.start(1))))
+                f.imports.append((s.group(1), L.line(m.start(1) + s.start(1))))
         f.doc = _go_doc(text)
         for m in GO_SYMBOL.finditer(text):
-            f.symbols.append({"name": m.group(1) or m.group(2), "kind": "func" if m.group(1) else m.group(3), "line": L0.line(m.start())})
+            f.symbols.append({"name": m.group(1) or m.group(2), "kind": "func" if m.group(1) else m.group(3), "line": L.line(m.start())})
         env_key = "go"
     else:
         env_key = None

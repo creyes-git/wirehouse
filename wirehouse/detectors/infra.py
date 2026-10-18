@@ -74,6 +74,23 @@ class Infra:
     items: list[InfraItem] = field(default_factory=list)
 
 
+# YAML aliases share one object, so an 11-line file can describe a list of billions of items that only
+# explodes when it is turned into text. Values are taken only when they are plain scalars, and capped.
+MAX_VALUE = 1000
+MAX_ITEMS = 200
+
+
+def _scalar(value) -> str:
+    """A YAML scalar as text, or "" for lists, mappings and anything else that could expand."""
+    if isinstance(value, bool):
+        return str(value).lower()
+    return str(value)[:MAX_VALUE] if isinstance(value, (str, int, float)) else ""
+
+
+def _scalars(value) -> list[str]:
+    return [t for v in as_list(value)[:MAX_ITEMS] if (t := _scalar(v))]
+
+
 def _line_of(text: str, needle: str, start: int = 0) -> int:
     i = text.find(needle, start)
     return text.count("\n", 0, i) + 1 if i >= 0 else 1
@@ -93,8 +110,8 @@ def _join(base: str, rel: str) -> str:
 
 def _ports(raw) -> list[int]:
     out = []
-    for p in raw or []:
-        s = str(p.get("target") if isinstance(p, dict) else p)
+    for p in as_list(raw)[:MAX_ITEMS]:
+        s = _scalar(p.get("target") if isinstance(p, dict) else p)
         nums = re.findall(r"\d{2,5}", s.split("/")[0])
         if nums:
             out.append(int(nums[-1]))
@@ -114,30 +131,31 @@ def _parse_compose(scan: ScanResult, rel: str, infra: Infra) -> None:
         if not isinstance(svc, dict):
             continue
         cs = ComposeService(name=name, file=rel, line=_line_of(text, f"\n  {name}:") + 1 if f"\n  {name}:" in text else _line_of(text, f"{name}:"))
-        cs.image = str(svc.get("image") or "")
+        cs.image = _scalar(svc.get("image") or "")
         b = svc.get("build")
         if isinstance(b, str):
             cs.build_context = _join(base, b)
         elif isinstance(b, dict):
-            cs.build_context = _join(base, str(b.get("context", ".")))
-            if b.get("dockerfile"):
-                cs.dockerfile = _join(cs.build_context, str(b["dockerfile"]))
+            cs.build_context = _join(base, _scalar(b.get("context", ".")))
+            if _scalar(b.get("dockerfile")):
+                cs.dockerfile = _join(cs.build_context, _scalar(b["dockerfile"]))
         if cs.build_context is not None and cs.dockerfile is None:
             cs.dockerfile = _join(cs.build_context, "Dockerfile")
         cmd = svc.get("command") or svc.get("entrypoint") or ""
-        cs.command = " ".join(map(str, cmd)) if isinstance(cmd, list) else str(cmd)
+        cs.command = " ".join(_scalars(cmd)) if isinstance(cmd, list) else _scalar(cmd)
         cs.ports = _ports(svc.get("ports")) + _ports(svc.get("expose"))
         dep = svc.get("depends_on") or []
-        cs.depends_on = list(dep.keys()) if isinstance(dep, dict) else [str(d) for d in as_list(dep)]
+        cs.depends_on = _scalars(list(dep.keys()) if isinstance(dep, dict) else dep)
         env = svc.get("environment") or {}
         if isinstance(env, list):
-            env = dict(e.split("=", 1) if "=" in e else (e, "") for e in map(str, env))
-        cs.env = {str(k): "" if v is None else str(v) for k, v in as_dict(env).items()}
+            env = dict(e.split("=", 1) if "=" in e else (e, "") for e in _scalars(env))
+        cs.env = {_scalar(k): _scalar(v) for k, v in list(as_dict(env).items())[:MAX_ITEMS] if _scalar(k)}
         labels = svc.get("labels") or {}
-        labels = labels if isinstance(labels, dict) else as_list(labels)
-        keys = [str(k) for k in labels] if isinstance(labels, dict) else [str(x).split("=", 1)[0] for x in labels]
-        values = {str(k): str(v) for k, v in labels.items()} if isinstance(labels, dict) else dict(
-            str(x).split("=", 1) if "=" in str(x) else (str(x), "") for x in labels)
+        if isinstance(labels, dict):
+            values = {_scalar(k): _scalar(v) for k, v in list(labels.items())[:MAX_ITEMS]}
+        else:
+            values = dict(x.split("=", 1) if "=" in x else (x, "") for x in _scalars(labels))
+        keys = list(values)
         if values.get("traefik.enable", "").lower() == "true" or any(k.startswith("traefik.http.routers.") for k in keys):
             cs.routed_by.append("traefik")
         for k, v in cs.env.items():
@@ -233,12 +251,12 @@ def _parse_k8s(scan: ScanResult, rel: str, infra: Infra) -> None:
     for d in docs:
         if not isinstance(d, dict) or "kind" not in d:
             continue
-        kind = str(d.get("kind"))
-        name = str((d.get("metadata") or {}).get("name") or kind)
+        kind = _scalar(d.get("kind")) or "Unknown"
+        name = _scalar((d.get("metadata") or {}).get("name")) or kind
         image = ""
         try:
             tpl = d["spec"].get("template", {}).get("spec", {}) if kind != "CronJob" else d["spec"]["jobTemplate"]["spec"]["template"]["spec"]
-            image = str(((tpl.get("containers") or [{}])[0]).get("image") or "")
+            image = _scalar(((tpl.get("containers") or [{}])[0]).get("image") or "")
         except (KeyError, AttributeError, TypeError):
             pass
         wk = {"Ingress": "gateway", "Service": "infra", "Deployment": "service", "StatefulSet": "database",
@@ -262,10 +280,10 @@ def _parse_workflow(scan: ScanResult, rel: str, infra: Infra) -> None:
     if yaml is not None:
         try:
             data = as_dict(yaml.safe_load(text))
-            name = str(data.get("name") or name)
-            jobs = [str(j) for j in as_dict(data.get("jobs"))]
+            name = _scalar(data.get("name")) or name
+            jobs = _scalars(list(as_dict(data.get("jobs"))))
             on = data.get(True) or data.get("on") or {}
-            triggers = ", ".join(map(str, on)) if isinstance(on, (dict, list)) else str(on)
+            triggers = ", ".join(_scalars(list(on) if isinstance(on, dict) else on)) if isinstance(on, (dict, list)) else _scalar(on)
         except yaml.YAMLError:
             pass
     # whole words only: test_renderer.py is not Render, --project=firefly is not Fly.io

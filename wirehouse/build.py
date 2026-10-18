@@ -43,7 +43,7 @@ CALLISH = re.compile(r"fetch|axios|request|httpx|requests\.|urlopen|HttpClient|E
 SELF_URL_VARS = re.compile(r"CORS|ORIGIN|ALLOWED|REDIRECT|CALLBACK|APP_URL|SITE_URL|BASE_PATH|NEXTAUTH_URL|AUTH_URL|TRUSTED"
                            r"|FRONTEND_(?:HOST|URL|ORIGIN|BASE)|CLIENT_URL|UI_URL|WEB_URL|DASHBOARD_URL", re.I)
 STRING_LITERAL = re.compile(r"'[^'\n]*'|\"[^\"\n]*\"|`[^`]*`")
-URL_ANY = re.compile(r"\b[a-z][\w+.-]*://\S+", re.I)
+URL_ANY = re.compile(r"\b[a-z][\w+.-]{0,30}://\S+", re.I)   # bounded scheme: long dotted words were quadratic
 COMMENT_START = re.compile(r"(?:^|\s)(?:#|//|/\*|\*|--)")
 JS_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".svelte", ".astro"]
 

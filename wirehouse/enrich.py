@@ -284,6 +284,12 @@ def merge(data: dict, enrichment: dict) -> dict:
             cur = stack.pop()
             gone.add(cur)
             stack += children.get(cur, [])
+        # Removals hide what the scan found, so each one is listed in the Checks panel: an
+        # enrichment.json that came with a cloned repository could hide an exfiltration endpoint.
+        inside = f" and {len(gone) - 1} item(s) inside it" if len(gone) > 1 else ""
+        diags.append(diag("enrichment/removed-node", f"remove_nodes {nid}",
+                          f"`{nodes[nid].get('name') or nid}`{inside} found by the scan was removed by enrichment.json",
+                          "if the scan was right, delete this entry from remove_nodes"))
         data["nodes"] = [n for n in data["nodes"] if n["id"] not in gone]
         data["edges"] = [e for e in data["edges"] if e["source"] not in gone and e["target"] not in gone]
         nodes, children = _index(data)
@@ -298,7 +304,11 @@ def merge(data: dict, enrichment: dict) -> dict:
         data["edges"] = [e for e in data["edges"]
                          if {_top(nodes, e["source"]), _top(nodes, e["target"])} != {a, b}
                          and {e["source"], e["target"]} != {a, b}]
-        removed_edges += before > len(data["edges"])
+        if before > len(data["edges"]):
+            removed_edges += 1
+            diags.append(diag("enrichment/removed-edge", f"remove_edges {a}->{b}",
+                              f"{before - len(data['edges'])} connection(s) between `{a}` and `{b}` found by the scan were removed by enrichment.json",
+                              "if the scan was right, delete this entry from remove_edges"))
 
     # What the agent adds goes through the same checks as tours: cited files must exist, text is
     # scanned for credentials, and a connection without valid evidence is left out.

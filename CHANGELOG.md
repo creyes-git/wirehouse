@@ -71,6 +71,10 @@ All notable changes to Wirehouse are listed here. The format follows
     and run commands.
 
 ### Removed
+- **Two leftovers in the detectors** (2026-10-18)
+  - Summary: Go files reuse the line index every other language uses instead of building a second one,
+    and `schema._balanced` keeps one docstring instead of two.
+  - Why: found in the Pass 2 audit; duplicate code makes readers look for a difference that is not there.
 - **Unused scanner code** (2026-10-18)
   - Summary: Dropped `Builder.unit_node_id`, a loop that did nothing, the never-read compose `profiles`,
     Dockerfile `copies` and `Unit.implicit` fields, the unused `sln` config category and `.pyi` entry. The
@@ -143,6 +147,12 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Hostile files no longer stall the scan** (2026-10-18)
+  - Summary: The C# and Go doc-comment readers go line by line, and the Go import block, FastAPI and
+    Flask router prefix, TypeORM entity and column, SQL `CREATE TABLE` body, `go.mod` require and URL
+    scheme patterns are anchored or bounded. Each case now scans a 200 KB file in well under a second.
+  - Why: one file could hold the scan for minutes: 200 KB of `///` lines took 174 s, 80 KB of `//` lines
+    29 s, 390 KB of `import (` lines 94 s and of `CREATE TABLE ` 106 s.
 - **The minimap keeps its size on scaled displays** (2026-10-18)
   - Summary: At 125% or 200% display scaling the minimap grew with every redraw until it covered the view;
     it now has a fixed size, and the 3D view also follows browser zoom and moves to another monitor.
@@ -202,6 +212,51 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: each one left a control dead, acted on something hidden, or threw an error.
 
 ### Security
+- **Terminal escape codes are stripped from the output** (2026-10-18)
+  - Summary: The last redaction pass removes control characters (except tab and newline) from every
+    key and value, so the problems render prints and the files it writes carry none.
+  - Why: an id written into `enrichment.json` is echoed in a diagnostic, and an escape sequence in it
+    could rewrite the terminal title or clear the screen of whoever ran the build.
+- **YAML alias bombs no longer hang the scan** (2026-10-18)
+  - Summary: Compose, workflow and Kubernetes values are taken only when they are plain scalars (or
+    lists of them), with a length cap, so nested `&anchor`/`*alias` lists are never expanded into text.
+  - Why: an 11-line compose file with nine levels of aliases turned into hundreds of millions of items
+    when `image` or `command` was converted to text, and the build never finished.
+- **The scan stays inside the project folder** (2026-10-18)
+  - Summary: Symlinks, Windows junctions, pipes and devices are skipped, every file read must resolve to
+    a path inside the project, and config files (compose, workflows, `.gitignore`, `package.json`, ...)
+    over 400 KB are not read, like source files.
+  - Why: a linked folder or a `package.json -> ~/.npmrc` link let the scan read files outside the
+    project, a named pipe called `x.py` hung it, and config reads had no size cap.
+- **The scan never runs filters named by the repository's own git config** (2026-10-18)
+  - Summary: When the checkout's `.git/config` (or a file it includes) defines a `filter.*` clean or
+    smudge command, the scan skips `git status` and marks the list of changed files as incomplete. Filters
+    from your own global or system config (Git LFS) are unaffected.
+  - Why: `git status` runs those commands, so a `.git` folder that came with an archive or a copied
+    project could run any program during a scan.
+- **Enrichment that came with the repository is never applied silently** (2026-10-18)
+  - Summary: When `wirehouse-out/enrichment.json` is tracked by git, render prints a warning and adds
+    an `enrichment/from-repository` check. Every `remove_nodes` and `remove_edges` entry that removed
+    something adds an `enrichment/removed-node` or `enrichment/removed-edge` check, so the Checks panel
+    lists what the scan found and the page leaves out. The file is still applied.
+  - Why: a cloned repository can ship its own enrichment, and `"remove_nodes": ["ext:evil-exfil.io"]`
+    hid an exfiltration endpoint from the map without a trace.
+- **`--share` keeps API routes and finds more home folders** (2026-10-18)
+  - Summary: Only real home folders are cut: `C:\Users\<name>` and `C:\Documents and Settings\<name>`
+    with a drive letter, and `/Users/<name>`, `/home/<name>`, `/var/home/<name>`, `/export/home/<name>`,
+    `/mnt/c/Users/<name>` (WSL), `/c/Users/<name>` (Git Bash) and `/root` where a path starts. Endpoint
+    paths are never touched, and a route after an HTTP method (`GET /home/dashboard`) is kept.
+  - Why: the old pattern ignored case and matched anywhere, so `--share` turned routes such as
+    `GET /users/{id}` and `/home/dashboard` into `~`, while WSL and Git Bash home folders went through.
+- **More credential formats are redacted** (2026-10-18)
+  - Summary: The last redaction pass now also catches GitHub `gho_`/`ghs_`/`ghu_`/`ghr_` tokens, AWS
+    `ASIA` keys and secret access keys, JWTs, OpenAI and Anthropic `sk-` keys, Google `AIza` keys,
+    GitLab, npm, SendGrid, Hugging Face and Twilio tokens, Slack and Discord webhook URLs, Azure
+    `AccountKey=`, `SharedAccessKey=` and SAS `sig=` values, `Bearer`/`Basic` headers and quoted keys
+    such as `"password": "..."`. Setting names match after an underscore too (`DB_PASSWORD=`,
+    `client_secret=`).
+  - Why: file docstrings, workflow names and endpoint paths reach the page, and these common formats
+    went through even with `--share`.
 - **One last redaction pass over everything written** (2026-10-18)
   - Summary: New `wirehouse/redact.py` scrubs every key and value of the archmap for credential-looking
     text before `archmap.raw.json`, `archmap.json` and `wirehouse.html` are written; with `--share` it
