@@ -7,6 +7,11 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Added
+- **A concrete floor for the day shift** (2026-10-18)
+  - Summary: The day floor and zones are concrete slabs with saw-cut joints: one 256 px texture drawn in
+    the page and tiled by world size, so every floor shares it. The night floor keeps its grid.
+  - Why: the flat grey floor gave no sense of scale or movement when walking; joints every 6 units do,
+    with no image file and one small texture.
 - **Contact shadows** (2026-10-18)
   - Summary: Every block and rack stands on a soft dark blob, drawn as one instanced mesh with the same
     64 px gradient as the worker's shadow, in both themes.

@@ -381,3 +381,10 @@ def test_pipe_particles_are_streaks_along_the_flow(browser, html):
     assert day["align"] > 0.99 and not day["additive"]
     js(page, "__wirehouse.setTheme('night')")
     assert errors == []
+
+
+def test_day_floor_is_concrete(browser, html):
+    page, errors = open_view(browser, html)
+    assert js(page, "__wirehouse.setTheme('day'); __wirehouse.floorTexture()") is True
+    assert js(page, "__wirehouse.setTheme('night'); __wirehouse.floorTexture()") is False   # the night floor keeps its grid
+    assert errors == []

@@ -379,7 +379,7 @@
       });
     } else {
       m = new THREE.MeshStandardMaterial({
-        color: hex, roughness: o.rough != null ? o.rough : 0.72, metalness: o.metal != null ? o.metal : 0.08,
+        color: hex, roughness: o.rough != null ? o.rough : 0.72, metalness: o.metal != null ? o.metal : 0.08, map: o.concrete ? concreteTexture() : null,
         emissive: o.emissive ? hex : 0x000000, emissiveIntensity: o.emissive || 0,
         transparent: !!o.opacity, opacity: o.opacity == null ? 1 : o.opacity, side: o.double ? THREE.DoubleSide : THREE.FrontSide,
       });
@@ -388,6 +388,47 @@
     return m;
   }
   function geo(g) { GEOS.push(g); return g; }
+
+  // Day-shift floor: concrete with saw-cut joints, drawn once on a 256 px canvas and tiled by world
+  // size (one tile = one 6-unit slab), so every floor and zone shares one texture.
+  const SLAB = 6;
+  let CONCRETE = null;
+  function concreteTexture() {
+    if (CONCRETE) return CONCRETE;
+    const n = 256, c = document.createElement('canvas');
+    c.width = c.height = n;
+    const g = c.getContext('2d');
+    g.fillStyle = '#f2f2f2';
+    g.fillRect(0, 0, n, n);
+    let seed = 7;
+    const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };   // the same floor every time
+    for (let i = 0; i < 40; i++) {   // soft blotches
+      const x = rnd() * n, y = rnd() * n, r = 14 + rnd() * 40;
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      const v = rnd() < 0.5 ? '0,0,0' : '255,255,255';
+      gr.addColorStop(0, `rgba(${v},${0.015 + rnd() * 0.02})`); gr.addColorStop(1, `rgba(${v},0)`);
+      g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    for (let i = 0; i < 2600; i++) {   // aggregate speckle
+      g.fillStyle = `rgba(0,0,0,${0.03 + rnd() * 0.07})`;
+      g.fillRect(rnd() * n, rnd() * n, 1 + rnd(), 1 + rnd());
+    }
+    g.fillStyle = 'rgba(0,0,0,0.22)';   // joints on two edges, so tiles meet in a grid
+    g.fillRect(0, 0, n, 2); g.fillRect(0, 0, 2, n);
+    g.fillStyle = 'rgba(255,255,255,0.35)';
+    g.fillRect(0, 2, n, 1); g.fillRect(2, 0, 1, n);
+    CONCRETE = new THREE.CanvasTexture(c);
+    CONCRETE.wrapS = CONCRETE.wrapT = THREE.RepeatWrapping;
+    CONCRETE.encoding = THREE.sRGBEncoding;
+    CONCRETE.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 1;
+    return CONCRETE;
+  }
+  // UVs in slabs instead of 0..1, so the shared texture repeats at the same size on any plane.
+  function slabUV(g, w, d, x0, z0) {
+    const uv = g.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, (x0 + uv.getX(i) * w) / SLAB, (z0 + uv.getY(i) * d) / SLAB);
+    return g;
+  }
   const lineMats = new Map();
   function lineMat(hex, opacity) {
     const key = hex + '|' + opacity;
@@ -768,7 +809,7 @@
     scene.background = new THREE.Color(T.bg);
     scene.fog = new THREE.Fog(T.bg, T.fogNear + Math.max(W, Dp) * 0.3, T.fogFar + Math.max(W, Dp));
     // floor
-    const floor = mesh(new THREE.PlaneGeometry(W, Dp), mat(T.floor, { rough: 0.95 }), 0, 0, 0, world);
+    const floor = mesh(slabUV(new THREE.PlaneGeometry(W, Dp), W, Dp, -W / 2, -Dp / 2), mat(T.floor, { rough: 0.95, concrete: !T.glow }), 0, 0, 0, world);
     floor.rotation.x = -Math.PI / 2;
     floor.castShadow = false;   // flat things only receive: each caster costs a draw call in the shadow pass
     floor.receiveShadow = true;
@@ -786,7 +827,8 @@
     // zones
     L.zones.forEach((Z, i) => {
       const zw = Z.x1 - Z.x0, zd = Z.z1 - Z.z0;
-      const pl = mesh(new THREE.PlaneGeometry(zw - 1, zd - 1), mat(i % 2 ? T.floorAlt : T.floor, { rough: 0.95 }), (Z.x0 + Z.x1) / 2, 0.005, (Z.z0 + Z.z1) / 2, world);
+      const pl = mesh(slabUV(new THREE.PlaneGeometry(zw - 1, zd - 1), zw - 1, zd - 1, Z.x0 + 0.5, Z.z0 + 0.5), mat(i % 2 ? T.floorAlt : T.floor, { rough: 0.95, concrete: !T.glow }),
+        (Z.x0 + Z.x1) / 2, 0.005, (Z.z0 + Z.z1) / 2, world);
       pl.rotation.x = -Math.PI / 2;
       pl.castShadow = false;
       pl.receiveShadow = true;
@@ -3417,6 +3459,7 @@
       for (let k = 0; k < 64; k++) best = Math.max(best, axis.dot(tmpDir.subVectors(L.samples[k + 1], L.samples[k]).normalize()));
       return { align: best, additive: particles.material.blending === THREE.AdditiveBlending };
     },
+    floorTexture: () => { const f = world.children.find((c) => c.userData.floor); return !!(f && f.material.map); },
     contactShadows: () => { const o = world.children.find((c) => c.userData.contact); return o ? o.count : 0; },
     labels: () => ({
       slots: SPRITES.filter((s) => s.slot && s.sp.visible).length, blocks: SPRITES.filter((s) => !s.slot && s.sp.visible).length,
