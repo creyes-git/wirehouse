@@ -76,3 +76,66 @@ crashing the scan or the page. The tests were 19 end-to-end checks with few edge
 **Next pass focus:** detector precision on code that describes technologies (signature tables, fixtures,
 docs) and the EXTRACTED edges without evidence, since both put claims on the map that the page presents
 as found in code.
+
+## Pass 2 - 2026-10-18
+
+**Goal:** make Wirehouse ready to publish (a security and precision audit of everything a stranger's
+repository can feed it) and make the viewer smooth on ordinary laptops while keeping truth before
+spectacle.
+
+**Areas covered:** `redact.py`, `scan.py`, `repo.py`, `cli.py`, `enrich.py`, the detectors (`code.py`,
+`schema.py`, `infra.py`, `units.py`), `build.py` import resolution, the release and CI workflows, the
+docs, and the viewer's renderer, shadows, labels, camera, input and progress code. A regex fuzzer ran
+every compiled pattern in the detectors against repeated hostile units.
+
+**Audit summary:** 2 High, 9 Medium (plus 2 more found while fixing), about 20 Low.
+- High: credential formats missing from the redaction pattern (GitHub `gho_`/`ghs_`, `ASIA` keys, JWTs,
+  `sk-` keys, webhook URLs, Azure keys, auth headers, `DB_PASSWORD=`); `--share` turning API routes such
+  as `GET /users/{id}` into `~`.
+- Medium: a repository's own `enrichment.json` applied silently; `git status` running filters named by
+  an untrusted `.git/config`; the scan following links out of the project and hanging on pipes;
+  quadratic regexes (up to 174 s for one file); a YAML alias bomb hanging the build; a crash on odd
+  Kubernetes `metadata`; every `app.yaml` taken for App Engine; client `api.get(...)` calls drawn as
+  served endpoints; monorepo imports making no edges. Found while fixing: three more quadratic patterns
+  (`TYPEORM_PROP`, `_GO_REQUIRE`, `URL_ANY`) and a Pass 1 bound that cut off long generated export lists.
+- Low: listed in TODO.md with location and suggested fix.
+- Viewer baseline (test page, main floor, day shift): 273 draw calls per frame, 124 shadow casters drawn
+  every frame, pixel ratio 2 with MSAA.
+
+**Menu offered:** fix every High and Medium finding; record the Low ones; cut release 0.3.0 with CI
+updates and a regenerated demo; and for the viewer, four groups: performance (adaptive resolution,
+static shadow map, idle throttle, instancing), visuals (readable room labels, contact shadows, pipe
+streaks, a concrete floor), game feel (camera smoothing and collision, click feedback, worker
+animation, optional sound) and mechanics (trace ripple, a first-shift checklist, exploration marks).
+
+**Chosen and done:** all of it, in seven stacked pull requests.
+- Security: a wider credential pattern and real-home-folder matching (`/users/{id}` routes survive
+  `--share`); a loud warning and an `enrichment/removed-*` check for every removal when
+  `enrichment.json` is tracked by git; no `git status` when the checkout defines its own filters; reads
+  confined to regular files inside the project with a size cap; linear regexes with a timing test per
+  case; scalar-only YAML values; control characters stripped from output.
+- Detection: `as_dict` for k8s `metadata`; App Engine only with `runtime:`; routes need a server import
+  or a handler; workspace packages, `extends` chains and `tsconfig.base.json` resolve; Go named in
+  descriptions; long `{ ... }` export lists read again.
+- Release: 0.3.0 with compare links; `github-release` waits for PyPI; actions on their current majors;
+  `setuptools>=77`; the demo rendered by 0.3.0 with its enrichment kept beside it; TODO.md, the README
+  install table and this log reworded for a public repository.
+- Viewer: on the test page's main floor in day mode, draw calls went from 273 to 132 per frame with
+  shadow casters drawn once per room instead of every frame, at pixel ratio 1.5 (stepping to 1 on slow
+  devices); night shift from 167 to 150. Labels are readable from a room's door, blocks stand on
+  contact shadows, pipes show direction, the camera eases and stays out of blocks, clicks answer, the
+  worker leans and looks, sound is optional, traces ripple in hop order, and the Clipboard has a
+  four-step first-shift checklist with no scores.
+- Tests: from 68 to 153, all passing, including 17 new viewer tests that measure through
+  `window.__wirehouse`.
+
+**Deferred:** the Low findings (TODO.md); the night shift's remaining draw calls (one per glow edge line
+and label sprite); measuring on real integrated GPUs and phones (the numbers here come from headless
+SwiftShader, which shows draw calls exactly but pixel cost only relatively); the items carried over from
+Pass 1 (a GitHub Action, change review straight from git, unit classification of dev dependencies).
+
+**Rejected:** none.
+
+**Next pass focus:** precision on code that describes technologies (signature tables, fixtures, docs)
+and on EXTRACTED edges without evidence. They are the last places where the map states something as
+found in code that the code does not do, which matters more than any further polish.

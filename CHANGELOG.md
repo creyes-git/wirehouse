@@ -7,6 +7,10 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **The improvement log records Pass 2** (2026-10-18)
+  - Summary: IMPROVEMENT_LOG.md has a Pass 2 entry: areas covered, findings by severity, the menu, what
+    was done with its measured effect, what was deferred and the next pass's focus.
+  - Why: the next pass starts from this log, so it should not repeat this audit.
 - **The live demo shows the current viewer** (2026-10-18)
   - Summary: `docs/demo/index.html` is rendered again by 0.3.0 with `--share`, from the same project and
     commit (fastapi/full-stack-fastapi-template at `b1125d8`) and the same descriptions, tours and quests,
