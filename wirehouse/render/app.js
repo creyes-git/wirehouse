@@ -892,6 +892,9 @@
   const tmpV = new THREE.Vector3();
   const tmpQ = new THREE.Quaternion();
   const tmpS = new THREE.Vector3();
+  const tmpDir = new THREE.Vector3();
+  const tmpQs = new THREE.Quaternion();
+  const UP = new THREE.Vector3(0, 1, 0);
 
   function anchorOf(it) {
     if (!it) return null;
@@ -931,8 +934,10 @@
 
   function buildParticles() {
     if (!PART.length) return;
-    const g = geo(new THREE.SphereGeometry(0.11, 8, 6));
-    const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 * T.particle, depthWrite: false });
+    // A short streak, wide at the head: it shows which way the connection runs at a glance.
+    const g = geo(new THREE.CylinderGeometry(0.1, 0.025, 0.8, 6));
+    const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 * T.particle, depthWrite: false,
+      blending: T.glow ? THREE.AdditiveBlending : THREE.NormalBlending });
     particles = new THREE.InstancedMesh(g, m, PART.length);
     particles.frustumCulled = false;
     particles.renderOrder = 3;
@@ -956,10 +961,12 @@
         const x = f * 64, k = Math.floor(x), r = x - k;
         const a = L.samples[k], b = L.samples[Math.min(k + 1, 64)];
         tmpV.set(a.x + (b.x - a.x) * r, a.y + (b.y - a.y) * r, a.z + (b.z - a.z) * r);
+        tmpDir.subVectors(b, a);
+        if (tmpDir.lengthSq() > 1e-10) tmpQs.setFromUnitVectors(UP, tmpDir.normalize());
         const s = L.focus ? 1.5 : 1;
         tmpS.set(s, s, s);
       }
-      tmpM.compose(tmpV, tmpQ, tmpS);
+      tmpM.compose(tmpV, tmpQs, tmpS);
       particles.setMatrixAt(i, tmpM);
     });
     particles.instanceMatrix.needsUpdate = true;
@@ -3397,6 +3404,19 @@
     tick(n) { for (let i = 0; i < (n || 1); i++) { updateMovement(1 / 60); animateWorker(1 / 60, i / 60); updateCamera(1 / 60); } renderer && renderer.render(scene, camera); },
     state: () => ({ room: room && room.R, items: room && room.items.length, links: LINKS.length, ports: room && room.ports.length, selected, pos: W8.pos.toArray().map((v) => +v.toFixed(2)), walking: !!W8.path }),
     links: () => room && room.links,
+    // how well the first moving particle lines up with its pipe (1 = along the flow)
+    streak: () => {
+      const i = PART.findIndex((p) => p.link.active);
+      if (i < 0 || !particles) return null;
+      particles.getMatrixAt(i, tmpM);
+      tmpM.decompose(tmpV, tmpQ, tmpS);
+      const axis = UP.clone().applyQuaternion(tmpQ);
+      tmpQ.identity();
+      const L = PART[i].link;
+      let best = -1;
+      for (let k = 0; k < 64; k++) best = Math.max(best, axis.dot(tmpDir.subVectors(L.samples[k + 1], L.samples[k]).normalize()));
+      return { align: best, additive: particles.material.blending === THREE.AdditiveBlending };
+    },
     contactShadows: () => { const o = world.children.find((c) => c.userData.contact); return o ? o.count : 0; },
     labels: () => ({
       slots: SPRITES.filter((s) => s.slot && s.sp.visible).length, blocks: SPRITES.filter((s) => !s.slot && s.sp.visible).length,

@@ -66,6 +66,11 @@ All notable changes to Wirehouse are listed here. The format follows
     else to copy files by hand.
 
 ### Changed
+- **Pipe particles show the direction of flow** (2026-10-18)
+  - Summary: The dots moving along pipes are short streaks, wide at the head, aligned with the pipe;
+    at night they glow with additive blending.
+  - Why: a round dot only shows direction while it moves, and with reduced motion or a still picture it
+    did not show it at all.
 - **Room labels are readable from the door** (2026-10-18)
   - Summary: Each rack carries an aisle sign naming its first and last file and how many it holds. File
     labels show from 24 units away instead of 13, only the nearest 24 at a time, and fade in and out

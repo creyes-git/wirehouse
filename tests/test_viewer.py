@@ -371,3 +371,13 @@ def test_blocks_and_racks_stand_on_contact_shadows(browser, html):
     assert js(page, "__wirehouse.contactShadows()") >= 4      # three folder crates and a rack
     js(page, "__wirehouse.setTheme('night')")
     assert errors == []
+
+
+def test_pipe_particles_are_streaks_along_the_flow(browser, html):
+    page, errors = open_view(browser, html)
+    night = js(page, "__wirehouse.setTheme('night'); __wirehouse.tick(1); __wirehouse.streak()")
+    assert night["align"] > 0.99 and night["additive"]          # glows at night
+    day = js(page, "__wirehouse.setTheme('day'); __wirehouse.tick(1); __wirehouse.streak()")
+    assert day["align"] > 0.99 and not day["additive"]
+    js(page, "__wirehouse.setTheme('night')")
+    assert errors == []
