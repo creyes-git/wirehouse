@@ -1,75 +1,110 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/readme-banner-dark.svg">
-    <img alt="Wirehouse: walk through your codebase like a warehouse." src="docs/brand/readme/readme-banner-light.svg" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/brand/readme/readme-banner-dark.svg">
+    <img alt="Wirehouse: walk through your codebase like a warehouse." src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/brand/readme/readme-banner-light.svg" width="100%">
   </picture>
 </p>
 
 <p align="center">
-  Wirehouse turns a repository into a 3D warehouse you can walk around: services are shipping
-  containers, databases are silos, auth is a security gate, and every pipe is a real connection
-  found in the code. Trace where a request goes, take a guided tour, and share it all as
-  <b>one offline HTML file</b>. Built for your agents.
+  <b>See how your codebase really fits together, and prove it.</b><br>
+  Wirehouse maps a repository from its code and turns it into a 3D warehouse you can walk:
+  services are shipping containers, databases are silos, auth is a security gate, and every pipe is
+  a connection found in the code, with the file and line that prove it. Trace where a request goes,
+  take a guided tour, and share it all as <b>one offline HTML file</b>.
 </p>
 
 <p align="center">
   <a href="https://github.com/creyes-git/wirehouse/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/creyes-git/wirehouse/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white">
-  <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
+  <a href="https://github.com/creyes-git/wirehouse/blob/main/LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-22c55e"></a>
   <img alt="One offline HTML file" src="https://img.shields.io/badge/output-one%20offline%20HTML%20file-F2C230">
-  <img alt="Built for your agents" src="https://img.shields.io/badge/built%20for-your%20agents-39C0F5">
+  <img alt="Works with any coding agent" src="https://img.shields.io/badge/works%20with-any%20coding%20agent-39C0F5">
 </p>
 
 <p align="center">
   <a href="https://creyes-git.github.io/wirehouse/demo/"><b>Try the live demo</b></a> ·
   <a href="#quick-start"><b>Quick start</b></a> ·
+  <a href="#why-wirehouse"><b>Why Wirehouse</b></a> ·
   <a href="#how-to-use"><b>How to use</b></a> ·
-  <a href="#how-it-works"><b>How it works</b></a> ·
-  <a href="CONTRIBUTING.md"><b>Contributing</b></a>
+  <a href="#how-it-works"><b>How it works</b></a>
 </p>
 
 <p align="center">
-  <img src="docs/assets/demo.webp" alt="Walking through the warehouse of fastapi/full-stack-fastapi-template: tracing what the backend reaches, walking a request from the user to PostgreSQL, entering the backend, the schema diagram, the floor plan and the Clipboard of tours and quests" width="900">
+  <a href="https://creyes-git.github.io/wirehouse/demo/"><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/demo.webp" alt="The warehouse of fastapi/full-stack-fastapi-template: a downstream trace ripples out from the backend, the worker walks the route from Users to PostgreSQL, enters the backend's app folder, switches to the day shift, opens the PostgreSQL schema diagram and the floor plan" width="900"></a>
   <br>
-  <sub>The warehouse of <a href="https://github.com/fastapi/full-stack-fastapi-template">fastapi/full-stack-fastapi-template</a>, described by a coding agent. <a href="https://creyes-git.github.io/wirehouse/demo/">Open it yourself</a> (one 1 MB HTML file) · <a href="docs/assets/demo.mp4">MP4 with full-speed walking</a>.</sub>
+  <sub>The warehouse of <a href="https://github.com/fastapi/full-stack-fastapi-template">fastapi/full-stack-fastapi-template</a>, described by a coding agent.
+  <a href="https://creyes-git.github.io/wirehouse/demo/">Open it yourself</a> (one 1.2 MB HTML file) ·
+  <a href="https://github.com/creyes-git/wirehouse/blob/main/docs/assets/demo.mp4">MP4</a></sub>
 </p>
 
-<img src="docs/brand/readme/readme-divider-hazard.svg" alt="" width="100%">
+<img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/brand/readme/readme-divider-hazard.svg" alt="" width="100%">
 
-## Why
+## Why Wirehouse
 
-Architecture diagrams go stale the day they are drawn, and reading a new codebase file by file
-tells you *what* is there but not *how it fits together*. Wirehouse builds the map from the code
-every time, and makes exploring it feel like walking a well-run warehouse instead of reading a
-wall of boxes and arrows:
+Architecture diagrams go stale the day they are drawn, and reading a new codebase file by file tells
+you *what* is there but not *how it fits together*. Wirehouse rebuilds the map from the code every
+time, and holds it to one rule: **nothing is drawn that the code does not show.**
 
-- **New teammate?** Take the guided tour, then go find things on your own with quests.
-- **Reviewing a change?** Trace what a service reaches before you touch it.
-- **Explaining the system?** Walk the route from the user to the database and share the link.
+- **A map you can check.** Every connection found in the code carries the file and line it was found
+  at, linked to your code host at the exact commit that was scanned. What an agent adds must cite real code or it
+  is left out, inferred links say so, and a **Checks** panel lists anything that was dropped and why.
+- **Current in seconds, not a drawing to maintain.** Re-run it after a change; descriptions are
+  cached by a hash of the code, so only what changed is described again. `--against` shows exactly
+  which blocks, connections and files a change touched.
+- **One file, nothing to host.** The page is a single offline HTML file with everything inlined:
+  no server, no account, no telemetry, no network loads. Email it, attach it to a pull request, or
+  publish it on GitHub Pages.
+- **Answers real questions.** *What does this service reach?* Trace it, with hop counts.
+  *How does a request get to the database?* Walk the route stop by stop. *Where do I start?* Take
+  the tour, then go find things with quests.
+- **Your agent, or no agent.** The `/wirehouse` skill uses the open `SKILL.md` format and works with
+  Claude Code, Codex, Cursor, OpenCode, Gemini CLI, GitHub Copilot and any agent that reads files. Without
+  one, the CLI still draws the full map with rule-based descriptions.
+- **Safe to share.** Real `.env` files are never read, credential-looking text is cut from every
+  output, and `--share` removes your local paths before you publish.
 
-Everything you see comes from evidence: each pipe lists the file and line it was found in, and
-anything your agent adds has to cite real code or it is left out.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/one-map-two-readers.png" alt="Left: architecture.md from wirehouse export, a table of connections with the file and line of each. Right: the same map as a 3D warehouse, with a downstream trace from the backend lit up." width="900">
+  <br>
+  <sub>The same map as text for your agent or your pull request (<code>wirehouse export</code>), and as a place to walk.</sub>
+</p>
+
+### How it compares
+
+| | Hand-drawn diagram | Mermaid in the docs | Wirehouse |
+|---|:---:|:---:|:---:|
+| Built from the code | no | no | **yes** |
+| File and line behind each connection | no | no | **yes** |
+| Stays current without redrawing | no | no | **yes** |
+| Follows env vars, compose, Terraform and CI, not just imports | by hand | by hand | **yes** |
+| Shows what a change touched | no | in the diff | **yes** (`--against`) |
+| Guided tours and traces for newcomers | no | no | **yes** |
+| Text for a README or pull request | no | yes | **yes** (`wirehouse export`) |
 
 ## What you can do
 
 <table>
 <tr>
-<td width="50%"><img src="docs/assets/screenshot-trace.png" alt="Downstream trace from the backend, with rings and hop counts"><br><b>Trace</b> everything a block leads to, or everything that leads to it, with hop counts. File precise.</td>
-<td width="50%"><img src="docs/assets/screenshot-route.png" alt="The worker walking the route from Users to PostgreSQL"><br><b>Walk a route</b> from A to B, hop by hop, with the code behind each step.</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/screenshot-trace.png" alt="Downstream trace from the backend, with rings and hop counts"><br><b>Trace</b> everything a block leads to, or everything that leads to it, with hop counts. File precise.</td>
+<td width="50%"><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/screenshot-route.png" alt="The worker walking the route from Users to PostgreSQL, at stop 3 of 4"><br><b>Walk a route</b> from A to B, hop by hop, with the code behind each step.</td>
 </tr>
 <tr>
-<td><img src="docs/assets/screenshot-room.png" alt="Inside the backend: folders as crates, files on shelving racks"><br><b>Walk into any block.</b> Folders are crates, files sit on racks, connections leave through wall ports.</td>
-<td><img src="docs/assets/screenshot-tour.png" alt="A guided tour stop"><br><b>Guided tours and quests</b> written by your agent from the real code, with your progress kept in the browser.</td>
+<td><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/screenshot-tour.png" alt="A tour stop at useAuth.ts on a rack of frontend hooks"><br><b>Guided tours and quests</b> written by your agent from the real code, stop by stop with file and line.</td>
+<td><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/screenshot-room.png" alt="Inside the backend's app folder: folders as crates, connections leaving through wall ports"><br><b>Walk into any block.</b> Folders are crates, files sit on racks with aisle signs, connections leave through wall ports.</td>
 </tr>
 <tr>
-<td><img src="docs/assets/screenshot-schema.png" alt="Schema diagram of the PostgreSQL database"><br><b>Database rooms</b> with columns, keys and a schema diagram.</td>
-<td><img src="docs/assets/screenshot-plan.png" alt="2D floor plan"><br><b>Floor plan</b> in 2D for a quick overview, fully keyboard accessible.</td>
+<td><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/screenshot-schema.png" alt="Schema diagram of the PostgreSQL database"><br><b>Database rooms</b> with columns, keys and a schema diagram.</td>
+<td><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/screenshot-plan.png" alt="2D floor plan with the backend selected"><br><b>Floor plan</b> in 2D for a quick overview, fully keyboard accessible.</td>
+</tr>
+<tr>
+<td><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/screenshot-clipboard.png" alt="The Clipboard with the first-shift checklist, tours and quests"><br><b>The Clipboard</b>: a first-shift checklist, tours, quests and what you have inspected so far.</td>
+<td><img src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/assets/screenshot-night.png" alt="The main floor on the night shift"><br><b>Night and day shift</b> lighting; the page adapts its resolution to keep slower laptops responsive.</td>
 </tr>
 </table>
 
-Also: night and day shift lighting, search that walks you to anything, links that reopen the exact
-view, commit-pinned links to GitHub, GitLab, Bitbucket and Azure DevOps, and pictures or
-1200 × 630 share cards of what you are looking at.
+Also: search that walks you to anything, links that reopen the exact view, commit-pinned links to
+GitHub, GitLab, Bitbucket and Azure DevOps, pictures or 1200 × 630 share cards of what you are looking
+at, and optional sound.
 
 ## Quick start
 
@@ -139,8 +174,8 @@ change only asks the agent about what changed. Add `wirehouse-out/` to your `.gi
 ### 2. Walk around
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme/readme-how-it-maps-dark.svg">
-  <img alt="Web apps are kiosks, services are shipping containers, databases are silos, queues are conveyor belts, auth is a security gate, third-party APIs are the loading dock." src="docs/brand/readme/readme-how-it-maps-light.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/brand/readme/readme-how-it-maps-dark.svg">
+  <img alt="Web apps are kiosks, services are shipping containers, databases are silos, queues are conveyor belts, auth is a security gate, third-party APIs are the loading dock." src="https://raw.githubusercontent.com/creyes-git/wirehouse/main/docs/brand/readme/readme-how-it-maps-light.svg" width="100%">
 </picture>
 
 The floor is laid out from the entrance to the back: **Clients**, **Gateway and auth** (shown even
@@ -318,8 +353,12 @@ Missing your stack? [Tell us where the map is wrong](https://github.com/creyes-g
 - Never reads real `.env` files. Env values, passwords, connection strings, column defaults and
   credentials inside git remotes are never written to the output.
 - Text written by the agent is checked for credential-looking strings, which are removed.
+- Scanning a repository you did not write is safe: the scan never follows links out of the project,
+  never runs commands named by the repository's own git config, and an `enrichment.json` that came
+  with the repository is applied only with a warning, with every block or connection it removes
+  listed under **Checks**.
 
-See [SECURITY.md](SECURITY.md) to report a problem.
+See [SECURITY.md](https://github.com/creyes-git/wirehouse/blob/main/SECURITY.md) to report a problem.
 
 ## Limits
 
@@ -343,8 +382,8 @@ Ideas welcome in [Discussions](https://github.com/creyes-git/wirehouse/discussio
 ## Contributing
 
 Contributions are welcome, and the most useful one is a project where the map is wrong. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for setup, the ground rules and where things live, and please
-follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+[CONTRIBUTING.md](https://github.com/creyes-git/wirehouse/blob/main/CONTRIBUTING.md) for setup, the ground rules and where things live, and please
+follow the [Code of Conduct](https://github.com/creyes-git/wirehouse/blob/main/CODE_OF_CONDUCT.md).
 
 ```bash
 pip install -e ".[dev]" && python -m pytest
@@ -361,4 +400,4 @@ pip install -e ".[dev]" && python -m pytest
 
 ## License
 
-[MIT](LICENSE) © Carlos Reyes
+[MIT](https://github.com/creyes-git/wirehouse/blob/main/LICENSE) © Carlos Reyes

@@ -50,9 +50,6 @@ suggested fix. Fixed items move to [CHANGELOG.md](CHANGELOG.md); the reasoning b
   Entity Framework Core edge from its code exists. · **Where:** `wirehouse/build.py` around the
   dependency-only edges (about lines 649-665 before Pass 2). · **Suggested fix:** drop the
   "no import found" label when any code edge between the same pair exists.
-- **Date:** 2026-10-18 · **What:** README images use relative paths, which break on PyPI.
-  · **Where:** `README.md`. · **Suggested fix:** use absolute `raw.githubusercontent.com` URLs pinned to
-  `main`, or a separate PyPI long description.
 - **Date:** 2026-10-18 · **What:** An `--against` file that is JSON with `nodes` but no `edges` prints a
   traceback (`KeyError: 'edges'`). · **Where:** `wirehouse/cli.py` `_load_map`, `wirehouse/delta.py`.
   · **Suggested fix:** require `edges` to be a list in `_load_map`, with the same clear error.

@@ -7,6 +7,18 @@ All notable changes to Wirehouse are listed here. The format follows
 ## [Unreleased]
 
 ### Changed
+- **A README for the public launch** (2026-10-18)
+  - Summary: The README opens with the new demo, a "Why Wirehouse" section of what the tool guarantees
+    (evidence for each connection, one offline file, any agent or none, safe to share), a comparison
+    with hand-drawn and Mermaid diagrams, and a gallery of eight features; the safety section says what
+    happens when you scan a repository you did not write.
+  - Why: the README is the first thing a visitor sees, and it explained what Wirehouse draws more than
+    why that is worth having.
+- **Demo pictures of the 0.3.0 viewer** (2026-10-18)
+  - Summary: `docs/assets` has a new animated demo and MP4, nine screenshots and a share card of the
+    0.3.0 viewer on the demo map, plus `one-map-two-readers.png` (`wirehouse export` next to the
+    warehouse). They are rendered frame by frame on a virtual clock, so motion is smooth without a GPU.
+  - Why: every picture still showed the 0.2.0 viewer.
 - **The improvement log records Pass 2** (2026-10-18)
   - Summary: IMPROVEMENT_LOG.md has a Pass 2 entry: areas covered, findings by severity, the menu, what
     was done with its measured effect, what was deferred and the next pass's focus.
@@ -17,6 +29,12 @@ All notable changes to Wirehouse are listed here. The format follows
     now kept in `docs/demo/enrichment.json`. CONTRIBUTING.md has the one-line command to rebuild it.
   - Why: the published demo was drawn by the 0.2.0 viewer, without the Checks panel, change review or
     any of the Pass 1 and Pass 2 fixes, and its enrichment could not be reproduced.
+
+### Fixed
+- **README images show on PyPI** (2026-10-18)
+  - Summary: Images and links in the README use absolute GitHub URLs.
+  - Why: PyPI renders the README as the project description but cannot resolve paths inside the
+    repository, so every picture was broken there.
 
 ## [0.3.0] - 2026-10-18
 
