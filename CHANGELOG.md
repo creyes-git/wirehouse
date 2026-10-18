@@ -143,6 +143,11 @@ All notable changes to Wirehouse are listed here. The format follows
     commands during a scan.
 
 ### Fixed
+- **Brand kit text uses plain punctuation** (2026-10-18)
+  - Summary: The brand kit README, snippets and the titles of the README banners and social images use a
+    colon where they had a long dash.
+  - Why: the banner title is the tooltip and accessible name on the repository page, and the project avoids
+    long dashes in everything it publishes.
 - **The installed skill matches how Wirehouse was installed** (2026-10-18)
   - Summary: The "install from a source checkout" line is left out of the installed `SKILL.md` unless
     Wirehouse really runs from one; the skill now mentions `--share` before a page is published, and its

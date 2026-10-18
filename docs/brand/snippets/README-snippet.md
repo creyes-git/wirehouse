@@ -4,7 +4,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/brand/readme-banner-dark.svg">
-    <img alt="Wirehouse — Walk through your codebase like a warehouse." src="docs/brand/readme-banner-light.svg" width="100%">
+    <img alt="Wirehouse: Walk through your codebase like a warehouse." src="docs/brand/readme-banner-light.svg" width="100%">
   </picture>
 </p>
 

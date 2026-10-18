@@ -1,4 +1,4 @@
-# Wirehouse brand kit — Hazard badge
+# Wirehouse brand kit: Hazard badge
 
 A yellow safety badge with a hard hat and a 45° hazard-stripe band. Precise, playful, industrial.
 All SVGs are self-contained: text is converted to outlines, so they render the same everywhere (GitHub included).
