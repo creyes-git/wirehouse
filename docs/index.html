@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wirehouse: walk through your codebase like a warehouse</title>
+<meta name="description" content="Wirehouse maps a repository from its code and turns it into a 3D warehouse you can walk, with the file and line behind every connection, in one offline HTML file.">
+<link rel="icon" href="brand/favicon/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="brand/favicon/favicon-32x32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="brand/favicon/apple-touch-icon.png">
+<meta name="theme-color" content="#070B16">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Wirehouse">
+<meta property="og:description" content="Walk through your codebase like a warehouse. Every pipe is a connection found in the code, with the file and line that prove it.">
+<meta property="og:url" content="https://creyes-git.github.io/wirehouse/">
+<meta property="og:image" content="https://creyes-git.github.io/wirehouse/brand/social/og-image-1200x630.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://creyes-git.github.io/wirehouse/brand/social/og-image-1200x630.png">
+<!-- Fonts ship with the site, like everything else Wirehouse makes: the page loads nothing from other hosts. -->
+<link rel="stylesheet" href="assets/fonts.css">
+<style>
+:root {
+  --bg: #070b16; --panel: #0c1426; --line: #24365e; --ink: #eef2f8; --muted: #93a0b8;
+  --accent: #ffb23f; --accent-text: #ffb23f; --accent-ink: #1b2330; --code: #060a14;
+  --sign: 'Barlow Condensed', 'Arial Narrow', sans-serif; --body: 'Barlow', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f7f6f2; --panel: #ffffff; --line: #d9d6cc; --ink: #1b2330; --muted: #5a6474; --accent: #f2c230; --accent-text: #8a5d00; --code: #1b2330; }   /* yellow text on paper is unreadable */
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 500 18px/1.55 var(--body); }
+a { color: inherit; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+.stripe { height: 10px; background: repeating-linear-gradient(-45deg, var(--accent) 0 14px, #1b2330 14px 28px); }
+header.top { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; gap: 16px; }
+header.top img { height: 40px; }
+.logo-light { display: none; }
+@media (prefers-color-scheme: light) { .logo-dark { display: none; } .logo-light { display: block; } }
+nav a { margin-left: 18px; color: var(--muted); text-decoration: none; font: 600 16px var(--sign); letter-spacing: .06em; text-transform: uppercase; }
+nav a:hover, nav a:focus-visible { color: var(--ink); }
+.hero { text-align: center; padding: 34px 0 10px; }
+.hero h1 { font: 700 clamp(40px, 7vw, 76px)/1.02 var(--sign); margin: 0 0 16px; letter-spacing: -.01em; }
+.hero h1 span { color: var(--accent-text); }
+.hero p.lead { max-width: 760px; margin: 0 auto 26px; color: var(--muted); font-size: 20px; }
+.ctas { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 18px; }
+.btn { display: inline-block; padding: 13px 22px; border-radius: 10px; font: 700 19px var(--sign); letter-spacing: .03em; text-decoration: none; border: 2px solid var(--line); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.install { display: inline-block; background: var(--code); color: #cfe0ff; border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; font: 500 15px ui-monospace, Menlo, Consolas, monospace; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+.demo { margin: 34px auto 0; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 24px 60px rgba(0,0,0,.35); max-width: 960px; }
+.demo img { display: block; width: 100%; height: auto; }
+.caption { text-align: center; color: var(--muted); font-size: 15px; margin: 10px 0 0; }
+section { padding: 64px 0 8px; }
+h2 { font: 700 clamp(30px, 4.4vw, 44px)/1.1 var(--sign); margin: 0 0 8px; }
+.kicker { color: var(--accent-text); font: 700 15px var(--sign); letter-spacing: .12em; text-transform: uppercase; margin: 0 0 6px; }
+.sub { color: var(--muted); max-width: 760px; margin: 0 0 28px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; }
+.card img { width: 76px; height: 76px; display: block; margin-bottom: 6px; }
+.card h3 { font: 700 24px/1.15 var(--sign); margin: 0 0 6px; }
+.card p { margin: 0; color: var(--muted); font-size: 16.5px; }
+.wide { border-radius: 14px; border: 1px solid var(--line); width: 100%; height: auto; display: block; }
+ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: s; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+ol.steps li { counter-increment: s; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+ol.steps li::before { content: counter(s); display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font: 700 20px var(--sign); margin-bottom: 8px; }
+ol.steps b { display: block; font: 700 22px var(--sign); }
+ol.steps code, .card code { font: 500 14px ui-monospace, Menlo, Consolas, monospace; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.gallery figure { margin: 0; }
+.gallery img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.gallery figcaption { color: var(--muted); font-size: 15.5px; margin-top: 6px; }
+.gallery figcaption b { color: var(--ink); }
+.end { text-align: center; padding: 70px 0 40px; }
+footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 15px; padding: 22px 0 40px; }
+footer .wrap { display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+@media (max-width: 640px) { nav { display: none; } .hero { padding-top: 14px; } }
+</style>
+</head>
+<body>
+<div class="stripe" aria-hidden="true"></div>
+<div class="wrap">
+  <header class="top">
+    <a href="./" aria-label="Wirehouse home">
+      <img class="logo-dark" src="brand/logo/wirehouse-lockup-horizontal-dark.svg" alt="Wirehouse">
+      <img class="logo-light" src="brand/logo/wirehouse-lockup-horizontal-light.svg" alt="Wirehouse">
+    </a>
+    <nav aria-label="Sections">
+      <a href="#why">Why</a><a href="#how">How it works</a><a href="#features">Features</a>
+      <a href="https://github.com/creyes-git/wirehouse">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>See how your codebase <span>really fits together</span>, and prove it.</h1>
+      <p class="lead">Wirehouse maps a repository from its code and turns it into a 3D warehouse you can walk.
+        Services are shipping containers, databases are silos, auth is a security gate, and every pipe is a
+        connection found in the code, with the file and line that prove it.</p>
+      <div class="ctas">
+        <a class="btn primary" href="demo/">Walk the live demo</a>
+        <a class="btn" href="https://github.com/creyes-git/wirehouse">Get it on GitHub</a>
+      </div>
+      <code class="install">pip install "git+https://github.com/creyes-git/wirehouse" &amp;&amp; wirehouse install</code>
+      <a class="demo" href="demo/" style="display:block">
+        <img src="assets/demo.webp" width="880" height="495" alt="The warehouse of fastapi/full-stack-fastapi-template: a downstream trace ripples out from the backend, the worker walks the route from Users to PostgreSQL, enters the backend, switches to the day shift and opens the schema diagram">
+      </a>
+      <p class="caption">The warehouse of fastapi/full-stack-fastapi-template, described by a coding agent. The demo is one 1.2 MB HTML file.</p>
+    </div>
+
+    <section id="why">
+      <p class="kicker">Why Wirehouse</p>
+      <h2>Nothing is drawn that the code does not show</h2>
+      <p class="sub">Architecture diagrams go stale the day they are drawn, and reading a codebase file by file tells you
+        what is there but not how it fits together. Wirehouse rebuilds the map from the code every time.</p>
+      <div class="grid">
+        <div class="card"><picture><source media="(prefers-color-scheme: light)" srcset="brand/landing/spots/light/spot-gate.svg"><img src="brand/landing/spots/dark/spot-gate.svg" alt="" width="76" height="76"></picture><h3>A map you can check</h3>
+          <p>Every connection found in the code carries its file and line, linked to your code host at the scanned commit.
+          What an agent adds must cite real code or it is left out, and inferred links say so.</p></div>
+        <div class="card"><picture><source media="(prefers-color-scheme: light)" srcset="brand/landing/spots/light/spot-conveyor.svg"><img src="brand/landing/spots/dark/spot-conveyor.svg" alt="" width="76" height="76"></picture><h3>Current in seconds</h3>
+          <p>Re-run it after a change; only code that changed is described again. <code>--against</code> shows exactly which
+          blocks, connections and files a change touched.</p></div>
+        <div class="card"><picture><source media="(prefers-color-scheme: light)" srcset="brand/landing/spots/light/spot-container.svg"><img src="brand/landing/spots/dark/spot-container.svg" alt="" width="76" height="76"></picture><h3>One file, nothing to host</h3>
+          <p>A single offline HTML file with everything inlined: no server, no account, no telemetry. Email it, attach it to a
+          pull request, or publish it on GitHub Pages.</p></div>
+        <div class="card"><picture><source media="(prefers-color-scheme: light)" srcset="brand/landing/spots/light/spot-silo.svg"><img src="brand/landing/spots/dark/spot-silo.svg" alt="" width="76" height="76"></picture><h3>Answers real questions</h3>
+          <p>What does this service reach? Trace it, with hop counts. How does a request reach the database? Walk the route.
+          Where do I start? Take the tour, then go find things with quests.</p></div>
+        <div class="card"><picture><source media="(prefers-color-scheme: light)" srcset="brand/landing/spots/light/spot-kiosk.svg"><img src="brand/landing/spots/dark/spot-kiosk.svg" alt="" width="76" height="76"></picture><h3>Your agent, or no agent</h3>
+          <p>The skill uses the open SKILL.md format and works with Claude Code, Codex, Cursor, OpenCode, Gemini CLI, GitHub Copilot
+          and any agent that reads files. Without one, the CLI still draws the whole map.</p></div>
+        <div class="card"><picture><source media="(prefers-color-scheme: light)" srcset="brand/landing/spots/light/spot-dock.svg"><img src="brand/landing/spots/dark/spot-dock.svg" alt="" width="76" height="76"></picture><h3>Safe to share</h3>
+          <p>Real .env files are never read, credential-looking text is cut from every output, and <code>--share</code> removes
+          local paths. Scanning a repository you did not write never runs its commands.</p></div>
+      </div>
+    </section>
+
+    <section aria-labelledby="two">
+      <p class="kicker">One map, two readers</p>
+      <h2 id="two">Text for your agent, a place to walk for you</h2>
+      <p class="sub"><code>wirehouse export</code> writes the same map as Markdown with a Mermaid diagram and a table of every connection
+        with its file and line: ready for a README, a pull request or an agent's context.</p>
+      <img class="wide" src="assets/one-map-two-readers.png" width="1600" height="802" loading="lazy"
+        alt="Left: architecture.md from wirehouse export, a table of connections with the file and line of each. Right: the same map as a 3D warehouse with a downstream trace lit up.">
+    </section>
+
+    <section id="how">
+      <p class="kicker">How it works</p>
+      <h2>Three steps, all on your machine</h2>
+      <ol class="steps">
+        <li><b>Scan</b>The CLI reads imports, env vars, URLs, endpoints, tables, compose, Terraform, Kubernetes and CI, and maps about 115 technologies to blocks.</li>
+        <li><b>Describe</b>Your agent reads the code and writes descriptions, tours and quests. Every citation is checked against the scan.</li>
+        <li><b>Walk</b>One HTML file opens in any browser: trace, route, tour, open the schema, or switch to the floor plan.</li>
+      </ol>
+    </section>
+
+    <section id="features">
+      <p class="kicker">What you can do</p>
+      <h2>Explore, explain, review</h2>
+      <div class="gallery">
+        <figure><img src="assets/screenshot-trace.png" width="1280" height="720" loading="lazy" alt="Downstream trace from the backend"><figcaption><b>Trace</b> everything a block leads to, or that leads to it, with hop counts.</figcaption></figure>
+        <figure><img src="assets/screenshot-route.png" width="1280" height="720" loading="lazy" alt="Walking the route from Users to PostgreSQL"><figcaption><b>Walk a route</b> from A to B with the code behind each hop.</figcaption></figure>
+        <figure><img src="assets/screenshot-tour.png" width="1280" height="720" loading="lazy" alt="A tour stop at useAuth.ts"><figcaption><b>Guided tours</b> written from the real code, stop by stop.</figcaption></figure>
+        <figure><img src="assets/screenshot-schema.png" width="1280" height="720" loading="lazy" alt="PostgreSQL schema diagram"><figcaption><b>Database rooms</b> with columns, keys and a schema diagram.</figcaption></figure>
+      </div>
+    </section>
+
+    <div class="end">
+      <h2>Walk your own codebase</h2>
+      <p class="sub" style="margin:0 auto 22px">Python 3.11+. Then ask your agent for <code>/wirehouse</code>, or run <code>wirehouse build . --open</code>.</p>
+      <div class="ctas">
+        <a class="btn primary" href="https://github.com/creyes-git/wirehouse#quick-start">Quick start</a>
+        <a class="btn" href="demo/">Try the demo first</a>
+      </div>
+    </div>
+  </main>
+</div>
+<footer>
+  <div class="wrap">
+    <span>Wirehouse is open source under the MIT License, by Carlos Reyes.</span>
+    <span><a href="https://github.com/creyes-git/wirehouse">GitHub</a> · <a href="https://github.com/creyes-git/wirehouse/blob/main/CHANGELOG.md">Changelog</a> · <a href="https://github.com/creyes-git/wirehouse/blob/main/SECURITY.md">Security</a></span>
+  </div>
+</footer>
+</body>
+</html>
