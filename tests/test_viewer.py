@@ -498,3 +498,26 @@ def test_inspected_blocks_are_ticked_and_the_rest_are_outlines(browser, html):
     page.wait_for_function("__wirehouse.state().room === 'unit:python:api'")
     assert js(page, "__wirehouse.explored().outlines") == 0      # rooms keep their filled minimap
     assert errors == []
+
+
+def test_a_hostile_map_file_cannot_run_script_or_links(browser, tmp_path):
+    # `wirehouse render` draws whatever archmap.raw.json says, and a repository can ship one.
+    root = tmp_path / "shop"
+    for rel, body in FILES.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(textwrap.dedent(body).lstrip("\n"), encoding="utf-8")
+    data = guide.apply(build_archmap(root, log=lambda *_: None), {})
+    parents = {n["parent"] for n in data["nodes"] if n.get("parent")}
+    top = next(n["id"] for n in data["nodes"] if not n.get("parent") and n["id"] in parents)
+    for n in data["nodes"]:
+        if n.get("parent") == top:
+            n["stats"] = dict(n.get("stats") or {}, files="<img src=x onerror=\"document.title='XSS'\">")
+    data["repo"] = {"provider": "github", "web": "javascript:document.title='XSS'//", "revision": "0" * 40,
+                    "short": "0000000", "host_name": "GitHub", "prefix": ""}
+    page, errors = open_view(browser, write_html(data, root / "wirehouse.html"))
+    js(page, f"__wirehouse.select({json.dumps(top)})")
+    page.wait_for_timeout(300)
+    assert js(page, "document.title") != "XSS"
+    assert js(page, "document.querySelectorAll('#panel img, a[href^=\"javascript:\"]').length") == 0
+    assert errors == []

@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from wirehouse.redact import scrub
+from wirehouse.scan import write_replacing
 
 HERE = Path(__file__).parent
 
@@ -46,5 +47,4 @@ def render_html(data: dict) -> str:
 
 
 def write_html(data: dict, path: Path) -> Path:
-    path.write_text(render_html(data), encoding="utf-8")
-    return path
+    return write_replacing(path, render_html(data))

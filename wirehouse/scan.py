@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import stat
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -64,6 +65,24 @@ def read_inside(root: Path, rel: str, limit: int = MAX_FILE_BYTES) -> bytes | No
             return fh.read(limit + 1)[:limit]
     except (OSError, ValueError):
         return None
+
+
+def write_replacing(path: Path, text: str) -> Path:
+    """Write `text` to `path` through a temporary file and a rename.
+
+    A rename replaces a link at `path` instead of writing through it, so a scanned repository that ships
+    `wirehouse-out/enrich-brief.md -> ~/.bashrc` gets a new plain file, and the target is left alone.
+    """
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, 0o644)   # mkstemp makes it owner-only; the page is meant to be opened and shared
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+    return path
 
 
 def as_dict(value) -> dict:

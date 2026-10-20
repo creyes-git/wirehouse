@@ -14,6 +14,11 @@ suggested fix. Fixed items move to [CHANGELOG.md](CHANGELOG.md); the reasoning b
 - **Where:** repository settings on github.com; pypi.org project settings.
 - **Suggested fix:** go through the list once; until trusted publishing is set up, a release tag fails
   at the PyPI step and no GitHub release is created (see `.github/workflows/release.yml`).
+- **Date:** 2026-10-20 · **What:** CI does not run while the repository is private: GitHub refuses to
+  start the jobs ("recent account payments have failed or your spending limit needs to be increased"),
+  so pull requests show every check as failed after a few seconds. · **Where:** account billing on
+  github.com, not the workflows. · **Suggested fix:** nothing, once the repository is public (public
+  repositories get Actions minutes for free); re-run the latest `main` run then to confirm it is green.
 
 ## Features and precision
 
@@ -72,10 +77,6 @@ suggested fix. Fixed items move to [CHANGELOG.md](CHANGELOG.md); the reasoning b
   does not return focus to the button that opened it. · **Where:** `wirehouse/render/app.js` schema
   section (`openErd`). · **Suggested fix:** trap Tab like the welcome card does, and remember and
   restore the opener.
-- **Date:** 2026-10-18 · **What:** `webLink` does not check that `REPO.web` starts with `https://` and
-  does not encode the revision. · **Where:** `wirehouse/render/app.js` `webLink`. · **Suggested fix:**
-  refuse anything else and `encodeURIComponent` the revision (the Python side already builds only
-  `https://` URLs, so this is defence in depth).
 - **Date:** 2026-10-18 · **What:** The README snippet in the brand kit points at `docs/brand/readme-*.svg`,
   but the files are in `docs/brand/readme/`. · **Where:** `docs/brand/snippets/README-snippet.md`.
   · **Suggested fix:** add the `readme/` folder to each path.

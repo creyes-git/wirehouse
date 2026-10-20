@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -23,7 +25,8 @@ jobs:
         run: |
           v=$(python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != version v$v"; exit 1; }
-      - run: pip install build pytest pyyaml && python -m pytest -q
+      # pinned: this job's output is what gets published
+      - run: pip install build==1.6.1 pytest==9.1.1 pyyaml==6.0.3 && python -m pytest -q
       - run: python -m build
       - uses: actions/upload-artifact@v7
         with:
@@ -41,7 +44,8 @@ jobs:
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      # pinned to the v1.14.2 commit: this job holds the token that can publish to PyPI
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
 
   github-release:
     # after PyPI: when publishing fails, no GitHub release points at a version that cannot be installed
@@ -51,6 +55,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
           name: dist

@@ -45,6 +45,52 @@ All notable changes to Wirehouse are listed here. The format follows
   - Why: PyPI renders the README as the project description but cannot resolve paths inside the
     repository, so every picture was broken there.
 
+### Security
+- **A nested repository's git filters no longer run during a scan** (2026-10-20)
+  - Summary: The uncommitted-files check runs `git status` with `--ignore-submodules=all` and
+    `submodule.recurse=false`, so git never looks inside a repository nested in the scanned one.
+  - Why: the existing guard only read the outer checkout's config. A copied folder whose inner `.git`
+    defines a clean filter could run any command while Wirehouse checked whether that folder changed.
+- **Wirehouse no longer writes through links in its output folder** (2026-10-20)
+  - Summary: When `wirehouse-out` is a symlink or junction (or resolves outside the project), the run
+    stops and asks for `-o`. Every output file is written to a temporary file and renamed into place,
+    which replaces a link instead of following it.
+  - Why: a cloned repository can ship `wirehouse-out` as a link, so a scan wrote the map, the brief and
+    the page wherever it pointed; on Linux and macOS a committed `wirehouse-out/enrich-brief.md` link
+    could overwrite a file such as `~/.bashrc`.
+- **Crafted text can no longer stall the scan** (2026-10-20)
+  - Summary: The credential patterns bound their repeats, agent text is cut before it is searched, and
+    TypeORM and SQLModel column calls are read at most 4,000 characters ahead.
+  - Why: strings such as `a://b:a://b:...` made the redaction pass quadratic (one 192 KB file took
+    2 min 25 s to build), and a class of unclosed `@Column(` calls took minutes.
+- **A map file from the repository cannot run script in the page** (2026-10-20)
+  - Summary: The block panel escapes file counts, code-host links are only made for `https://`
+    addresses with an encoded revision, `render` checks citations against the folder named on the command
+    line (not the map's own `project.root`), and a checked-in `archmap.raw.json` gets a warning and an
+    entry in the Checks panel.
+  - Why: `wirehouse render` draws whatever `archmap.raw.json` holds, and a repository can ship one; an
+    HTML file count in it ran script when the page was opened.
+- **Credentials in URLs with an empty user name are redacted** (2026-10-20)
+  - Summary: `redis://:password@host`, `amqp://:password@host` and schemes such as `mongodb+srv` are
+    caught; a path segment with `@` (`http://host:8080/docs@v2`) is no longer taken for one.
+  - Why: the empty-user form is the usual way to write a Redis password, and it reached block
+    descriptions from docstrings unredacted.
+- **Deeply nested manifests no longer stop the scan** (2026-10-20)
+  - Summary: Every JSON, YAML and TOML read (manifests, compose, workflows, Kubernetes, `tsconfig.json`,
+    `appsettings.json`, enrichment and map files) treats a `RecursionError` like any other parse error.
+  - Why: one `package.json` of 100,000 brackets crashed `wirehouse scan` with a traceback.
+- **Names cannot add lines to the agent brief** (2026-10-20)
+  - Summary: Line breaks in names, paths and other scanned text become spaces in `enrich-brief.md`.
+  - Why: the agent reads the brief as its instructions, and on Linux a folder name can hold a newline
+    followed by a fake section.
+- **Release workflow hardening** (2026-10-20)
+  - Summary: The PyPI publish action is pinned to the v1.14.2 commit, the release job pins `build`,
+    `pytest` and `pyyaml`, and no checkout keeps its token in `.git/config`.
+  - Why: the publish job holds the token that can push to PyPI, so it should not follow a moving branch.
+- **Test fixtures use placeholder names only** (2026-10-20)
+  - Summary: A home-folder fixture now uses `alice`, like the rest of the tests.
+  - Why: test data should never look like a real person's machine.
+
 ## [0.3.0] - 2026-10-18
 
 ### Added

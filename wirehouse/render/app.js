@@ -1887,9 +1887,10 @@
     return 'vscode://file/' + encodeURI(root + '/' + file) + (line ? ':' + line : '');
   }
   function webLink(file, line) {
-    if (!REPO || !REPO.web || !file) return null;
+    // The map file can come from a repository rather than a scan, so only https links are ever made.
+    if (!REPO || typeof REPO.web !== 'string' || !/^https:\/\/[^\s"'<>]+$/.test(REPO.web) || !file) return null;
     const p = ((REPO.prefix ? REPO.prefix + '/' : '') + file).split('/').map(encodeURIComponent).join('/');
-    const r = REPO.revision, base = REPO.web;
+    const r = encodeURIComponent(String(REPO.revision || '')), base = REPO.web;
     const href = {
       github: `${base}/blob/${r}/${p}${line ? '#L' + line : ''}`,
       gitlab: `${base}/-/blob/${r}/${p}${line ? '#L' + line : ''}`,
@@ -2033,7 +2034,7 @@
       kids.forEach((k) => { const lbl = (KIND_LABEL[k.kind] || k.kind).toLowerCase(); counts[lbl] = (counts[lbl] || 0) + 1; });
       const summary = Object.entries(counts).map(([k, v]) => `${v} ${k}${v > 1 && !k.endsWith('s') ? 's' : ''}`).join(', ');
       const rows = kids.sort((a, b) => (enterable(b.id) - enterable(a.id)) || a.name.localeCompare(b.name))
-        .map((k) => `<li><span class="swatch" style="background:${css(kindHex(k.kind))}"></span><span class="main"><button class="link" data-goto="${esc(k.id)}">${esc(k.name)}</button></span><span class="side">${k.stats && k.stats.files ? k.stats.files + ' files' : esc(KIND_LABEL[k.kind] || '')}</span></li>`);
+        .map((k) => `<li><span class="swatch" style="background:${css(kindHex(k.kind))}"></span><span class="main"><button class="link" data-goto="${esc(k.id)}">${esc(k.name)}</button></span><span class="side">${k.stats && k.stats.files ? esc(k.stats.files) + ' files' : esc(KIND_LABEL[k.kind] || '')}</span></li>`);
       h += `<section class="sec"><h3>Inside</h3><p class="note">${esc(summary)}</p><ul class="rows">${listWithMore(rows, 10, 'in')}</ul>${moreBtn(rows.length, 10, 'in')}</section>`;
     }
     if (n.detected_via && n.detected_via.length) {

@@ -14,6 +14,9 @@ from __future__ import annotations
 import re
 
 MAX_COLUMNS = 60
+# Arguments of one decorator or field call. Searched once per column, so with the whole-body limit a
+# class of thousands of unclosed `@Column(` took minutes; real column options are a few hundred characters.
+MAX_CALL_ARGS = 4_000
 SQL_STOP = {"NOT", "NULL", "PRIMARY", "REFERENCES", "DEFAULT", "UNIQUE", "CHECK", "CONSTRAINT", "GENERATED", "COLLATE",
             "AUTO_INCREMENT", "AUTOINCREMENT", "IDENTITY", "ON", "COMMENT"}
 SQL_TABLE_LEVEL = ("PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "INDEX", "KEY", "EXCLUDE", "FULLTEXT", "SPATIAL", "PERIOD")
@@ -25,13 +28,14 @@ def _unquote(name: str) -> str:
     return name.split(".")[-1]
 
 
-def _balanced(text: str, start: int, open_ch: str = "(", close_ch: str = ")", comment: str | None = None) -> str | None:
-    """The text between a bracket and its partner. `comment` starts a line comment to skip, so an
-    apostrophe in `-- the user's id` does not open a string that never closes."""
+def _balanced(text: str, start: int, open_ch: str = "(", close_ch: str = ")", comment: str | None = None,
+              limit: int = 200_000) -> str | None:
+    """The text between a bracket and its partner, looking at most `limit` characters ahead. `comment`
+    starts a line comment to skip, so an apostrophe in `-- the user's id` does not open a string that never closes."""
     if start >= len(text) or text[start] != open_ch:
         return None
     depth, quote = 0, None
-    end = min(len(text), start + 200_000)
+    end = min(len(text), start + limit)
     i = start
     while i < end:
         c = text[i]
@@ -243,7 +247,7 @@ def sqlmodel_columns(text: str, offset: int) -> list[dict]:
         for m in SQLMODEL_FIELD.finditer(body):
             fname, type_, default = m.group(1), m.group(2).strip(), m.group(3) or ""
             if default.count("(") > default.count(")"):   # Field( ... ) spread over several lines
-                full = _balanced(body, body.index("(", m.start(3)))
+                full = _balanced(body, body.index("(", m.start(3)), limit=MAX_CALL_ARGS)
                 default = default + (full or "")
             if fname.startswith("_") or fname == "model_config" or "Relationship(" in default or type_.startswith(("ClassVar", "list[", "List[")):
                 continue
@@ -292,7 +296,7 @@ def typeorm_columns(text: str, offset: int) -> list[dict]:
         return []
     cols = []
     for m in TYPEORM_DECO.finditer(body):
-        args = _balanced(body, m.end() - 1)
+        args = _balanced(body, m.end() - 1, limit=MAX_CALL_ARGS)
         if args is None:
             continue
         prop = TYPEORM_PROP.match(body, m.end() + len(args) + 1)

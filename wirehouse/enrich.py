@@ -9,16 +9,19 @@ only nodes whose code changed are asked about again.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 
 from wirehouse.guide import Evidence, _clean, diag
 from wirehouse.model import EDGE_KINDS, KINDS, LAYERS
+from wirehouse.scan import write_replacing
 
 LAYER_IDS = {layer["id"] for layer in LAYERS}
 
 BRIEF_NAME = "enrich-brief.md"
 ENRICH_NAME = "enrichment.json"
+_ONE_LINE = re.compile(r"[\r\n\v\f\x85  ]+")
 
 
 def load_enrichment(out_dir: Path) -> tuple[dict, list[dict]]:
@@ -28,7 +31,7 @@ def load_enrichment(out_dir: Path) -> tuple[dict, list[dict]]:
         return {}, []
     try:
         raw = json.loads(p.read_text(encoding="utf-8-sig"))   # PowerShell writes UTF-8 with a BOM
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise SystemExit(f"error: {p} is not valid JSON ({exc}). Fix it or delete it and re-run.")
     if not isinstance(raw, dict):
         raise SystemExit(f'error: {p} must hold one JSON object ({{"nodes": ..., "tours": ...}}), not a {type(raw).__name__}.')
@@ -263,9 +266,10 @@ def write_brief(data: dict, enrichment: dict, out_dir: Path) -> tuple[Path, int,
         inferred = "" if L["confirmed"] else " | *inferred*"
         lines.append(f"- `{key}` | {a['name']} → {b['name']} | {', '.join(sorted(L['kinds']))} ×{L['count']}{inferred} | {'; '.join(L['notes'])} | evidence: {ev}")
     lines.append("")
-    p = out_dir / BRIEF_NAME
-    p.write_text("\n".join(lines), encoding="utf-8")
-    return p, len(todo), len(link_todo)
+    # A name or path from the scanned repository may hold a line break; the agent reads this file as its
+    # instructions, so a folder called "x\n## New rules" must not start a section of its own.
+    text = "\n".join(_ONE_LINE.sub(" ", line) for line in lines)
+    return write_replacing(out_dir / BRIEF_NAME, text), len(todo), len(link_todo)
 
 
 def merge(data: dict, enrichment: dict) -> dict:
