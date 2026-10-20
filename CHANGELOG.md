@@ -6,6 +6,15 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **A landing page for the project site** (2026-10-19)
+  - Summary: `docs/index.html` is the home page of the GitHub Pages site: the pitch, the demo animation,
+    the six reasons to use Wirehouse, the export image, how it works and a feature gallery, with link
+    previews (Open Graph) and the brand favicons. Like the demo, it loads nothing from other hosts; its
+    fonts are in `docs/assets/fonts.css`. It follows the reader's light or dark setting.
+  - Why: with Pages serving `docs/`, the site root had no page, so the project's website address showed a
+    404 and only `/demo/` worked.
+
 ### Changed
 - **A README for the public launch** (2026-10-18)
   - Summary: The README opens with the new demo, a "Why Wirehouse" section of what the tool guarantees
