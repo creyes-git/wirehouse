@@ -96,7 +96,10 @@ def repo_info(root: Path) -> dict | None:
         info.update(remote, host_name=PROVIDERS[remote["provider"]])
         info["pushed"] = bool((_git(root, "branch", "-r", "--contains", rev) or "").strip())
     # Files whose working copy differs from the commit: their web link shows older code.
-    status = None if _repo_sets_filters(root) else _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+    # `--ignore-submodules=all`: a nested repository has its own config, which `_repo_sets_filters` does
+    # not see, and git would run that repository's clean filters while checking whether it changed.
+    status = None if _repo_sets_filters(root) else _git(root, "-c", "submodule.recurse=false", "status", "--porcelain=v1", "-z",
+                                                        "--untracked-files=all", "--ignore-submodules=all")
     dirty, entries = [], (status or "").split("\0")
     complete = status is not None
     i = 0

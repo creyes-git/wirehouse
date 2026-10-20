@@ -61,7 +61,7 @@ def _parse_package_json(scan: ScanResult, rel: str, u: Unit) -> None:
     text = scan.read(rel)
     try:
         data = as_dict(json.loads(text))
-    except ValueError:
+    except (ValueError, RecursionError):
         return
     u.pkg_name = u.pkg_name or str(data.get("name") or "")
     for section, dev in (("dependencies", False), ("devDependencies", True), ("peerDependencies", False), ("optionalDependencies", False)):
@@ -98,7 +98,7 @@ def _parse_python_manifest(scan: ScanResult, rel: str, u: Unit) -> None:
     if low.endswith("pyproject.toml") or low.endswith("pipfile"):
         try:
             data = tomllib.loads(text)
-        except tomllib.TOMLDecodeError:
+        except (tomllib.TOMLDecodeError, RecursionError):
             return
         names: list[tuple[str, bool]] = []
         proj = as_dict(data.get("project"))

@@ -124,7 +124,7 @@ def _parse_compose(scan: ScanResult, rel: str, infra: Infra) -> None:
     text = scan.read(rel)
     try:
         data = as_dict(yaml.safe_load(text))
-    except yaml.YAMLError:
+    except (yaml.YAMLError, RecursionError):
         return
     base = rel.rsplit("/", 1)[0] if "/" in rel else ""
     for name, svc in as_dict(data.get("services")).items():
@@ -178,7 +178,7 @@ def _parse_dockerfile(scan: ScanResult, rel: str, infra: Infra) -> None:
             try:
                 parsed = json.loads(body)
                 body = " ".join(map(str, parsed)) if isinstance(parsed, list) else body
-            except ValueError:
+            except (ValueError, RecursionError):
                 pass
             df.cmd = (df.cmd + " " + body).strip() if up.startswith("CMD") and df.cmd else body
         elif up.startswith("EXPOSE "):
@@ -207,7 +207,7 @@ def _parse_appsettings(scan: ScanResult, rel: str, infra: Infra) -> None:
     text = scan.read(rel)
     try:
         data = as_dict(json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M)))
-    except ValueError:
+    except (ValueError, RecursionError):
         return
     for k, v in as_dict(data.get("ConnectionStrings")).items():
         infra.env.append(EnvVar(k, str(v), rel, _line_of(text, f'"{k}"')))
@@ -246,7 +246,7 @@ def _parse_k8s(scan: ScanResult, rel: str, infra: Infra) -> None:
         return
     try:
         docs = list(yaml.safe_load_all(text))
-    except yaml.YAMLError:
+    except (yaml.YAMLError, RecursionError):
         return
     for d in docs:
         if not isinstance(d, dict) or "kind" not in d:
@@ -284,7 +284,7 @@ def _parse_workflow(scan: ScanResult, rel: str, infra: Infra) -> None:
             jobs = _scalars(list(as_dict(data.get("jobs"))))
             on = data.get(True) or data.get("on") or {}
             triggers = ", ".join(_scalars(list(on) if isinstance(on, dict) else on)) if isinstance(on, (dict, list)) else _scalar(on)
-        except yaml.YAMLError:
+        except (yaml.YAMLError, RecursionError):
             pass
     # whole words only: test_renderer.py is not Render, --project=firefly is not Fly.io
     deploys = sorted({label for hint, label in DEPLOY_HINTS if re.search(rf"(?<![\w-]){re.escape(hint)}(?![\w-])", text.lower())})

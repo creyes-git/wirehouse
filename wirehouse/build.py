@@ -451,7 +451,7 @@ class Builder:
             return self._ts_cache[key]
         try:
             data = as_dict(json.loads(_strip_jsonc(self.scan.read(rel))))
-        except ValueError:
+        except (ValueError, RecursionError):
             data = {}
         co = as_dict(data.get("compilerOptions"))
         base = _dirname(rel)
@@ -501,7 +501,7 @@ class Builder:
         """Where a workspace package's code starts: its manifest's entry fields, then the usual spots."""
         try:
             data = as_dict(json.loads(self.scan.read(f"{folder}/package.json" if folder else "package.json")))
-        except ValueError:
+        except (ValueError, RecursionError):
             data = {}
         exp = data.get("exports")
         exp = as_dict(exp).get(".", exp) if isinstance(exp, dict) else exp

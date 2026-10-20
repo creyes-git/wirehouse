@@ -39,7 +39,8 @@ def _slug(text: str) -> str:
 
 
 def _clean(text, limit: int, subject: str, diags: list) -> str:
-    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    # Cut before searching, with room for a credential that straddles `limit` to still be recognised.
+    text = re.sub(r"\s+", " ", str(text or "")[:limit + 1000]).strip()
     if SECRET_LIKE.search(text):
         diags.append(diag("guide/secret-like-text", subject, "text contained something that looks like a credential; it was removed",
                           "describe what the value is for, never the value itself", "error"))

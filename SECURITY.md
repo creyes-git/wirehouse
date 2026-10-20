@@ -4,7 +4,8 @@
 
 - It **reads** source files in the folder you point it at. It never opens real `.env` files, only
   templates such as `.env.example`.
-- It **writes** only to `wirehouse-out/` (or the folder you pass with `-o`), and `wirehouse install`
+- It **writes** only to `wirehouse-out/` (or the folder you pass with `-o`; it stops if `wirehouse-out`
+  is a link to somewhere else, and replaces rather than follows a link inside it), and `wirehouse install`
   writes `wirehouse/SKILL.md` into your agents' skills folders (`~/.agents/skills` plus each agent it
   finds, or the folders you name with `--agent` / `--dir`).
 - It makes **no network requests**. The generated `wirehouse.html` loads nothing from the network;

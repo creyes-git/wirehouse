@@ -16,6 +16,7 @@ import webbrowser
 from pathlib import Path
 
 from wirehouse import __version__
+from wirehouse.scan import _is_link, write_replacing
 
 RAW_NAME = "archmap.raw.json"
 MAP_NAME = "archmap.json"
@@ -23,7 +24,15 @@ HTML_NAME = "wirehouse.html"
 
 
 def _out_dir(project: Path, out: str | None) -> Path:
-    d = Path(out).resolve() if out else project / "wirehouse-out"
+    if out:
+        d = Path(out).resolve()
+    else:
+        d = project / "wirehouse-out"
+        # The scanned repository decides what this path is: a committed link or junction would send
+        # every file Wirehouse writes (and the enrichment it reads) to a folder of its choosing.
+        if _is_link(str(d)) or (d.exists() and not d.resolve().is_relative_to(project.resolve())):
+            raise SystemExit(f"error: {d} is a link to another folder, so Wirehouse will not write into it. "
+                             "Remove it, or choose an output folder with -o.")
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -38,7 +47,7 @@ def cmd_scan(project: Path, out_dir: Path) -> dict:
 
     _log(f"wirehouse {__version__}: scanning {project}")
     data = build_archmap(project, log=_log)
-    (out_dir / RAW_NAME).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    write_replacing(out_dir / RAW_NAME, json.dumps(data, indent=1, ensure_ascii=False))
     brief, n_nodes, n_links = write_brief(data, load_enrichment(out_dir)[0], out_dir)
     _log(f"  wrote {out_dir / RAW_NAME}")
     if n_nodes or n_links:
@@ -53,7 +62,7 @@ def _load_map(path: Path) -> dict:
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except OSError as exc:
         raise SystemExit(f"error: cannot read {path} ({exc.strerror or exc}).")
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise SystemExit(f"error: {path} is not valid JSON ({exc}).")
     if not isinstance(data, dict) or not isinstance(data.get("nodes"), list):
         raise SystemExit(f"error: {path} is not a Wirehouse map (archmap.json or archmap.raw.json).")
@@ -67,7 +76,7 @@ def _tracked_by_git(path: Path) -> bool:
 
 
 def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False, strict: bool = False,
-               against: Path | None = None) -> Path:
+               against: Path | None = None, scanned: bool = False) -> Path:
     from wirehouse import guide
     from wirehouse.enrich import ENRICH_NAME, load_enrichment, merge
     from wirehouse.guide import diag
@@ -79,11 +88,23 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False,
         raise SystemExit(f"error: {raw} not found. Run `wirehouse scan {project}` first.")
     try:
         data = json.loads(raw.read_text(encoding="utf-8-sig"))
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise SystemExit(f"error: {raw} is not valid JSON ({exc}). Run `wirehouse scan {project}` again.")
-    if not data.get("project", {}).get("root"):
-        data.setdefault("project", {})["root"] = str(project)   # citations are checked against this folder
+    if not isinstance(data, dict) or not isinstance(data.get("nodes"), list) or not isinstance(data.get("edges"), list):
+        raise SystemExit(f"error: {raw} is not a Wirehouse scan. Run `wirehouse scan {project}` again.")
+    # Citations are checked against this folder, so it is always the one named on the command line,
+    # never whatever a map file says.
+    data["project"] = dict(data["project"]) if isinstance(data.get("project"), dict) else {}
+    data["project"]["root"] = str(project)
+    raw_problems = []
+    if not scanned and _tracked_by_git(raw):
+        _log(f"  WARNING: {raw} is checked into the repository, so this page is drawn from a map that whoever "
+             f"committed it wrote, not from the code. Run `wirehouse build {project}` to draw it from the code.")
+        raw_problems.append(diag("scan/from-repository", RAW_NAME,
+                                 "this archmap.raw.json is checked into the repository and was rendered as written",
+                                 "run `wirehouse build` so the map comes from the code"))
     enrichment, shape_problems = load_enrichment(out_dir)
+    shape_problems = raw_problems + shape_problems
     if enrichment and _tracked_by_git(out_dir / ENRICH_NAME):
         # Someone else wrote it: a cloned repository can ship one that hides blocks or connections.
         # It is still applied (that is how teams share descriptions), but never silently.
@@ -118,7 +139,7 @@ def cmd_render(project: Path, out_dir: Path, open_it: bool, share: bool = False,
     if redacted:
         _log(f"  warning: removed {redacted} credential-looking value(s) from the output")
     stale = sum(1 for n in data["nodes"] if n.get("stale"))
-    (out_dir / MAP_NAME).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    write_replacing(out_dir / MAP_NAME, json.dumps(data, indent=1, ensure_ascii=False))
     html_path = write_html(data, out_dir / HTML_NAME)
     size = html_path.stat().st_size / 1024 / 1024
     st = data.get("enrichment_stats")
@@ -157,10 +178,9 @@ def cmd_export(project: Path, out_dir: Path, fmt: str = "markdown") -> Path:
         _log(f"  {MAP_NAME} not found: exporting the scan without descriptions (run `wirehouse render` first for them)")
     try:
         data = json.loads(src.read_text(encoding="utf-8-sig"))
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise SystemExit(f"error: {src} is not valid JSON ({exc}). Run `wirehouse build {project}` again.")
-    dest = out_dir / EXPORTS[fmt]
-    dest.write_text(markdown(data) if fmt == "markdown" else mermaid(data), encoding="utf-8")
+    dest = write_replacing(out_dir / EXPORTS[fmt], markdown(data) if fmt == "markdown" else mermaid(data))
     _log(f"  wrote {dest}")
     return dest
 
@@ -255,7 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd in ("scan", "build"):
         cmd_scan(project, out_dir)
     if args.cmd in ("render", "build"):
-        cmd_render(project, out_dir, args.open, args.share, args.strict, Path(args.against).resolve() if args.against else None)
+        cmd_render(project, out_dir, args.open, args.share, args.strict, Path(args.against).resolve() if args.against else None,
+                   scanned=args.cmd == "build")   # build just rewrote the raw map from the code
     if args.cmd == "export":
         cmd_export(project, out_dir, args.format)
     return 0
