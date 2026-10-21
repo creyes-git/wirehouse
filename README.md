@@ -111,7 +111,7 @@ at, and optional sound.
 Requires Python 3.11+.
 
 ```bash
-pip install "git+https://github.com/creyes-git/wirehouse"
+pip install wirehouse
 wirehouse install          # adds the wirehouse skill to the coding agents on this machine
 ```
 

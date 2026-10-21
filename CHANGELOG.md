@@ -6,6 +6,12 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- **Install from PyPI** (2026-10-21)
+  - Summary: The README quick start, the project site and the installed agent skill say `pip install wirehouse`
+    instead of installing from the GitHub repository.
+  - Why: 0.3.1 is on PyPI, which gives released, versioned builds and does not need git on the machine.
+
 ## [0.3.1] - 2026-10-21
 
 ### Added
