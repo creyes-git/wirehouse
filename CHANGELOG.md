@@ -6,6 +6,8 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-21
+
 ### Added
 - **A landing page for the project site** (2026-10-19)
   - Summary: `docs/index.html` is the home page of the GitHub Pages site: the pitch, the demo animation,
@@ -591,7 +593,8 @@ The first public release.
 
 - First working version: scan, agent enrichment, the 3D warehouse and the floor plan.
 
-[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/creyes-git/wirehouse/releases/tag/v0.3.1
 [0.3.0]: https://github.com/creyes-git/wirehouse/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/creyes-git/wirehouse/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/creyes-git/wirehouse/releases/tag/v0.1.0
