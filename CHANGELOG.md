@@ -45,6 +45,11 @@ All notable changes to Wirehouse are listed here. The format follows
     any of the Pass 1 and Pass 2 fixes, and its enrichment could not be reproduced.
 
 ### Fixed
+- **The unclosed-ORM-call test no longer depends on machine speed** (2026-10-20)
+  - Summary: `test_unclosed_orm_calls_parse_quickly` checks that every decorator call is read at most
+    `MAX_CALL_ARGS` characters ahead instead of timing the parse against a 5-second limit.
+  - Why: the bounded parse takes 2 to 5 seconds depending on the machine, so the test failed on a slow
+    macOS runner (5.2 s) although the fix works; a wall-clock limit that close is flaky.
 - **README images show on PyPI** (2026-10-18)
   - Summary: Images and links in the README use absolute GitHub URLs.
   - Why: PyPI renders the README as the project description but cannot resolve paths inside the
