@@ -46,6 +46,12 @@ All notable changes to Wirehouse are listed here. The format follows
     repository, so every picture was broken there.
 
 ### Security
+- **PyPI publishing no longer trusts the removed emSign root** (2026-10-20)
+  - Summary: The PyPI publish action is pinned to the v1.14.3 commit instead of v1.14.2 (see "Release
+    workflow hardening" below). v1.14.3 ships sigstore 4.5.1 and certifi 2026.10.19.
+  - Why: the emSign root CA was removed from CA bundles after an eMudhra certificate incident. v1.14.2
+    ships sigstore 4.5.0 and certifi 2025.8.3, which still trust it, so the job that holds the PyPI
+    token could be open to a man-in-the-middle attack.
 - **A nested repository's git filters no longer run during a scan** (2026-10-20)
   - Summary: The uncommitted-files check runs `git status` with `--ignore-submodules=all` and
     `submodule.recurse=false`, so git never looks inside a repository nested in the scanned one.
