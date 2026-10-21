@@ -45,6 +45,12 @@ All notable changes to Wirehouse are listed here. The format follows
     any of the Pass 1 and Pass 2 fixes, and its enrichment could not be reproduced.
 
 ### Fixed
+- **GitHub releases get their notes on any awk** (2026-10-21)
+  - Summary: The release workflow finds the version's CHANGELOG.md section with a plain text match
+    instead of a regular expression, and the build job stops before publishing when that section is
+    missing.
+  - Why: gawk 5.4 reads the old pattern differently from mawk and found nothing, so a runner with gawk
+    (such as the coming Ubuntu 26 image) would have created the release with empty notes.
 - **The unclosed-ORM-call test no longer depends on machine speed** (2026-10-20)
   - Summary: `test_unclosed_orm_calls_parse_quickly` checks that every decorator call is read at most
     `MAX_CALL_ARGS` characters ahead instead of timing the parse against a 5-second limit.
