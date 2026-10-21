@@ -16,6 +16,11 @@ All notable changes to Wirehouse are listed here. The format follows
     404 and only `/demo/` worked.
 
 ### Changed
+- **TODO.md no longer lists repository setup** (2026-10-20)
+  - Summary: The "Repository setup" section is gone: the GitHub settings (About, topics, social preview,
+    Pages, Discussions, `detection` label, vulnerability reporting, ruleset for `main`, `pypi` environment)
+    and the PyPI trusted publisher are in place, and CI runs now that the repository is public.
+  - Why: both items were done, and TODO.md lists only open work.
 - **A README for the public launch** (2026-10-18)
   - Summary: The README opens with the new demo, a "Why Wirehouse" section of what the tool guarantees
     (evidence for each connection, one offline file, any agent or none, safe to share), a comparison

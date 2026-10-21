@@ -4,22 +4,6 @@ Known gaps and deferred work. Each entry has a date, what is wrong or missing, w
 suggested fix. Fixed items move to [CHANGELOG.md](CHANGELOG.md); the reasoning behind each pass is in
 [IMPROVEMENT_LOG.md](IMPROVEMENT_LOG.md).
 
-## Repository setup
-
-- **Date:** 2026-10-18
-- **What:** A few one-time settings on GitHub and PyPI are the maintainer's to make, and some may already
-  be done: the About text and topics, a social preview image, GitHub Pages from `main` / `docs` (the
-  live demo), Discussions, a `detection` label for "the map is wrong" issues, private vulnerability
-  reporting, a ruleset for `main`, and the `pypi` environment with a trusted publisher on pypi.org.
-- **Where:** repository settings on github.com; pypi.org project settings.
-- **Suggested fix:** go through the list once; until trusted publishing is set up, a release tag fails
-  at the PyPI step and no GitHub release is created (see `.github/workflows/release.yml`).
-- **Date:** 2026-10-20 · **What:** CI does not run while the repository is private: GitHub refuses to
-  start the jobs ("recent account payments have failed or your spending limit needs to be increased"),
-  so pull requests show every check as failed after a few seconds. · **Where:** account billing on
-  github.com, not the workflows. · **Suggested fix:** nothing, once the repository is public (public
-  repositories get Actions minutes for free); re-run the latest `main` run then to confirm it is green.
-
 ## Features and precision
 
 - **Date:** 2026-10-18 · **What:** A GitHub Action that builds the map and posts `wirehouse export` on
