@@ -912,7 +912,7 @@ def test_skill_text_only_points_at_a_real_checkout(tmp_path):
     assert "pip install -e" in skill_text()                  # this source checkout
     installed = skill_text(tmp_path)                          # site-packages: no pyproject.toml
     assert "pip install -e" not in installed and "{{WIREHOUSE_HOME}}" not in installed
-    assert "pip install \"git+https://github.com/creyes-git/wirehouse\"" in installed
+    assert "`pip install wirehouse`" in installed
 
 
 def test_strict_render_fails_when_parts_were_left_out(repo, tmp_path):
