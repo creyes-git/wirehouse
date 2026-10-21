@@ -6,6 +6,8 @@ All notable changes to Wirehouse are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-21
+
 ### Added
 - **A landing page for the project site** (2026-10-19)
   - Summary: `docs/index.html` is the home page of the GitHub Pages site: the pitch, the demo animation,
@@ -45,6 +47,12 @@ All notable changes to Wirehouse are listed here. The format follows
     any of the Pass 1 and Pass 2 fixes, and its enrichment could not be reproduced.
 
 ### Fixed
+- **GitHub releases get their notes on any awk** (2026-10-21)
+  - Summary: The release workflow finds the version's CHANGELOG.md section with a plain text match
+    instead of a regular expression, and the build job stops before publishing when that section is
+    missing.
+  - Why: gawk 5.4 reads the old pattern differently from mawk and found nothing, so a runner with gawk
+    (such as the coming Ubuntu 26 image) would have created the release with empty notes.
 - **The unclosed-ORM-call test no longer depends on machine speed** (2026-10-20)
   - Summary: `test_unclosed_orm_calls_parse_quickly` checks that every decorator call is read at most
     `MAX_CALL_ARGS` characters ahead instead of timing the parse against a 5-second limit.
@@ -585,7 +593,8 @@ The first public release.
 
 - First working version: scan, agent enrichment, the 3D warehouse and the floor plan.
 
-[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/creyes-git/wirehouse/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/creyes-git/wirehouse/releases/tag/v0.3.1
 [0.3.0]: https://github.com/creyes-git/wirehouse/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/creyes-git/wirehouse/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/creyes-git/wirehouse/releases/tag/v0.1.0
