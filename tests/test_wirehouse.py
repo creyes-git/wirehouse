@@ -1472,15 +1472,23 @@ def test_secret_patterns_take_linear_time(text):
     assert time.perf_counter() - t0 < 2
 
 
-def test_unclosed_orm_calls_parse_quickly():
-    import time
+def test_unclosed_orm_calls_parse_quickly(monkeypatch):
+    # counts the characters each call may read instead of timing it: the old whole-body search took
+    # about 25 s here, the bounded one 2-5 s depending on the machine, too close for a wall-clock limit
+    from wirehouse.detectors import schema
 
-    from wirehouse.detectors.schema import typeorm_columns
+    limits = []
+    real = schema._balanced
 
+    def spy(text, start, open_ch="(", *args, limit=200_000, **kw):
+        if open_ch == "(":
+            limits.append(limit)
+        return real(text, start, open_ch, *args, limit=limit, **kw)
+
+    monkeypatch.setattr(schema, "_balanced", spy)
     text = "@Entity() export class A {\n" + "@Column(" * 10_000 + "\n}\n"
-    t0 = time.perf_counter()
-    typeorm_columns(text, 0)
-    assert time.perf_counter() - t0 < 5   # was about 25 s
+    assert schema.typeorm_columns(text, 0) == []
+    assert len(limits) == 10_000 and max(limits) <= schema.MAX_CALL_ARGS
 
 
 def test_urls_with_an_empty_user_are_redacted():

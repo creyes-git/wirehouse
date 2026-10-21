@@ -16,6 +16,11 @@ All notable changes to Wirehouse are listed here. The format follows
     404 and only `/demo/` worked.
 
 ### Changed
+- **TODO.md no longer lists repository setup** (2026-10-20)
+  - Summary: The "Repository setup" section is gone: the GitHub settings (About, topics, social preview,
+    Pages, Discussions, `detection` label, vulnerability reporting, ruleset for `main`, `pypi` environment)
+    and the PyPI trusted publisher are in place, and CI runs now that the repository is public.
+  - Why: both items were done, and TODO.md lists only open work.
 - **A README for the public launch** (2026-10-18)
   - Summary: The README opens with the new demo, a "Why Wirehouse" section of what the tool guarantees
     (evidence for each connection, one offline file, any agent or none, safe to share), a comparison
@@ -40,12 +45,23 @@ All notable changes to Wirehouse are listed here. The format follows
     any of the Pass 1 and Pass 2 fixes, and its enrichment could not be reproduced.
 
 ### Fixed
+- **The unclosed-ORM-call test no longer depends on machine speed** (2026-10-20)
+  - Summary: `test_unclosed_orm_calls_parse_quickly` checks that every decorator call is read at most
+    `MAX_CALL_ARGS` characters ahead instead of timing the parse against a 5-second limit.
+  - Why: the bounded parse takes 2 to 5 seconds depending on the machine, so the test failed on a slow
+    macOS runner (5.2 s) although the fix works; a wall-clock limit that close is flaky.
 - **README images show on PyPI** (2026-10-18)
   - Summary: Images and links in the README use absolute GitHub URLs.
   - Why: PyPI renders the README as the project description but cannot resolve paths inside the
     repository, so every picture was broken there.
 
 ### Security
+- **PyPI publishing no longer trusts the removed emSign root** (2026-10-20)
+  - Summary: The PyPI publish action is pinned to the v1.14.3 commit instead of v1.14.2 (see "Release
+    workflow hardening" below). v1.14.3 ships sigstore 4.5.1 and certifi 2026.10.19.
+  - Why: the emSign root CA was removed from CA bundles after an eMudhra certificate incident. v1.14.2
+    ships sigstore 4.5.0 and certifi 2025.8.3, which still trust it, so the job that holds the PyPI
+    token could be open to a man-in-the-middle attack.
 - **A nested repository's git filters no longer run during a scan** (2026-10-20)
   - Summary: The uncommitted-files check runs `git status` with `--ignore-submodules=all` and
     `submodule.recurse=false`, so git never looks inside a repository nested in the scanned one.
